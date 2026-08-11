@@ -36,6 +36,11 @@ name = "pdfcanonical"
 source-dir = "app"
 main = "pdfcanonical.f90"
 
+[[executable]]
+name = "pdfproductions"
+source-dir = "app"
+main = "pdfproductions.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"

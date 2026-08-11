@@ -1,0 +1,369 @@
+program pdfproductions
+    !! Parse canonical clause-5 lines into provenance-bearing JSONL records.
+    !!
+    !! The output is a lossless line representation: a production start has
+    !! `is`, an `or` continuation has `or`, and bracketed continuation lines
+    !! have `sequence`. Later StandardIR assembly can therefore distinguish a
+    !! sequence from an alternative without reparsing the PDF.
+
+    use, intrinsic :: iso_fortran_env, only: int64
+    implicit none
+
+    type :: parser_state_t
+        logical :: active = .false.
+        character(len=16) :: rule = ''
+        character(len=256) :: lhs = ''
+        integer :: sequence_index = 0
+    end type parser_state_t
+
+    character(len=4096) :: canonical_path, index_path, output_path, argument
+    character(len=256) :: index_line, key1, key2, key3
+    character(len=:), allocatable :: page_text ! text-policy: C string boundary
+    character(len=256) :: message
+    type(parser_state_t) :: state
+    integer(int64) :: page_start, page_length
+    integer :: argc, first_page, last_page, page, text_unit, index_unit
+    integer :: output_unit, ios, page_count, records
+    logical :: ok
+
+    argc = command_argument_count()
+    if (argc /= 5) then
+        call get_command_argument(0, canonical_path)
+        print '(a)', 'usage: '//trim(canonical_path)// &
+            ' <canonical.text> <pages.index> <output.jsonl> <first-page> <last-page>'
+        stop 2
+    end if
+
+    call get_command_argument(1, canonical_path)
+    call get_command_argument(2, index_path)
+    call get_command_argument(3, output_path)
+    call get_command_argument(4, argument)
+    read (argument, *, iostat=ios) first_page
+    if (ios /= 0) then
+        print '(a)', 'error: first page must be an integer'
+        stop 2
+    end if
+    call get_command_argument(5, argument)
+    read (argument, *, iostat=ios) last_page
+    if (ios /= 0) then
+        print '(a)', 'error: last page must be an integer'
+        stop 2
+    end if
+
+    open (newunit=text_unit, file=trim(canonical_path), access='stream', &
+        form='unformatted', action='read', iostat=ios)
+    if (ios /= 0) then
+        print '(a)', 'error: cannot open canonical text'
+        stop 1
+    end if
+    open (newunit=index_unit, file=trim(index_path), action='read', iostat=ios)
+    if (ios /= 0) then
+        close (text_unit)
+        print '(a)', 'error: cannot open page index'
+        stop 1
+    end if
+    open (newunit=output_unit, file=trim(output_path), status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) then
+        close (text_unit)
+        close (index_unit)
+        print '(a)', 'error: cannot open production output'
+        stop 1
+    end if
+
+    write (output_unit, '(a)') &
+        '{"format":1,"origin":"MECHANICAL","source":"canonical-text"}'
+    state%active = .false.
+    records = 0
+    page_count = 0
+    allocate (character(len=65536) :: page_text)
+
+    do
+        read (index_unit, '(a)', iostat=ios) index_line
+        if (ios /= 0) exit
+        if (index_line(1:5) /= 'page ') cycle
+        read (index_line, *, iostat=ios) key1, page, key2, page_start, &
+            key3, page_length
+        if (ios /= 0) then
+            close (output_unit, status='delete')
+            close (index_unit)
+            close (text_unit)
+            print '(a)', 'error: malformed page index'
+            stop 1
+        end if
+        if (page < first_page) cycle
+        if (page > last_page) exit
+        if (page_length > int(len(page_text), int64)) then
+            close (output_unit, status='delete')
+            close (index_unit)
+            close (text_unit)
+            print '(a)', 'error: page exceeds parser buffer'
+            stop 1
+        end if
+        if (page_length > 0_int64) then
+            read (text_unit, pos=page_start + 1, iostat=ios) &
+                page_text(1:int(page_length))
+            if (ios /= 0) then
+                close (output_unit, status='delete')
+                close (index_unit)
+                close (text_unit)
+                print '(a)', 'error: cannot read canonical page'
+                stop 1
+            end if
+        end if
+        call process_page(page, page_start, page_text, int(page_length), state, &
+            output_unit, records, ok, message)
+        if (.not. ok) then
+            close (output_unit, status='delete')
+            close (index_unit)
+            close (text_unit)
+            print '(a)', 'error: '//trim(message)
+            stop 1
+        end if
+        page_count = page_count + 1
+    end do
+
+    close (output_unit)
+    close (index_unit)
+    close (text_unit)
+    print '(a,i0,a,i0,a)', 'extracted ', records, ' production lines from ', &
+        page_count, ' pages'
+
+contains
+
+    subroutine process_page(page, page_start, page_text, page_length, state, &
+            output_unit, records, ok, message)
+        integer, intent(in) :: page, page_length, output_unit
+        integer(int64), intent(in) :: page_start
+        character(len=*), intent(in) :: page_text
+        type(parser_state_t), intent(inout) :: state
+        integer, intent(inout) :: records
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=4096) :: line
+        integer :: cursor, line_end, line_length, next_line, newline_pos
+        integer(int64) :: source_start
+
+        ok = .false.
+        message = ''
+        cursor = 1
+        do while (cursor <= page_length)
+            newline_pos = index(page_text(cursor:page_length), achar(10))
+            if (newline_pos == 0) then
+                line_end = page_length
+                next_line = page_length + 1
+            else
+                line_end = cursor + newline_pos - 2
+                next_line = cursor + newline_pos
+            end if
+            line_length = line_end - cursor + 1
+            if (line_length > len(line)) then
+                message = 'canonical line exceeds parser buffer'
+                return
+            end if
+            line = ''
+            if (line_length > 0) line(1:line_length) = page_text(cursor:line_end)
+            source_start = page_start + int(cursor - 1, int64)
+            if (line_length > 0) then
+                call process_line(line(1:line_length), source_start, page, state, &
+                    output_unit, records, ok, message)
+            else
+                call process_line('', source_start, page, state, output_unit, &
+                    records, ok, message)
+            end if
+            if (.not. ok) return
+            cursor = next_line
+        end do
+        ok = .true.
+    end subroutine process_page
+
+    subroutine process_line(line, source_start, page, state, output_unit, records, &
+            ok, message)
+        character(len=*), intent(in) :: line
+        integer(int64), intent(in) :: source_start
+        integer, intent(in) :: page, output_unit
+        type(parser_state_t), intent(inout) :: state
+        integer, intent(inout) :: records
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=4096) :: clean, rhs, operator
+        character(len=16) :: rule
+        character(len=256) :: lhs
+        integer :: rule_number
+        logical :: found, boundary
+
+        ok = .false.
+        message = ''
+        call strip_line_number(line, clean)
+        call parse_start(clean, found, rule_number, lhs, rhs)
+        if (found) then
+            write (rule, '("R",i0)') rule_number
+            state%active = .true.
+            state%rule = adjustl(rule)
+            state%lhs = lhs
+            state%sequence_index = 0
+            call emit_record('production-start', state%rule, lhs, 'is', rhs, &
+                page, source_start, len_trim(line), output_unit, records, ok, message)
+            return
+        end if
+
+        if (.not. state%active) then
+            ok = .true.
+            return
+        end if
+        call continuation(clean, boundary, operator, rhs)
+        if (boundary) then
+            if (index(adjustl(clean), 'J3/') /= 1) state%active = .false.
+            ok = .true.
+            return
+        end if
+        state%sequence_index = state%sequence_index + 1
+        call emit_record('production-continuation', state%rule, state%lhs, &
+            operator, rhs, page, source_start, len_trim(line), output_unit, &
+            records, ok, message)
+    end subroutine process_line
+
+    subroutine strip_line_number(line, clean)
+        character(len=*), intent(in) :: line
+        character(len=*), intent(out) :: clean
+        integer :: i, n
+
+        clean = adjustl(line)
+        n = len_trim(clean)
+        i = 1
+        do while (i <= n)
+            if (clean(i:i) < '0' .or. clean(i:i) > '9') exit
+            i = i + 1
+        end do
+        if (i > 1 .and. i <= n) then
+            if (clean(i:i) == ' ') then
+                do while (i <= n)
+                    if (clean(i:i) /= ' ') exit
+                    i = i + 1
+                end do
+                if (i <= n) clean = adjustl(clean(i:))
+            end if
+        end if
+    end subroutine strip_line_number
+
+    subroutine parse_start(clean, found, rule_number, lhs, rhs)
+        character(len=*), intent(in) :: clean
+        logical, intent(out) :: found
+        integer, intent(out) :: rule_number
+        character(len=*), intent(out) :: lhs, rhs
+        character(len=4096) :: after
+        integer :: i, n, ios, is_position
+
+        found = .false.
+        rule_number = 0
+        lhs = ''
+        rhs = ''
+        after = adjustl(clean)
+        n = len_trim(after)
+        if (n < 5) return
+        if (after(1:1) /= 'R') return
+        i = 2
+        do while (i <= n)
+            if (after(i:i) < '0' .or. after(i:i) > '9') exit
+            i = i + 1
+        end do
+        if (i == 2) return
+        read (after(2:i - 1), *, iostat=ios) rule_number
+        if (ios /= 0) return
+        if (i > n) return
+        after = adjustl(after(i:))
+        is_position = index(after, ' is ')
+        if (is_position <= 1) return
+        lhs = trim(after(1:is_position - 1))
+        if (is_position + 4 <= len_trim(after)) rhs = trim(after(is_position + 4:))
+        found = len_trim(lhs) > 0 .and. len_trim(rhs) > 0
+    end subroutine parse_start
+
+    subroutine continuation(clean, boundary, operator, rhs)
+        character(len=*), intent(in) :: clean
+        logical, intent(out) :: boundary
+        character(len=*), intent(out) :: operator, rhs
+        character(len=4096) :: text
+        integer :: n
+
+        text = adjustl(clean)
+        n = len_trim(text)
+        boundary = n == 0
+        operator = ''
+        rhs = ''
+        if (boundary) return
+        if (index(text, 'J3/') == 1) then
+            boundary = .true.
+            return
+        end if
+        if (index(text, '5.2 ') == 1 .or. index(text, '5.3 ') == 1) then
+            boundary = .true.
+            return
+        end if
+        if (index(text, '2023-') == 1 .or. index(text, 'WD ') == 1) then
+            boundary = .true.
+            return
+        end if
+        if (n >= 3) then
+            if (text(1:3) == 'or ') then
+                operator = 'or'
+                if (n > 3) rhs = trim(text(4:))
+            end if
+        end if
+        if (len_trim(operator) == 0) then
+            operator = 'sequence'
+            rhs = trim(text)
+        end if
+    end subroutine continuation
+
+    subroutine emit_record(kind, rule, lhs, operator, rhs, page, source_start, &
+            source_length, output_unit, records, ok, message)
+        character(len=*), intent(in) :: kind, rule, lhs, operator, rhs
+        integer, intent(in) :: page, output_unit, source_length
+        integer(int64), intent(in) :: source_start
+        integer, intent(inout) :: records
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        write (output_unit, '(a)', advance='no') '{"kind":'
+        call json_string(output_unit, kind)
+        write (output_unit, '(a)', advance='no') ',"rule":'
+        call json_string(output_unit, rule)
+        write (output_unit, '(a)', advance='no') ',"lhs":'
+        call json_string(output_unit, lhs)
+        write (output_unit, '(a)', advance='no') ',"operator":'
+        call json_string(output_unit, operator)
+        write (output_unit, '(a)', advance='no') ',"text":'
+        call json_string(output_unit, rhs)
+        write (output_unit, '(a,i0)', advance='no') ',"page":', page
+        write (output_unit, '(a,i0)', advance='no') ',"byte_start":', source_start
+        write (output_unit, '(a,i0)', advance='no') ',"byte_length":', source_length
+        write (output_unit, '(a)', advance='no') ',"origin":"MECHANICAL"}'
+        write (output_unit, '(a)') ''
+        records = records + 1
+        ok = .true.
+        message = ''
+    end subroutine emit_record
+
+    subroutine json_string(unit, value)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: value
+        integer :: i
+
+        write (unit, '(a)', advance='no') '"'
+        do i = 1, len_trim(value)
+            select case (value(i:i))
+            case ('"')
+                write (unit, '(a)', advance='no') '\\"'
+            case ('\\')
+                write (unit, '(a)', advance='no') '\\\\'
+            case default
+                write (unit, '(a)', advance='no') value(i:i)
+            end select
+        end do
+        write (unit, '(a)', advance='no') '"'
+    end subroutine json_string
+
+end program pdfproductions
