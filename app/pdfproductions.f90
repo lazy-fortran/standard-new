@@ -306,6 +306,10 @@ contains
             boundary = .true.
             return
         end if
+        if (text(1:1) >= '0' .and. text(1:1) <= '9') then
+            boundary = .true.
+            return
+        end if
         if (is_prose_boundary(text)) then
             boundary = .true.
             return
@@ -365,7 +369,7 @@ contains
             return
         case default
         end select
-        if (index(text, ' ') == 0 .and. index(text, achar(9)) == 0) then
+        if (index(text(1:n), ' ') == 0 .and. index(text(1:n), achar(9)) == 0) then
             looks_like_grammar = .true.
             return
         end if
