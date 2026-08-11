@@ -4,19 +4,19 @@ module fortpdf
     !! The extraction pipeline needs character positions, not just a text dump:
     !! the standard's grammar productions are recognized by their typographic
     !! structure as much as by their content. poppler_page_get_text_layout
-    !! returns a rectangle per character, which is the layer this module will
-    !! expose. Version 0 opens a document and reports its page count, which is
-    !! enough to prove the binding and the build.
+    !! returns a rectangle per character, which is the layer this module
+    !! exposes alongside the text returned by poppler_page_get_text.
     !!
     !! Only the document handle is owned here. Callers must call pdf_close.
 
     use, intrinsic :: iso_c_binding, only: c_ptr, c_char, c_int, c_size_t, &
-                                           c_null_ptr, c_null_char, c_associated, &
-                                           c_f_pointer, c_int32_t, c_loc
+        c_null_ptr, c_null_char, c_associated, &
+        c_f_pointer, c_int32_t, c_double
     implicit none
     private
 
-    public :: pdf_document_t, pdf_open, pdf_close, pdf_page_count, pdf_is_open
+    public :: pdf_document_t, pdf_glyph_t, pdf_open, pdf_close, pdf_page_count, &
+        pdf_page_text_layout, pdf_is_open
 
     integer, parameter, public :: pdf_message_len = 512
 
@@ -24,6 +24,23 @@ module fortpdf
         private
         type(c_ptr) :: handle = c_null_ptr
     end type pdf_document_t
+
+    type, public :: pdf_glyph_t
+        !! One rectangle in Poppler's text-layout array. `text_index` is the
+        !! zero-based position assigned by Poppler in the returned text.
+        integer(c_int32_t) :: text_index = 0
+        real(c_double) :: x1 = 0.0_c_double
+        real(c_double) :: y1 = 0.0_c_double
+        real(c_double) :: x2 = 0.0_c_double
+        real(c_double) :: y2 = 0.0_c_double
+    end type pdf_glyph_t
+
+    type, bind(c) :: poppler_rectangle_t
+        real(c_double) :: x1
+        real(c_double) :: y1
+        real(c_double) :: x2
+        real(c_double) :: y2
+    end type poppler_rectangle_t
 
     ! GError layout: { GQuark domain; gint code; gchar *message; }
     type, bind(c) :: gerror_t
@@ -48,6 +65,30 @@ module fortpdf
             type(c_ptr), value, intent(in) :: doc
             integer(c_int) :: n
         end function c_poppler_document_get_n_pages
+
+        function c_poppler_document_get_page(doc, index) &
+                bind(c, name='poppler_document_get_page') result(page)
+            import :: c_ptr, c_int
+            type(c_ptr), value, intent(in) :: doc
+            integer(c_int), value, intent(in) :: index
+            type(c_ptr) :: page
+        end function c_poppler_document_get_page
+
+        function c_poppler_page_get_text(page) &
+                bind(c, name='poppler_page_get_text') result(text)
+            import :: c_ptr
+            type(c_ptr), value, intent(in) :: page
+            type(c_ptr) :: text
+        end function c_poppler_page_get_text
+
+        function c_poppler_page_get_text_layout(page, rectangles, n_rectangles) &
+                bind(c, name='poppler_page_get_text_layout') result(has_text)
+            import :: c_ptr, c_int, c_int32_t
+            type(c_ptr), value, intent(in) :: page
+            type(c_ptr), intent(out) :: rectangles
+            integer(c_int32_t), intent(out) :: n_rectangles
+            integer(c_int) :: has_text
+        end function c_poppler_page_get_text_layout
 
         function c_g_canonicalize_filename(filename, relative_to) &
                 bind(c, name='g_canonicalize_filename') result(abs_path)
@@ -104,7 +145,7 @@ contains
         character(len=*), intent(out) :: message
 
         type(c_ptr) :: err, uri_ptr, abs_ptr
-        character(len=:), allocatable :: uri, abs_path  ! text-policy: C string boundary
+        character(len=:), allocatable :: uri, abs_path ! text-policy: C string boundary
 
         ok = .false.
         message = ''
@@ -159,12 +200,80 @@ contains
         pdf_page_count = int(c_poppler_document_get_n_pages(doc%handle))
     end function pdf_page_count
 
+    subroutine pdf_page_text_layout(doc, page_number, text, glyphs, ok, message)
+        !! Return Poppler's UTF-8 text and one rectangle for each layout entry.
+        !! Page numbers are one-based. Empty pages are successful empty
+        !! results; invalid pages and closed documents are errors.
+        type(pdf_document_t), intent(in) :: doc
+        integer, intent(in) :: page_number
+        character(len=:), allocatable, intent(out) :: text ! text-policy: C string boundary
+        type(pdf_glyph_t), allocatable, intent(out) :: glyphs(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(c_ptr) :: page, c_text, rectangles
+        type(poppler_rectangle_t), pointer :: rect(:)
+        integer(c_int32_t) :: n_rectangles
+        integer(c_int) :: has_text
+        integer :: i, n, dims(1)
+
+        ok = .false.
+        message = ''
+        text = ''
+        allocate (glyphs(0))
+
+        if (.not. c_associated(doc%handle)) then
+            message = 'document is not open'
+            return
+        end if
+        if (page_number < 1 .or. page_number > pdf_page_count(doc)) then
+            message = 'page number is out of range'
+            return
+        end if
+
+        page = c_poppler_document_get_page(doc%handle, int(page_number - 1, c_int))
+        if (.not. c_associated(page)) then
+            message = 'cannot obtain page'
+            return
+        end if
+
+        c_text = c_poppler_page_get_text(page)
+        if (c_associated(c_text)) then
+            text = c_string_to_fortran(c_text)
+            call c_g_free(c_text)
+        end if
+
+        rectangles = c_null_ptr
+        n_rectangles = 0
+        has_text = c_poppler_page_get_text_layout(page, rectangles, n_rectangles)
+        n = max(0, int(n_rectangles))
+        if (n > 0 .and. c_associated(rectangles)) then
+            deallocate (glyphs)
+            allocate (glyphs(n))
+            dims(1) = n
+            call c_f_pointer(rectangles, rect, dims)
+            do i = 1, n
+                glyphs(i)%text_index = int(i - 1, c_int32_t)
+                glyphs(i)%x1 = rect(i)%x1
+                glyphs(i)%y1 = rect(i)%y1
+                glyphs(i)%x2 = rect(i)%x2
+                glyphs(i)%y2 = rect(i)%y2
+            end do
+        end if
+        if (c_associated(rectangles)) call c_g_free(rectangles)
+        call c_g_object_unref(page)
+
+        ! Poppler reports FALSE for a page without text. That is a valid empty
+        ! extraction, not a binding error; retain the text and empty layout.
+        if (has_text /= 0 .or. n == 0) ok = .true.
+    end subroutine pdf_page_text_layout
+
     ! -- helpers ------------------------------------------------------------
 
     function gerror_text(err) result(text)
         !! GLib's message for an error, as ': <message>', or empty.
         type(c_ptr), intent(in) :: err
-        character(len=:), allocatable :: text  ! text-policy: C string boundary
+        character(len=:), allocatable :: text ! text-policy: C string boundary
         type(gerror_t), pointer :: e
 
         text = ''
@@ -183,7 +292,7 @@ contains
     function c_string_to_fortran(ptr) result(s)
         !! Copy a NUL-terminated C string into a Fortran string.
         type(c_ptr), intent(in) :: ptr
-        character(len=:), allocatable :: s  ! text-policy: C string boundary
+        character(len=:), allocatable :: s ! text-policy: C string boundary
         character(kind=c_char), pointer :: buf(:)
         integer :: n, i, dims(1)
 

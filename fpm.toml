@@ -21,6 +21,16 @@ name = "pdfinfo"
 source-dir = "app"
 main = "pdfinfo.f90"
 
+[[executable]]
+name = "pdftext"
+source-dir = "app"
+main = "pdftext.f90"
+
+[[executable]]
+name = "pdfextract"
+source-dir = "app"
+main = "pdfextract.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
