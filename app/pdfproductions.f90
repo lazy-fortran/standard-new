@@ -306,6 +306,14 @@ contains
             boundary = .true.
             return
         end if
+        if (is_prose_boundary(text)) then
+            boundary = .true.
+            return
+        end if
+        if (.not. looks_like_grammar(text)) then
+            boundary = .true.
+            return
+        end if
         if (n >= 3) then
             if (text(1:3) == 'or ') then
                 operator = 'or'
@@ -317,6 +325,67 @@ contains
             rhs = trim(text)
         end if
     end subroutine continuation
+
+    logical function is_prose_boundary(text)
+        character(len=*), intent(in) :: text
+        integer :: n
+
+        is_prose_boundary = .false.
+        n = len_trim(text)
+        if (has_prefix(text, 'NOTE') .or. has_prefix(text, 'Table') .or. &
+            has_prefix(text, 'Examples')) then
+            is_prose_boundary = .true.
+            return
+        end if
+        if (text(1:1) == 'C') then
+            if (n >= 2) then
+                if (text(2:2) >= '0' .and. text(2:2) <= '9') then
+                    is_prose_boundary = .true.
+                end if
+            end if
+        end if
+    end function is_prose_boundary
+
+    logical function looks_like_grammar(text)
+        character(len=*), intent(in) :: text
+        character(len=16), parameter :: prose_prefixes(7) = [ character(len=16) :: &
+            'The', 'A ', 'An ', 'Each ', 'For ', 'This ', 'Examples' ]
+        integer :: i, n
+
+        looks_like_grammar = .false.
+        n = len_trim(text)
+        if (n == 0) return
+        if (index(text, 'or ') == 1) then
+            looks_like_grammar = .true.
+            return
+        end if
+        select case (text(1:1))
+        case ('[', '(', '.', '+', '-', '*', '/', '=', '_', '''', '"')
+            looks_like_grammar = .true.
+            return
+        case default
+        end select
+        if (index(text, ' ') == 0 .and. index(text, achar(9)) == 0) then
+            looks_like_grammar = .true.
+            return
+        end if
+        do i = 1, size(prose_prefixes)
+            if (has_prefix(text, prose_prefixes(i))) return
+        end do
+        if (text(1:1) >= 'A' .and. text(1:1) <= 'Z') then
+            looks_like_grammar = .true.
+        end if
+    end function looks_like_grammar
+
+    logical function has_prefix(text, prefix)
+        character(len=*), intent(in) :: text, prefix
+        integer :: n
+
+        has_prefix = .false.
+        n = len_trim(text)
+        if (n < len_trim(prefix)) return
+        if (text(1:len_trim(prefix)) == trim(prefix)) has_prefix = .true.
+    end function has_prefix
 
     subroutine emit_record(kind, rule, lhs, operator, rhs, page, source_start, &
             source_length, output_unit, records, ok, message)
@@ -356,9 +425,9 @@ contains
         do i = 1, len_trim(value)
             select case (value(i:i))
             case ('"')
-                write (unit, '(a)', advance='no') '\\"'
-            case ('\\')
-                write (unit, '(a)', advance='no') '\\\\'
+                write (unit, '(a)', advance='no') '\"'
+            case ('\')
+                write (unit, '(a)', advance='no') '\\'
             case default
                 write (unit, '(a)', advance='no') value(i:i)
             end select
