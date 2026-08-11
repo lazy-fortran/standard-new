@@ -41,6 +41,11 @@ name = "pdfproductions"
 source-dir = "app"
 main = "pdfproductions.f90"
 
+[[executable]]
+name = "pdfstandardir"
+source-dir = "app"
+main = "pdfstandardir.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -50,3 +55,8 @@ main = "test_fortpdf.f90"
 name = "test_fortpdf_text"
 source-dir = "test"
 main = "test_fortpdf_text.f90"
+
+[[test]]
+name = "test_standardir"
+source-dir = "test"
+main = "test_standardir.f90"
