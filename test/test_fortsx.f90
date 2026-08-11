@@ -7,6 +7,7 @@ program test_fortsx
     character(len=*), parameter :: input = &
         '(syntax R501 (lhs program) (rhs (seq (ref program-unit) '// &
         '(repeat (ref program-unit) 0 unbounded))) (source (page 53)))'
+    character(len=*), parameter :: quoted_input = '(token "(")'
     character(len=4096) :: actual, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -25,6 +26,21 @@ program test_fortsx
     read (unit, '(a)', iostat=ios) actual
     close (unit)
     if (ios /= 0 .or. trim(actual) /= input) call fail('SX round-trip differs')
+
+    call sx_parse(quoted_input, node, ok, message)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/ftsx_quoted_fixture.sx', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('could not open quoted SX fixture')
+    call sx_write(unit, node, ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/ftsx_quoted_fixture.sx', action='read', &
+        iostat=ios)
+    if (ios /= 0) call fail('could not reopen quoted SX fixture')
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    if (ios /= 0 .or. trim(actual) /= quoted_input) call fail('quoted SX differs')
     print '(a)', 'fortsx reader/writer test passed'
 
 contains

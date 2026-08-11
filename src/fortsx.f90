@@ -69,6 +69,10 @@ contains
             call parse_list(text, position, node, ok, message)
             return
         end if
+        if (text(position:position) == '"') then
+            call parse_quoted_atom(text, position, node, ok, message)
+            return
+        end if
         if (text(position:position) == ')') then
             ok = .false.
             message = 'unexpected closing parenthesis'
@@ -97,6 +101,59 @@ contains
         ok = .true.
         message = ''
     end subroutine parse_form
+
+    subroutine parse_quoted_atom(text, position, node, ok, message)
+        character(len=*), intent(in) :: text
+        integer, intent(inout) :: position
+        type(sx_node_t), intent(out) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: count, n
+        character(len=1) :: ch
+
+        call sx_clear(node)
+        n = len_trim(text)
+        position = position + 1
+        count = 0
+        do while (position <= n)
+            if (text(position:position) == '"') then
+                position = position + 1
+                node%kind = sx_atom
+                node%child_count = 0
+                ok = .true.
+                message = ''
+                return
+            end if
+            if (text(position:position) == achar(92)) then
+                position = position + 1
+                if (position > n) then
+                    ok = .false.
+                    message = 'unterminated SX escape'
+                    return
+                end if
+                if (text(position:position) == '"' .or. &
+                    text(position:position) == achar(92)) then
+                    ch = text(position:position)
+                else
+                    ok = .false.
+                    message = 'unsupported SX escape'
+                    return
+                end if
+            else
+                ch = text(position:position)
+            end if
+            if (count >= len(node%atom)) then
+                ok = .false.
+                message = 'SX atom exceeds seed limit'
+                return
+            end if
+            count = count + 1
+            node%atom(count:count) = ch
+            position = position + 1
+        end do
+        ok = .false.
+        message = 'unclosed SX quoted atom'
+    end subroutine parse_quoted_atom
 
     recursive subroutine parse_list(text, position, node, ok, message)
         character(len=*), intent(in) :: text
@@ -173,7 +230,7 @@ contains
 
         select case (node%kind)
         case (sx_atom)
-            call piece(unit, trim(node%atom), ok, message)
+            call write_atom(unit, node%atom, ok, message)
         case (sx_list)
             call piece(unit, '(', ok, message)
             do i = 1, node%child_count
@@ -187,6 +244,38 @@ contains
             message = 'invalid SX node kind'
         end select
     end subroutine write_node
+
+    subroutine write_atom(unit, atom, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: atom
+        logical, intent(inout) :: ok
+        character(len=*), intent(inout) :: message
+        integer :: i, n
+        logical :: quoted
+
+        n = len_trim(atom)
+        quoted = n == 0
+        do i = 1, n
+            if (atom(i:i) == ' ' .or. atom(i:i) == achar(9) .or. &
+                atom(i:i) == '(' .or. atom(i:i) == ')' .or. &
+                atom(i:i) == '"' .or. atom(i:i) == achar(92)) then
+                quoted = .true.
+            end if
+        end do
+        if (.not. quoted) then
+            call piece(unit, trim(atom), ok, message)
+            return
+        end if
+        call piece(unit, '"', ok, message)
+        do i = 1, n
+            if (atom(i:i) == '"' .or. atom(i:i) == achar(92)) then
+                call piece(unit, achar(92), ok, message)
+            end if
+            call piece(unit, atom(i:i), ok, message)
+            if (.not. ok) return
+        end do
+        call piece(unit, '"', ok, message)
+    end subroutine write_atom
 
     subroutine piece(unit, text, ok, message)
         integer, intent(in) :: unit

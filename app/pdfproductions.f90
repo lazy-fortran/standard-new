@@ -373,6 +373,10 @@ contains
             looks_like_grammar = .true.
             return
         end if
+        if (index(text(1:n), '...') > 0 .or. index(text(1:n), ']') > 0) then
+            looks_like_grammar = .true.
+            return
+        end if
         do i = 1, size(prose_prefixes)
             if (has_prefix(text, prose_prefixes(i))) return
         end do

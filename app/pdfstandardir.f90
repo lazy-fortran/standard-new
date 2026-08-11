@@ -11,6 +11,7 @@ program pdfstandardir
     implicit none
 
     character(len=4096) :: input_path, output_path, source_hash
+    character(len=64) :: clause
     character(len=16384) :: line
     character(len=256) :: value, kind, rule, lhs, operator, text, message
     type(standardir_syntax_t) :: production
@@ -19,15 +20,16 @@ program pdfstandardir
     logical :: found, active, ok
 
     argc = command_argument_count()
-    if (argc /= 3) then
+    if (argc /= 4) then
         call get_command_argument(0, input_path)
         print '(a)', 'usage: '//trim(input_path)// &
-            ' <productions.jsonl> <output.sx> <source-sha256>'
+            ' <productions.jsonl> <output.sx> <source-sha256> <clause>'
         stop 2
     end if
     call get_command_argument(1, input_path)
     call get_command_argument(2, output_path)
     call get_command_argument(3, source_hash)
+    call get_command_argument(4, clause)
 
     open (newunit=input_unit, file=trim(input_path), action='read', iostat=ios)
     if (ios /= 0) then
@@ -43,7 +45,7 @@ program pdfstandardir
     end if
 
     write (output_unit, '(a)') '(standardir (format 1) (origin MECHANICAL) '// &
-        '(source (document J3-24-007) (clause 5) (source-sha256 '// &
+        '(source (document J3-24-007) (clause '//trim(clause)//') (source-sha256 '// &
         trim(source_hash)//')))'
     active = .false.
     records = 0
@@ -55,7 +57,7 @@ program pdfstandardir
         if (.not. found) cycle
         if (trim(kind) == 'production-start') then
             if (active) then
-                call standardir_emit(output_unit, production, source_hash, ok, message)
+                call standardir_emit(output_unit, production, source_hash, clause, ok, message)
                 if (.not. ok) call fail_output(input_unit, output_unit, message)
                 records = records + 1
             end if
@@ -96,7 +98,7 @@ program pdfstandardir
     end do
 
     if (active) then
-        call standardir_emit(output_unit, production, source_hash, ok, message)
+        call standardir_emit(output_unit, production, source_hash, clause, ok, message)
         if (.not. ok) call fail_output(input_unit, output_unit, message)
         records = records + 1
     end if
@@ -162,7 +164,9 @@ contains
         character(len=*), intent(out) :: value
         logical, intent(out) :: found
         character(len=256) :: needle
-        integer :: begin, finish, n, position
+        integer :: begin, finish, n, position, slash_count
+        character(len=256) :: raw
+        logical :: escaped, decoded
 
         value = ''
         found = .false.
@@ -177,13 +181,24 @@ contains
             finish = begin
             do while (finish <= n)
                 if (line(finish:finish) == '"') then
-                    if (finish == begin .or. line(finish - 1:finish - 1) /= '\') exit
+                    slash_count = 0
+                    position = finish - 1
+                    do while (position >= begin)
+                        if (line(position:position) /= '\') exit
+                        slash_count = slash_count + 1
+                        position = position - 1
+                    end do
+                    escaped = mod(slash_count, 2) == 1
+                    if (.not. escaped) exit
                 end if
                 finish = finish + 1
             end do
             if (finish > n) return
             if (finish - begin > len(value)) return
-            if (finish > begin) value(1:finish - begin) = line(begin:finish - 1)
+            raw = ''
+            if (finish > begin) raw(1:finish - begin) = line(begin:finish - 1)
+            call unescape_json(raw, value, decoded)
+            if (.not. decoded) return
         else
             finish = begin
             do while (finish <= n)
@@ -195,6 +210,49 @@ contains
         end if
         found = .true.
     end subroutine json_field
+
+    subroutine unescape_json(raw, value, ok)
+        character(len=*), intent(in) :: raw
+        character(len=*), intent(out) :: value
+        logical, intent(out) :: ok
+        integer :: i, n, output
+        character(len=1) :: ch
+
+        value = ''
+        ok = .false.
+        n = len_trim(raw)
+        output = 0
+        i = 1
+        do while (i <= n)
+            if (raw(i:i) == '\') then
+                i = i + 1
+                if (i > n) return
+                select case (raw(i:i))
+                case ('"', '\', '/')
+                    ch = raw(i:i)
+                case ('b')
+                    ch = achar(8)
+                case ('f')
+                    ch = achar(12)
+                case ('n')
+                    ch = achar(10)
+                case ('r')
+                    ch = achar(13)
+                case ('t')
+                    ch = achar(9)
+                case default
+                    return
+                end select
+            else
+                ch = raw(i:i)
+            end if
+            if (output >= len(value)) return
+            output = output + 1
+            value(output:output) = ch
+            i = i + 1
+        end do
+        ok = .true.
+    end subroutine unescape_json
 
     subroutine fail_input(input_unit, output_unit, message)
         integer, intent(in) :: input_unit, output_unit
