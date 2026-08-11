@@ -1,0 +1,9 @@
+build/
+*.mod
+*.smod
+*.o
+*.a
+
+# Generated artifacts are committed; scratch PDFs and fixtures are not.
+*.pdf
+!specs/**/*.pdf

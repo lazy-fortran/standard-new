@@ -1,0 +1,27 @@
+name = "standard-new"
+version = "0.1.0"
+license = "MIT"
+author = "Lazy Fortran contributors"
+maintainer = "albert@tugraz.at"
+copyright = "Copyright 2026, Lazy Fortran contributors"
+
+[build]
+auto-executables = false
+auto-tests = true
+auto-examples = false
+# poppler-glib is a C API, so ISO_C_BINDING reaches it directly and no shim is
+# needed. cairo comes in through poppler-glib's own dependencies.
+link = ["poppler-glib", "gobject-2.0", "glib-2.0"]
+
+[library]
+source-dir = "src"
+
+[[executable]]
+name = "pdfinfo"
+source-dir = "app"
+main = "pdfinfo.f90"
+
+[[test]]
+name = "test_fortpdf"
+source-dir = "test"
+main = "test_fortpdf.f90"
