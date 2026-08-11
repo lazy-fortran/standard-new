@@ -29,6 +29,7 @@ fo exec pdfcanonical <file.pdf> <canonical.txt> <pages.index>
 fo exec pdfproductions <canonical.txt> <pages.index> <productions.jsonl> 53 56
 fo exec pdfstandardir <productions.jsonl> <standardir.sx> <source-sha256> <clause>
 fo exec sxroundtrip <standardir.sx> <roundtripped.sx>
+fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 ```
 
 Requires `poppler-glib`, `gobject-2.0` and `glib-2.0`, reached through

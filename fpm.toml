@@ -51,6 +51,11 @@ name = "sxroundtrip"
 source-dir = "app"
 main = "sxroundtrip.f90"
 
+[[executable]]
+name = "sxnormalize"
+source-dir = "app"
+main = "sxnormalize.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -70,3 +75,8 @@ main = "test_standardir.f90"
 name = "test_fortsx"
 source-dir = "test"
 main = "test_fortsx.f90"
+
+[[test]]
+name = "test_standardir_normalize"
+source-dir = "test"
+main = "test_standardir_normalize.f90"
