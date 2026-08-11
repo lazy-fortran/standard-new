@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GIT_TERMINAL_PROMPT: 0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install poppler-glib
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gfortran libpoppler-glib-dev pkg-config
+
+      - name: Text policy gate self-test
+        # The gate runs first and proves it can fail before it is trusted to
+        # pass. A check never observed failing is not evidence (LESSONS.md 6).
+        run: scripts/check_text_policy.sh --self-test
+
+      - name: Text policy gate
+        run: scripts/check_text_policy.sh
+
+      - name: Install fpm
+        run: |
+          curl -sSLo /usr/local/bin/fpm \
+            https://github.com/fortran-lang/fpm/releases/download/v0.13.0/fpm-0.13.0-linux-x86_64-gcc-12
+          chmod +x /usr/local/bin/fpm
+
+      - name: Build and test
+        # fpm directly rather than fo, because fo is not available on the
+        # runner. Locally the loop is `fo`, per the house rules.
+        run: |
+          fpm build --flag "$(pkg-config --cflags poppler-glib)"
+          fpm test --flag "$(pkg-config --cflags poppler-glib)"

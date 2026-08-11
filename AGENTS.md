@@ -73,6 +73,30 @@ it in `../lazy-fortran-new/docs/provenance.md`.
 gfortran is GPL: behavioural comparison only, never read its source while
 authoring the corresponding component. That one is absolute.
 
+## Text policy gate (non-negotiable)
+
+Text is immutable bytes plus spans and interned IDs. A Fortran `character` is
+for system boundaries and for implementing target-language CHARACTER
+semantics, nothing else. Repeated `character(:)` concatenation into an
+accumulator is forbidden.
+
+```sh
+scripts/check_text_policy.sh              # scans src and app
+scripts/check_text_policy.sh --self-test  # proves the gate can fail
+```
+
+Run both before committing Fortran. A boundary use of an allocatable character
+is allowed and must say so on the declaration:
+
+```fortran
+character(len=:), allocatable :: uri  ! text-policy: C string boundary
+```
+
+The rule is D0011 and the reasoning is
+`../lazy-fortran-new/docs/text-representation.md`. It exists because the same
+quadratic concatenation defect was fixed twice in `fortfront` seven months
+apart, and the same substring bug three times.
+
 ## Provenance gate (non-negotiable)
 
 Every StandardIR entry cites document, clause, rule number, page and the source
@@ -95,7 +119,7 @@ The normative document is never committed here. It is pinned in
 
 ## Quality gates before claiming done
 
-1. `fo` green, with no new warnings.
+1. `fo` green, with no new warnings, and `scripts/check_text_policy.sh` clean.
 2. Every test can fail. Check it: break the code deliberately and confirm the
    test goes red. A suite that has never been observed failing is not evidence.
 3. Anything read from an external source is recorded in the laboratory's

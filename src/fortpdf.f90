@@ -104,7 +104,7 @@ contains
         character(len=*), intent(out) :: message
 
         type(c_ptr) :: err, uri_ptr, abs_ptr
-        character(len=:), allocatable :: uri, abs_path
+        character(len=:), allocatable :: uri, abs_path  ! text-policy: C string boundary
 
         ok = .false.
         message = ''
@@ -164,7 +164,7 @@ contains
     function gerror_text(err) result(text)
         !! GLib's message for an error, as ': <message>', or empty.
         type(c_ptr), intent(in) :: err
-        character(len=:), allocatable :: text
+        character(len=:), allocatable :: text  ! text-policy: C string boundary
         type(gerror_t), pointer :: e
 
         text = ''
@@ -183,7 +183,7 @@ contains
     function c_string_to_fortran(ptr) result(s)
         !! Copy a NUL-terminated C string into a Fortran string.
         type(c_ptr), intent(in) :: ptr
-        character(len=:), allocatable :: s
+        character(len=:), allocatable :: s  ! text-policy: C string boundary
         character(kind=c_char), pointer :: buf(:)
         integer :: n, i, dims(1)
 
