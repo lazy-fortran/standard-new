@@ -31,7 +31,17 @@ name = "pdfextract"
 source-dir = "app"
 main = "pdfextract.f90"
 
+[[executable]]
+name = "pdfcanonical"
+source-dir = "app"
+main = "pdfcanonical.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
 main = "test_fortpdf.f90"
+
+[[test]]
+name = "test_fortpdf_text"
+source-dir = "test"
+main = "test_fortpdf_text.f90"

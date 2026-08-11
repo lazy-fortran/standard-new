@@ -21,6 +21,7 @@ program test_fortpdf
     call check_page_count(4, all_passed)
     call check_empty_layout(all_passed)
     call check_text_layout(all_passed)
+    call check_utf8_layout(all_passed)
     call check_missing_file(all_passed)
     call check_not_a_pdf(all_passed)
 
@@ -147,6 +148,43 @@ contains
         call pdf_close(doc)
     end subroutine check_text_layout
 
+    subroutine check_utf8_layout(ok_all)
+        !! WinAnsi byte 150 is an en dash. Poppler returns its UTF-8 spelling,
+        !! while the layout still has one rectangle for the one character.
+        logical, intent(inout) :: ok_all
+
+        type(pdf_document_t) :: doc
+        type(pdf_glyph_t), allocatable :: glyphs(:)
+        character(len=:), allocatable :: text
+        character(len=pdf_message_len) :: message
+        logical :: ok
+
+        call write_unicode_fixture_pdf('build/unicode_fixture.pdf')
+        call pdf_open('build/unicode_fixture.pdf', doc, ok, message)
+        if (.not. ok) then
+            print *, 'FAIL: could not open Unicode fixture: ', trim(message)
+            ok_all = .false.
+            return
+        end if
+
+        call pdf_page_text_layout(doc, 1, text, glyphs, ok, message)
+        if (.not. ok) then
+            print *, 'FAIL: Unicode text layout failed: ', trim(message)
+            ok_all = .false.
+        else if (len(text) /= 7 .or. size(glyphs) /= 5) then
+            print *, 'FAIL: expected seven UTF-8 bytes and five glyphs'
+            ok_all = .false.
+        else if (glyphs(2)%byte_offset /= 1 .or. glyphs(2)%byte_length /= 3) then
+            print *, 'FAIL: Unicode glyph did not receive a three-byte span'
+            ok_all = .false.
+        else if (glyphs(3)%byte_offset /= 4 .or. glyphs(3)%byte_length /= 1) then
+            print *, 'FAIL: byte span after Unicode glyph is incorrect'
+            ok_all = .false.
+        end if
+
+        call pdf_close(doc)
+    end subroutine check_utf8_layout
+
     subroutine check_missing_file(ok_all)
         !! Absent input must be reported, not survived silently.
         logical, intent(inout) :: ok_all
@@ -252,11 +290,31 @@ contains
         character(len=*), intent(in) :: path
 
         character(len=1), parameter :: nl = achar(10)
-        character(len=:), allocatable :: buf, content
+        character(len=:), allocatable :: content
+
+        content = 'BT /F1 12 Tf 72 720 Td (R501) Tj ET'//nl
+        call write_content_fixture_pdf(path, content)
+    end subroutine write_text_fixture_pdf
+
+    subroutine write_unicode_fixture_pdf(path)
+        character(len=*), intent(in) :: path
+
+        character(len=1), parameter :: nl = achar(10)
+        character(len=:), allocatable :: content
+
+        content = 'BT /F1 12 Tf 72 720 Td (R'//achar(150)//'501) Tj ET'//nl
+        call write_content_fixture_pdf(path, content)
+    end subroutine write_unicode_fixture_pdf
+
+    subroutine write_content_fixture_pdf(path, content)
+        character(len=*), intent(in) :: path
+        character(len=*), intent(in) :: content
+
+        character(len=1), parameter :: nl = achar(10)
+        character(len=:), allocatable :: buf
         integer, allocatable :: offset(:)
         integer :: i, u, xref_at
 
-        content = 'BT /F1 12 Tf 72 720 Td (R501) Tj ET'//nl
         allocate (offset(5))
         buf = '%PDF-1.4'//nl
 
@@ -271,7 +329,8 @@ contains
             'endobj'//nl
         offset(4) = len(buf)
         buf = buf//'4 0 obj'//nl// &
-            '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>'//nl// &
+            '<</Type/Font/Subtype/Type1/BaseFont/Helvetica'// &
+            '/Encoding/WinAnsiEncoding>>'//nl// &
             'endobj'//nl
         offset(5) = len(buf)
         buf = buf//'5 0 obj'//nl//'<</Length '//itoa(len(content))//'>>'//nl// &
@@ -290,7 +349,7 @@ contains
             access='stream', form='unformatted')
         write (u) buf
         close (u)
-    end subroutine write_text_fixture_pdf
+    end subroutine write_content_fixture_pdf
 
     function xref_entry(off) result(s)
         !! A cross-reference entry is exactly 20 bytes including the newline

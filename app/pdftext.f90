@@ -50,9 +50,11 @@ program pdftext
         print '(a,1x,i0,1x,i0)', 'text-byte', i - 1, iachar(text(i:i))
     end do
     print '(a,i0)', 'glyph-count ', size(glyphs)
+    print '(a)', 'glyph-fields index text-index byte-offset byte-length x1 y1 x2 y2'
     do i = 1, size(glyphs)
-        print '(a,1x,i0,1x,i0,4(1x,f12.4))', 'glyph', i - 1, &
-            glyphs(i)%text_index, glyphs(i)%x1, glyphs(i)%y1, &
+        print '(a,1x,i0,1x,i0,2(1x,i0),4(1x,f12.4))', 'glyph', i - 1, &
+            glyphs(i)%text_index, glyphs(i)%byte_offset, &
+            glyphs(i)%byte_length, glyphs(i)%x1, glyphs(i)%y1, &
             glyphs(i)%x2, glyphs(i)%y2
     end do
 

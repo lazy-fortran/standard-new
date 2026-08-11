@@ -41,7 +41,7 @@ program pdfextract
     end if
 
     pages = pdf_page_count(doc)
-    write (unit, '(a)') 'format 1'
+    write (unit, '(a)') 'format 2'
     write (unit, '(a)') 'origin MECHANICAL'
     write (unit, '(a)') 'encoding UTF-8-bytes'
     do page = 1, pages
@@ -59,9 +59,12 @@ program pdfextract
             write (unit, '(a,1x,i0,1x,i0)') 'text-byte', i - 1, iachar(text(i:i))
         end do
         write (unit, '(a,1x,i0)') 'glyph-count', size(glyphs)
+        write (unit, '(a)') &
+            'glyph-fields index text-index byte-offset byte-length x1 y1 x2 y2'
         do i = 1, size(glyphs)
-            write (unit, '(a,1x,i0,1x,i0,4(1x,f12.4))') 'glyph', i - 1, &
-                glyphs(i)%text_index, glyphs(i)%x1, glyphs(i)%y1, &
+            write (unit, '(a,1x,i0,1x,i0,2(1x,i0),4(1x,f12.4))') 'glyph', i - 1, &
+                glyphs(i)%text_index, glyphs(i)%byte_offset, &
+                glyphs(i)%byte_length, glyphs(i)%x1, glyphs(i)%y1, &
                 glyphs(i)%x2, glyphs(i)%y2
         end do
     end do

@@ -27,8 +27,11 @@ module fortpdf
 
     type, public :: pdf_glyph_t
         !! One rectangle in Poppler's text-layout array. `text_index` is the
-        !! zero-based position assigned by Poppler in the returned text.
+        !! zero-based position assigned by Poppler in the returned text;
+        !! byte_offset and byte_length identify its UTF-8 span.
         integer(c_int32_t) :: text_index = 0
+        integer(c_int32_t) :: byte_offset = 0
+        integer(c_int32_t) :: byte_length = 1
         real(c_double) :: x1 = 0.0_c_double
         real(c_double) :: y1 = 0.0_c_double
         real(c_double) :: x2 = 0.0_c_double
@@ -215,7 +218,7 @@ contains
         type(poppler_rectangle_t), pointer :: rect(:)
         integer(c_int32_t) :: n_rectangles
         integer(c_int) :: has_text
-        integer :: i, n, dims(1)
+        integer :: i, n, dims(1), position, width
 
         ok = .false.
         message = ''
@@ -252,20 +255,38 @@ contains
             allocate (glyphs(n))
             dims(1) = n
             call c_f_pointer(rectangles, rect, dims)
+            position = 1
             do i = 1, n
+                if (position > len(text)) then
+                    message = 'text/layout length mismatch'
+                    exit
+                end if
+                width = utf8_width(text, position)
+                if (position + width - 1 > len(text)) then
+                    message = 'truncated UTF-8 text/layout entry'
+                    exit
+                end if
                 glyphs(i)%text_index = int(i - 1, c_int32_t)
+                glyphs(i)%byte_offset = int(position - 1, c_int32_t)
+                glyphs(i)%byte_length = int(width, c_int32_t)
                 glyphs(i)%x1 = rect(i)%x1
                 glyphs(i)%y1 = rect(i)%y1
                 glyphs(i)%x2 = rect(i)%x2
                 glyphs(i)%y2 = rect(i)%y2
+                position = position + width
             end do
+            if (len_trim(message) == 0 .and. position - 1 /= len(text)) then
+                message = 'text/layout UTF-8 coverage mismatch'
+            end if
         end if
         if (c_associated(rectangles)) call c_g_free(rectangles)
         call c_g_object_unref(page)
 
         ! Poppler reports FALSE for a page without text. That is a valid empty
         ! extraction, not a binding error; retain the text and empty layout.
-        if (has_text /= 0 .or. n == 0) ok = .true.
+        if (len_trim(message) == 0) then
+            if (has_text /= 0 .or. n == 0) ok = .true.
+        end if
     end subroutine pdf_page_text_layout
 
     ! -- helpers ------------------------------------------------------------
@@ -312,5 +333,26 @@ contains
             s(i:i) = buf(i)
         end do
     end function c_string_to_fortran
+
+    integer function utf8_width(text, position)
+        !! Width in bytes of the UTF-8 scalar beginning at POSITION.
+        character(len=*), intent(in) :: text
+        integer, intent(in) :: position
+        integer :: first
+
+        first = iachar(text(position:position))
+        select case (first)
+        case (0:127)
+            utf8_width = 1
+        case (192:223)
+            utf8_width = 2
+        case (224:239)
+            utf8_width = 3
+        case (240:247)
+            utf8_width = 4
+        case default
+            utf8_width = 1
+        end select
+    end function utf8_width
 
 end module fortpdf
