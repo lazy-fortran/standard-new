@@ -477,14 +477,14 @@ contains
             call emit_line(unit, '        case ('//trim(number)//')', ok, message)
             if (.not. ok) return
             line = '            call schema_runtime_write_atom(unit, '// &
-                fortran_literal(declaration%members(i)%name)//', ok, message)'
+                trim(fortran_literal(declaration%members(i)%name))//', ok, message)'
             call emit_line(unit, trim(line), ok, message)
             if (.not. ok) return
         end do
         call emit_line(unit, '        case default', ok, message)
         if (.not. ok) return
         line = '            call schema_runtime_error('// &
-            fortran_literal('unknown enum value: '//trim(declaration%name))// &
+            trim(fortran_literal('unknown enum value: '//trim(declaration%name)))// &
             ', ok, message)'
         call emit_line(unit, trim(line), ok, message)
         if (.not. ok) return
@@ -519,8 +519,8 @@ contains
         if (.not. ok) return
         do i = 1, declaration%member_count
             write (number, '(i0)') i
-            call emit_line(unit, '        case ('//fortran_literal( &
-                declaration%members(i)%name)//')', ok, message)
+            call emit_line(unit, '        case ('//trim(fortran_literal( &
+                declaration%members(i)%name))//')', ok, message)
             if (.not. ok) return
             line = '            value = '//trim(number)
             call emit_line(unit, trim(line), ok, message)
@@ -529,7 +529,7 @@ contains
         call emit_line(unit, '        case default', ok, message)
         if (.not. ok) return
         line = '            call schema_runtime_error('// &
-            fortran_literal('unknown enum value: '//trim(declaration%name))// &
+            trim(fortran_literal('unknown enum value: '//trim(declaration%name)))// &
             ', ok, message)'
         call emit_line(unit, trim(line), ok, message)
         if (.not. ok) return
@@ -601,7 +601,7 @@ contains
         call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
         if (.not. ok) return
         line = '        call schema_runtime_open_list(unit, '// &
-            fortran_literal(declaration%name)//', ok, message)'
+            trim(fortran_literal(declaration%name))//', ok, message)'
         call emit_line(unit, trim(line), ok, message)
         if (.not. ok) return
         call emit_line(unit, '        if (.not. ok) return', ok, message)
@@ -613,7 +613,7 @@ contains
             call emit_line(unit, trim(line), ok, message)
             if (.not. ok) return
             line = '        call schema_runtime_open_list(unit, '// &
-                fortran_literal(declaration%members(i)%name)//', ok, message)'
+                trim(fortran_literal(declaration%members(i)%name))//', ok, message)'
             call emit_line(unit, trim(line), ok, message)
             if (.not. ok) return
             call emit_line(unit, '        if (.not. ok) return', ok, message)
@@ -655,7 +655,7 @@ contains
         call emit_line(unit, '        type(sx_node_t) :: field', ok, message)
         if (.not. ok) return
         line = '        call schema_runtime_expect_list(node, '// &
-            fortran_literal(declaration%name)//', '//trim(int_literal( &
+            trim(fortran_literal(declaration%name))//', '//trim(int_literal( &
             declaration%member_count + 1))//', ok, message)'
         call emit_line(unit, trim(line), ok, message)
         if (.not. ok) return
@@ -665,8 +665,8 @@ contains
             member_type = declaration%members(i)%type_name
             member_id = fortran_identifier(declaration%members(i)%name)
             line = '        call schema_runtime_record_field(node, '// &
-                trim(int_literal(i))//', '//fortran_literal( &
-                declaration%members(i)%name)//', field, ok, message)'
+                trim(int_literal(i))//', '//trim(fortran_literal( &
+                declaration%members(i)%name))//', field, ok, message)'
             call emit_line(unit, trim(line), ok, message)
             if (.not. ok) return
             call emit_line(unit, '        if (.not. ok) return', ok, message)
@@ -722,8 +722,8 @@ contains
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
                 line = '                call schema_runtime_error('// &
-                    fortran_literal('sum payload is not allocated: '// &
-                    trim(declaration%members(i)%name))//', ok, message)'
+                    trim(fortran_literal('sum payload is not allocated: '// &
+                    trim(declaration%members(i)%name)))//', ok, message)'
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
                 call emit_line(unit, '                return', ok, message)
@@ -732,7 +732,7 @@ contains
                 if (.not. ok) return
             end if
             line = '            call schema_runtime_open_list(unit, '// &
-                fortran_literal(declaration%members(i)%name)//', ok, message)'
+                trim(fortran_literal(declaration%members(i)%name))//', ok, message)'
             call emit_line(unit, trim(line), ok, message)
             if (.not. ok) return
             call emit_line(unit, '            if (.not. ok) return', ok, message)
@@ -758,7 +758,7 @@ contains
         call emit_line(unit, '        case default', ok, message)
         if (.not. ok) return
         line = '            call schema_runtime_error('// &
-            fortran_literal('unknown sum kind: '//trim(declaration%name))// &
+            trim(fortran_literal('unknown sum kind: '//trim(declaration%name)))// &
             ', ok, message)'
         call emit_line(unit, trim(line), ok, message)
         if (.not. ok) return
@@ -808,14 +808,14 @@ contains
         if (.not. ok) return
         do i = 1, declaration%member_count
             variant_id = fortran_identifier(declaration%members(i)%name)
-            call emit_line(unit, '        case ('//fortran_literal( &
-                declaration%members(i)%name)//')', ok, message)
+            call emit_line(unit, '        case ('//trim(fortran_literal( &
+                declaration%members(i)%name))//')', ok, message)
             if (.not. ok) return
             if (len_trim(declaration%members(i)%type_name) > 0) then
                 call emit_line(unit, '            if (.not. has_payload) then', ok, message)
                 if (.not. ok) return
                 call emit_line(unit, '                call schema_runtime_error('// &
-                    fortran_literal('sum variant payload is missing')// &
+                    trim(fortran_literal('sum variant payload is missing'))// &
                     ', ok, message)', ok, message)
                 if (.not. ok) return
                 call emit_line(unit, '                return', ok, message)
@@ -836,7 +836,7 @@ contains
                 call emit_line(unit, '            if (has_payload) then', ok, message)
                 if (.not. ok) return
                 call emit_line(unit, '                call schema_runtime_error('// &
-                    fortran_literal('payload-less sum variant has a payload')// &
+                    trim(fortran_literal('payload-less sum variant has a payload'))// &
                     ', ok, message)', ok, message)
                 if (.not. ok) return
                 call emit_line(unit, '                return', ok, message)
@@ -852,7 +852,7 @@ contains
         call emit_line(unit, '        case default', ok, message)
         if (.not. ok) return
         call emit_line(unit, '            call schema_runtime_error('// &
-            fortran_literal('unknown sum variant')//', ok, message)', ok, message)
+            trim(fortran_literal('unknown sum variant'))//', ok, message)', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        end select', ok, message)
         if (.not. ok) return
@@ -890,7 +890,7 @@ contains
         call emit_line(unit, '        integer :: i', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        call schema_runtime_open_list(unit, '// &
-            fortran_literal(declaration%name)//', ok, message)', ok, message)
+            trim(fortran_literal(declaration%name))//', ok, message)', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        if (.not. ok) return', ok, message)
         if (.not. ok) return
@@ -937,7 +937,7 @@ contains
         call emit_line(unit, '        integer :: i, count', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        call schema_runtime_expect_list(node, '// &
-            fortran_literal(declaration%name)//', -1, ok, message)', ok, message)
+            trim(fortran_literal(declaration%name))//', -1, ok, message)', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        if (.not. ok) return', ok, message)
         if (.not. ok) return
@@ -1006,7 +1006,7 @@ contains
         call emit_line(unit, '        end if', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        call schema_runtime_open_list(unit, '// &
-            fortran_literal('some')//', ok, message)', ok, message)
+            trim(fortran_literal('some'))//', ok, message)', ok, message)
         if (.not. ok) return
         call emit_line(unit, '        if (.not. ok) return', ok, message)
         if (.not. ok) return
@@ -1139,7 +1139,7 @@ contains
 
     function fortran_literal(value) result(text)
         character(len=*), intent(in) :: value
-        character(len=:), allocatable :: text
+        character(len=1024) :: text
         integer :: extra, i, n, position
 
         n = len_trim(value)
@@ -1147,7 +1147,6 @@ contains
         do i = 1, n
             if (value(i:i) == "'") extra = extra + 1
         end do
-        allocate (character(len=n + extra + 2) :: text)
         text = repeat(' ', len(text))
         text(1:1) = "'"
         position = 1
