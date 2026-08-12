@@ -2,7 +2,7 @@ program test_standardir_grammar
     !! Fixed EBNF is the independent oracle for the grammar projection.
 
     use fortsx, only: sx_node_t, sx_parse
-    use standardir_grammar, only: standardir_emit_ebnf
+    use standardir_grammar, only: standardir_emit_antlr, standardir_emit_ebnf
     implicit none
 
     character(len=*), parameter :: input = &
@@ -15,6 +15,11 @@ program test_standardir_grammar
         'source-sha256=abcdef *)'
     character(len=*), parameter :: expected_rule = &
         'program ::= program-unit { program-unit } ;'
+    character(len=*), parameter :: expected_antlr_comment = &
+        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef'
+    character(len=*), parameter :: expected_antlr_name = 'r_program'
+    character(len=*), parameter :: expected_antlr_rule = &
+        '    : r_program_x2D_unit ( r_program_x2D_unit )*'
     character(len=256) :: line, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -37,7 +42,23 @@ program test_standardir_grammar
     read (unit, '(a)', iostat=ios) line
     close (unit)
     if (ios /= 0 .or. trim(line) /= expected_rule) call fail('EBNF differs')
-    print '(a)', 'StandardIR grammar test passed'
+
+    open (newunit=unit, file='build/test_standardir_grammar.g4', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open ANTLR fixture')
+    call standardir_emit_antlr(unit, node, ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar.g4', action='read', iostat=ios)
+    if (ios /= 0) call fail('cannot read ANTLR fixture')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_antlr_comment) call fail('ANTLR provenance differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_antlr_name) call fail('ANTLR name differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_antlr_rule) call fail('ANTLR rule differs')
+    close (unit)
+    print '(a)', 'StandardIR grammar tests passed'
 
 contains
 

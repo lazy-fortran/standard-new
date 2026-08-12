@@ -12,11 +12,11 @@ this repository contains only the code and the specifications.
 
 Early. `fortpdf` extracts Poppler's UTF-8 text and glyph rectangles, and the
 small command-line tools produce raw layout, canonical text, provenance-
-bearing production records, and a StandardIR SX projection. The parser retains
-multi-token sequences, optional/repeated groups, terminal tokens and
-source-clause provenance.
-Generated grammar and semantic rules are not implemented yet. `ROADMAP.md` in
-the laboratory carries the phase gates.
+bearing production records, a StandardIR SX projection and deterministic
+canonical EBNF and ANTLR4 grammar exports. The parser retains multi-token
+sequences, optional/repeated groups, terminal tokens and source-clause
+provenance. Semantic rules are not implemented yet. `ROADMAP.md` in the
+laboratory carries the phase gates.
 
 ## Build
 
@@ -31,6 +31,7 @@ fo exec pdfstandardir <productions.jsonl> <standardir.sx> <source-sha256> <claus
 fo exec sxroundtrip <standardir.sx> <roundtripped.sx>
 fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 fo exec sxebnf <standardir.sx> <grammar.ebnf>
+fo exec sxantlr <standardir.sx> <grammar.g4>
 ```
 
 Requires `poppler-glib`, `gobject-2.0` and `glib-2.0`, reached through
