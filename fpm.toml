@@ -92,6 +92,11 @@ source-dir = "test"
 main = "test_fortpdf_text.f90"
 
 [[test]]
+name = "test_byte_text"
+source-dir = "test"
+main = "test_byte_text.f90"
+
+[[test]]
 name = "test_standardir"
 source-dir = "test"
 main = "test_standardir.f90"
