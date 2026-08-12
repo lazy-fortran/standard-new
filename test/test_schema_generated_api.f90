@@ -1,10 +1,13 @@
 program test_schema_generated_api
     !! Fixed bytes plus the generic codec are the independent API oracle.
 
+    use, intrinsic :: iso_fortran_env, only: int8, int64
     use fortsx, only: sx_node_t, sx_parse
     use schema_ir, only: schema_parse_text, schema_t
     use schema_value, only: schema_value_canonicalize
     use schema_v0_generated
+    use writer, only: writer_close, writer_digest, writer_init_hash, writer_t, &
+        writer_write_bytes
     implicit none
 
     character(len=*), parameter :: schema_text = &
@@ -83,6 +86,11 @@ program test_schema_generated_api
         'generated schema record fields are out of order')
     call expect_item_failure('(syntax)', 'sum variant payload is missing')
     call check_generated_semantics()
+    call check_print_and_hash_source_ref(source_ref)
+    call check_print_and_hash_item(item)
+    call check_print_and_hash_items(items)
+    call check_print_and_hash_optional(optional_ref)
+    call check_print_and_hash_bool(.true.)
 
     print '(a)', 'generated schema API test passed'
 
@@ -322,6 +330,137 @@ contains
         call require(.not. schema_equal_source_ref(source_ref, source_ref_copy), &
             'different generated records compare equal')
     end subroutine check_generated_semantics
+
+    subroutine check_print_and_hash_source_ref(value)
+        type(source_ref_t), intent(in) :: value
+        integer :: unit
+        integer(int8) :: generated_digest(32), reference_digest(32)
+
+        call open_output(unit)
+        call schema_print_source_ref(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('source-ref', '(source-ref (document J3) (clause 5) (rule R501))', &
+            '(source-ref (document J3) (clause 5) (rule R501))')
+        call reference_hash('source-ref', &
+            '(source-ref (document J3) (clause 5) (rule R501))', reference_digest)
+        call schema_hash_source_ref(value, generated_digest, ok, message)
+        call require(ok, message)
+        call require(all(generated_digest == reference_digest), &
+            'generated record hash differs from reference')
+    end subroutine check_print_and_hash_source_ref
+
+    subroutine check_print_and_hash_item(value)
+        type(item_t), intent(in) :: value
+        integer :: unit
+        integer(int8) :: generated_digest(32), reference_digest(32)
+
+        call open_output(unit)
+        call schema_print_item(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('item', '(syntax "semantic value")', '(syntax "semantic value")')
+        call reference_hash('item', '(syntax "semantic value")', reference_digest)
+        call schema_hash_item(value, generated_digest, ok, message)
+        call require(ok, message)
+        call require(all(generated_digest == reference_digest), &
+            'generated sum hash differs from reference')
+    end subroutine check_print_and_hash_item
+
+    subroutine check_print_and_hash_items(value)
+        type(items_t), intent(in) :: value
+        integer :: unit
+        integer(int8) :: generated_digest(32), reference_digest(32)
+
+        call open_output(unit)
+        call schema_print_items(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('items', '(items (syntax "x") (constraint))', &
+            '(items (syntax "x") (constraint))')
+        call reference_hash('items', '(items (syntax "x") (constraint))', reference_digest)
+        call schema_hash_items(value, generated_digest, ok, message)
+        call require(ok, message)
+        call require(all(generated_digest == reference_digest), &
+            'generated list hash differs from reference')
+    end subroutine check_print_and_hash_items
+
+    subroutine check_print_and_hash_optional(value)
+        type(source_ref_option_t), intent(in) :: value
+        integer :: unit
+        integer(int8) :: generated_digest(32), reference_digest(32)
+
+        call open_output(unit)
+        call schema_print_source_ref_option(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('source-ref-option', &
+            '(some (source-ref (document J3) (clause 5) (rule R501)))', &
+            '(some (source-ref (document J3) (clause 5) (rule R501)))')
+        call reference_hash('source-ref-option', &
+            '(some (source-ref (document J3) (clause 5) (rule R501)))', reference_digest)
+        call schema_hash_source_ref_option(value, generated_digest, ok, message)
+        call require(ok, message)
+        call require(all(generated_digest == reference_digest), &
+            'generated optional hash differs from reference')
+    end subroutine check_print_and_hash_optional
+
+    subroutine check_print_and_hash_bool(value)
+        logical, intent(in) :: value
+        integer :: unit
+        integer(int8) :: generated_digest(32), reference_digest(32)
+
+        call open_output(unit)
+        call schema_print_bool(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('bool', 'true', 'true')
+        call reference_hash('bool', 'true', reference_digest)
+        call schema_hash_bool(value, generated_digest, ok, message)
+        call require(ok, message)
+        call require(all(generated_digest == reference_digest), &
+            'generated primitive hash differs from reference')
+    end subroutine check_print_and_hash_bool
+
+    subroutine reference_hash(root_type, input, digest)
+        character(len=*), intent(in) :: root_type, input
+        integer(int8), intent(out) :: digest(32)
+        integer :: unit
+
+        call open_reference(unit)
+        call schema_value_canonicalize(schema, root_type, input, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call hash_file('build/reference_schema_value.sx', digest)
+    end subroutine reference_hash
+
+    subroutine hash_file(path, digest)
+        character(len=*), intent(in) :: path
+        integer(int8), intent(out) :: digest(32)
+        type(writer_t) :: output
+        integer(int8), allocatable :: bytes(:)
+        integer(int64) :: file_size
+        integer :: unit, ios
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        inquire (file=path, size=file_size)
+        allocate (bytes(int(file_size)))
+        open (newunit=unit, file=path, access='stream', form='unformatted', &
+            action='read', iostat=ios)
+        call require(ios == 0, 'could not open reference bytes for hashing')
+        if (file_size > 0_int64) read (unit, iostat=ios) bytes
+        close (unit)
+        call require(ios == 0, 'could not read reference bytes for hashing')
+        call writer_init_hash(output, local_ok, local_message)
+        call require(local_ok, local_message)
+        call writer_write_bytes(output, bytes, local_ok, local_message)
+        call require(local_ok, local_message)
+        call writer_digest(output, digest, local_ok, local_message)
+        call require(local_ok, local_message)
+        call writer_close(output, local_ok, local_message)
+        call require(local_ok, local_message)
+    end subroutine hash_file
 
     subroutine open_output(unit)
         integer, intent(out) :: unit

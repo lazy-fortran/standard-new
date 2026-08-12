@@ -41,6 +41,12 @@ contains
         if (.not. ok) go to 900
         call emit_line(unit, '    use fortsx, only: sx_node_t', ok, message)
         if (.not. ok) go to 900
+        call emit_line(unit, '    use, intrinsic :: iso_fortran_env, only: int8', ok, &
+            message)
+        if (.not. ok) go to 900
+        call emit_line(unit, '    use writer, only: writer_t, writer_close, writer_digest, '&
+            //'writer_init_hash, writer_write_bytes, writer_write_newline', ok, message)
+        if (.not. ok) go to 900
         call emit_line(unit, '    use schema_value_runtime', ok, message)
         if (.not. ok) go to 900
         call emit_line(unit, '    implicit none', ok, message)
@@ -299,7 +305,10 @@ contains
 
         identifier = fortran_identifier(name)
         line = '    public :: schema_write_'//trim(identifier)//', schema_read_'// &
-            trim(identifier)
+            trim(identifier)//', &'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        line = '        schema_print_'//trim(identifier)//', schema_hash_'//trim(identifier)
         call emit_line(unit, trim(line), ok, message)
     end subroutine emit_public_pair
 
@@ -345,6 +354,8 @@ contains
         call emit_validation_apis(unit, schema, ok, message)
         if (.not. ok) return
         call emit_equality_apis(unit, schema, ok, message)
+        if (.not. ok) return
+        call emit_print_hash_apis(unit, schema, ok, message)
     end subroutine emit_apis
 
     subroutine emit_api(unit, schema, name, ok, message)
@@ -1750,6 +1761,204 @@ contains
         call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
         call emit_line(unit, '', ok, message)
     end subroutine emit_optional_equality_api
+
+    subroutine emit_print_hash_apis(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_print_hash_api(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_print_hash_api(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_print_hash_api(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_print_hash_api(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_print_hash_api(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_print_hash_api(unit, schema, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_print_hash_apis
+
+    subroutine emit_print_hash_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name
+        character(len=1024) :: line
+        character(len=1024) :: error_text
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(name)
+        call emit_line(unit, '    subroutine schema_print_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call schema_write_'//trim(identifier)//'(value, unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_print_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_hash_'//trim(identifier)// &
+            '(value, digest, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer(int8), intent(out) :: digest(32)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(writer_t) :: output', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer(int8) :: bytes(65536)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=65536) :: text', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: unit, ios, i, text_length', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical :: local_ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=256) :: local_message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        digest = 0_int8', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        open (newunit=unit, status=''scratch'', access=''stream'', &', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            form=''formatted'', action=''readwrite'', iostat=ios)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (ios /= 0) then', ok, message)
+        if (.not. ok) return
+        error_text = fortran_literal('cannot open schema hash scratch stream')
+        line = '            call schema_runtime_error('//trim(error_text)//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        line = '        call schema_write_'//trim(identifier)//'(value, unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            close (unit)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        rewind (unit)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        read (unit, ''(a)'', iostat=ios) text', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        close (unit)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (ios /= 0) then', ok, message)
+        if (.not. ok) return
+        error_text = fortran_literal('cannot read schema hash scratch stream')
+        line = '            call schema_runtime_error('//trim(error_text)//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        text_length = len_trim(text)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        do i = 1, text_length', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            bytes(i) = int(iachar(text(i:i)), int8)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call writer_init_hash(output, local_ok, local_message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. local_ok) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            message = local_message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call writer_write_bytes(output, bytes(:text_length), '// &
+            'local_ok, local_message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. local_ok) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            message = local_message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call writer_write_newline(output, local_ok, local_message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. local_ok) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            message = local_message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call writer_digest(output, digest, local_ok, local_message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call writer_close(output, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. local_ok) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            message = local_message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        message = ''''', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_hash_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_print_hash_api
 
     subroutine type_name_fortran(schema, name, result, ok, message)
         type(schema_t), intent(in) :: schema
