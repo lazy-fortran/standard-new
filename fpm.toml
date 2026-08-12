@@ -170,3 +170,8 @@ main = "test_standardir_dependencies.f90"
 name = "test_standardir_grammar"
 source-dir = "test"
 main = "test_standardir_grammar.f90"
+
+[[test]]
+name = "test_schema_ir"
+source-dir = "test"
+main = "test_schema_ir.f90"

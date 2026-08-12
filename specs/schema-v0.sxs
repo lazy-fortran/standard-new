@@ -1,0 +1,1 @@
+(schema standardir-v0 (primitive bool) (primitive int) (primitive status) (primitive name) (record source-ref (document name) (clause name) (rule name)) (enum item-kind syntax constraint relation rule definition) (sum item syntax constraint relation rule definition) (list items item) (optional source-ref-option source-ref))
