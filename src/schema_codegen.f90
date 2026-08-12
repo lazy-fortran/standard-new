@@ -149,44 +149,44 @@ contains
             if (declaration%kind == schema_sum) then
                 call emit_line(unit, '', ok, message)
                 if (.not. ok) return
-                line = 'type, public :: '//trim(name)//'_t'
+                line = '    type, public :: '//trim(name)//'_t'
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
-                call emit_line(unit, '    integer :: kind = 0', ok, message)
+                call emit_line(unit, '        integer :: kind = 0', ok, message)
                 if (.not. ok) return
-                call emit_line(unit, 'end type '//trim(name)//'_t', ok, message)
+                call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
             end if
         case (schema_record)
-            call emit_line(unit, 'type, public :: '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    type, public :: '//trim(name)//'_t', ok, message)
             if (.not. ok) return
             do i = 1, declaration%member_count
                 call type_name_fortran(schema, declaration%members(i)%type_name, type_name, &
                     ok, message)
                 if (.not. ok) return
-                line = '    '//trim(type_name)//' :: '// &
+                line = '        '//trim(type_name)//' :: '// &
                     trim(fortran_identifier(declaration%members(i)%name))
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
             end do
-            call emit_line(unit, 'end type '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
         case (schema_list)
             call type_name_fortran(schema, declaration%target_type, type_name, ok, message)
             if (.not. ok) return
-            call emit_line(unit, 'type, public :: '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    type, public :: '//trim(name)//'_t', ok, message)
             if (.not. ok) return
-            call emit_line(unit, '    '//trim(type_name)//', allocatable :: values(:)', &
+            call emit_line(unit, '        '//trim(type_name)//', allocatable :: values(:)', &
                 ok, message)
             if (.not. ok) return
-            call emit_line(unit, 'end type '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
         case (schema_optional)
             call type_name_fortran(schema, declaration%target_type, type_name, ok, message)
             if (.not. ok) return
-            call emit_line(unit, 'type, public :: '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    type, public :: '//trim(name)//'_t', ok, message)
             if (.not. ok) return
-            call emit_line(unit, '    '//trim(type_name)//', allocatable :: value', ok, &
+            call emit_line(unit, '        '//trim(type_name)//', allocatable :: value', ok, &
                 message)
             if (.not. ok) return
-            call emit_line(unit, 'end type '//trim(name)//'_t', ok, message)
+            call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
         case default
             ok = .false.
             message = 'cannot emit unknown schema declaration kind'

@@ -16,12 +16,12 @@ program test_schema_codegen
         'module schema_v0_generated', &
         '    integer, parameter, public :: ITEM_KIND_SYNTAX = 1', &
         '    integer, parameter, public :: ITEM_KIND_CONSTRAINT = 2', &
-        'type, public :: source_ref_t', &
-        '    integer :: document', &
-        '    integer :: rule', &
-        'type, public :: item_t', &
-        '    type(item_t), allocatable :: values(:)', &
-        '    type(source_ref_t), allocatable :: value', &
+        '    type, public :: source_ref_t', &
+        '        integer :: document', &
+        '        integer :: rule', &
+        '    type, public :: item_t', &
+        '        type(item_t), allocatable :: values(:)', &
+        '        type(source_ref_t), allocatable :: value', &
         'end module schema_v0_generated']
     character(len=256) :: message
     character(len=256) :: lines(64)
