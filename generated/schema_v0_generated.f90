@@ -21,8 +21,13 @@ module schema_v0_generated
     integer, parameter, public :: ITEM_RULE = 4
     integer, parameter, public :: ITEM_DEFINITION = 5
 
+    type, public :: item_syntax_t
+        character(len=128) :: value
+    end type item_syntax_t
+
     type, public :: item_t
         integer :: kind = 0
+        type(item_syntax_t), allocatable :: syntax
     end type item_t
 
     type, public :: items_t

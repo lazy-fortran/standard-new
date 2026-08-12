@@ -162,6 +162,14 @@ contains
                             trim(schema%declarations(i)%members(j)%type_name)
                         return
                     end if
+                else if (schema%declarations(i)%kind == schema_sum .and. &
+                        len_trim(schema%declarations(i)%members(j)%type_name) > 0) then
+                    if (.not. known_type(schema, &
+                        schema%declarations(i)%members(j)%type_name)) then
+                        message = 'unknown sum payload type: '// &
+                            trim(schema%declarations(i)%members(j)%type_name)
+                        return
+                    end if
                 end if
             end do
             if (schema%declarations(i)%kind == schema_list .or. &
@@ -216,7 +224,7 @@ contains
             end do
         case ('sum')
             declaration%kind = schema_sum
-            call parse_named_members(node, declaration, ok, message)
+            call parse_sum_members(node, declaration, ok, message)
             if (.not. ok) return
         case ('list')
             declaration%kind = schema_list
@@ -289,6 +297,50 @@ contains
         ok = .true.
     end subroutine parse_named_members
 
+    subroutine parse_sum_members(node, declaration, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(schema_declaration_t), intent(inout) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=schema_name_length) :: member_name, type_name
+        integer :: i
+
+        ok = .false.
+        message = ''
+        if (node%child_count < 3) then
+            message = 'sum declaration has no variants'
+            return
+        end if
+        do i = 3, node%child_count
+            if (node%children(i)%kind == sx_atom) then
+                call read_atom(node%children(i), member_name, ok, message)
+                if (.not. ok) return
+                call append_named_member(declaration, member_name, ok, message)
+            else
+                if (node%children(i)%kind /= sx_list) then
+                    message = 'sum variant is not an atom or list'
+                    return
+                end if
+                if (node%children(i)%child_count /= 1 .and. &
+                    node%children(i)%child_count /= 2) then
+                    message = 'sum variant needs a name and optional payload type'
+                    return
+                end if
+                call read_atom(node%children(i)%children(1), member_name, ok, message)
+                if (.not. ok) return
+                type_name = ''
+                if (node%children(i)%child_count == 2) then
+                    call read_atom(node%children(i)%children(2), type_name, ok, message)
+                    if (.not. ok) return
+                end if
+                call append_typed_member(declaration, member_name, type_name, ok, message)
+            end if
+            if (.not. ok) return
+        end do
+        ok = .true.
+    end subroutine parse_sum_members
+
     subroutine append_member(declaration, name_node, type_node, ok, message)
         type(schema_declaration_t), intent(inout) :: declaration
         type(sx_node_t), intent(in) :: name_node, type_node
@@ -331,6 +383,27 @@ contains
         declaration%member_count = member
         ok = .true.
     end subroutine append_named_member
+
+    subroutine append_typed_member(declaration, name, type_name, ok, message)
+        type(schema_declaration_t), intent(inout) :: declaration
+        character(len=*), intent(in) :: name, type_name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: member
+
+        ok = .false.
+        message = ''
+        if (declaration%member_count >= schema_max_members) then
+            message = 'schema declaration has too many members'
+            return
+        end if
+        member = declaration%member_count + 1
+        declaration%members(member)%name = trim(name)
+        declaration%members(member)%type_name = trim(type_name)
+        declaration%member_count = member
+        ok = .true.
+    end subroutine append_typed_member
 
     subroutine read_atom(node, value, ok, message)
         type(sx_node_t), intent(in) :: node

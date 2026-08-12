@@ -103,6 +103,17 @@ contains
                     end if
                 end if
             end do
+        case (schema_sum)
+            do i = 1, schema%declarations(index)%member_count
+                type_name = schema%declarations(index)%members(i)%type_name
+                if (len_trim(type_name) == 0) cycle
+                dependency = declaration_index(schema, type_name)
+                if (dependency > 0) then
+                    if (schema%declarations(dependency)%kind /= schema_primitive) then
+                        if (.not. emitted(dependency)) declaration_ready = .false.
+                    end if
+                end if
+            end do
         case (schema_list, schema_optional)
             dependency = declaration_index(schema, schema%declarations(index)%target_type)
             if (dependency > 0) then
@@ -131,31 +142,60 @@ contains
         ok = .true.
         message = ''
         select case (declaration%kind)
-        case (schema_enum, schema_sum)
+        case (schema_enum)
             do i = 1, declaration%member_count
                 write (number, '(i0)') i
-                if (declaration%kind == schema_enum) then
-                    line = '    integer, parameter, public :: '// &
-                        trim(uppercase(name))//'_'//trim(uppercase( &
-                        fortran_identifier(declaration%members(i)%name)))//' = '//trim(number)
-                else
-                    line = '    integer, parameter, public :: '//trim(uppercase(name))//'_'// &
-                        trim(uppercase(fortran_identifier(declaration%members(i)%name)))// &
-                        ' = '//trim(number)
-                end if
+                line = '    integer, parameter, public :: '// &
+                    trim(uppercase(name))//'_'//trim(uppercase( &
+                    fortran_identifier(declaration%members(i)%name)))//' = '//trim(number)
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
             end do
-            if (declaration%kind == schema_sum) then
-                call emit_line(unit, '', ok, message)
-                if (.not. ok) return
-                line = '    type, public :: '//trim(name)//'_t'
+        case (schema_sum)
+            do i = 1, declaration%member_count
+                write (number, '(i0)') i
+                line = '    integer, parameter, public :: '//trim(uppercase(name))//'_'// &
+                    trim(uppercase(fortran_identifier(declaration%members(i)%name)))// &
+                    ' = '//trim(number)
                 call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
-                call emit_line(unit, '        integer :: kind = 0', ok, message)
+            end do
+            call emit_line(unit, '', ok, message)
+            if (.not. ok) return
+            do i = 1, declaration%member_count
+                if (len_trim(declaration%members(i)%type_name) == 0) cycle
+                line = '    type, public :: '//trim(name)//'_'// &
+                    trim(fortran_identifier(declaration%members(i)%name))//'_t'
+                call emit_line(unit, trim(line), ok, message)
                 if (.not. ok) return
-                call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
-            end if
+                call type_name_fortran(schema, declaration%members(i)%type_name, type_name, &
+                    ok, message)
+                if (.not. ok) return
+                line = '        '//trim(type_name)//' :: value'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                line = '    end type '//trim(name)//'_'// &
+                    trim(fortran_identifier(declaration%members(i)%name))//'_t'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '', ok, message)
+                if (.not. ok) return
+            end do
+            line = '    type, public :: '//trim(name)//'_t'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        integer :: kind = 0', ok, message)
+            if (.not. ok) return
+            do i = 1, declaration%member_count
+                if (len_trim(declaration%members(i)%type_name) == 0) cycle
+                line = '        type('//trim(name)//'_'// &
+                    trim(fortran_identifier(declaration%members(i)%name))// &
+                    '_t), allocatable :: '//trim(fortran_identifier( &
+                    declaration%members(i)%name))
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+            end do
+            call emit_line(unit, '    end type '//trim(name)//'_t', ok, message)
         case (schema_record)
             call emit_line(unit, '    type, public :: '//trim(name)//'_t', ok, message)
             if (.not. ok) return

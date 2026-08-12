@@ -9,7 +9,7 @@ program test_schema_ir
         '(schema demo (primitive bool) (primitive int) '// &
         '(record source-ref (document name) (clause name)) '// &
         '(enum item-kind syntax constraint) '// &
-        '(sum item syntax constraint) (list items item) '// &
+        '(sum item (syntax string) constraint) (list items item) '// &
         '(optional maybe-source source-ref))'
     character(len=256) :: message
     type(schema_t) :: schema
@@ -32,6 +32,12 @@ program test_schema_ir
     call require(trim(schema%declarations(4)%members(2)%name) == 'constraint', &
         'enum member differs')
     call require(schema%declarations(5)%kind == schema_sum, 'sum kind differs')
+    call require(trim(schema%declarations(5)%members(1)%name) == 'syntax', &
+        'sum variant name differs')
+    call require(trim(schema%declarations(5)%members(1)%type_name) == 'string', &
+        'sum payload type differs')
+    call require(len_trim(schema%declarations(5)%members(2)%type_name) == 0, &
+        'payload-less sum variant gained a type')
     call require(schema%declarations(6)%kind == schema_list, 'list kind differs')
     call require(trim(schema%declarations(6)%target_type) == 'item', &
         'list target differs')

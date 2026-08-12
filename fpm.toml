@@ -185,3 +185,8 @@ main = "test_schema_ir.f90"
 name = "test_schema_codegen"
 source-dir = "test"
 main = "test_schema_codegen.f90"
+
+[[test]]
+name = "test_schema_value"
+source-dir = "test"
+main = "test_schema_value.f90"
