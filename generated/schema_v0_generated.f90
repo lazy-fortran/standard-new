@@ -50,6 +50,16 @@ module schema_v0_generated
     public :: schema_write_item, schema_read_item
     public :: schema_write_items, schema_read_items
     public :: schema_write_source_ref_option, schema_read_source_ref_option
+    public :: schema_validate_bool, schema_equal_bool
+    public :: schema_validate_int, schema_equal_int
+    public :: schema_validate_status, schema_equal_status
+    public :: schema_validate_name, schema_equal_name
+    public :: schema_validate_string, schema_equal_string
+    public :: schema_validate_source_ref, schema_equal_source_ref
+    public :: schema_validate_item_kind, schema_equal_item_kind
+    public :: schema_validate_item, schema_equal_item
+    public :: schema_validate_items, schema_equal_items
+    public :: schema_validate_source_ref_option, schema_equal_source_ref_option
 
 contains
     subroutine schema_emit_bool(value, unit, ok, message)
@@ -491,5 +501,258 @@ contains
         allocate(value%value)
         call schema_read_source_ref(payload, value%value, ok, message)
     end subroutine schema_read_source_ref_option
+
+    subroutine schema_validate_bool(value, ok, message)
+        logical, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = value .eqv. value
+        message = ''
+    end subroutine schema_validate_bool
+
+    subroutine schema_validate_int(value, ok, message)
+        integer, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = value == value
+        message = ''
+    end subroutine schema_validate_int
+
+    subroutine schema_validate_status(value, ok, message)
+        integer, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = value == value
+        message = ''
+    end subroutine schema_validate_status
+
+    subroutine schema_validate_name(value, ok, message)
+        character(len=128), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_runtime_validate_name(value, ok, message)
+    end subroutine schema_validate_name
+
+    subroutine schema_validate_string(value, ok, message)
+        character(len=128), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = len_trim(value) >= 0
+        message = ''
+    end subroutine schema_validate_string
+
+    subroutine schema_validate_source_ref(value, ok, message)
+        type(source_ref_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = .false.
+        message = ''
+        call schema_validate_name(value%document, ok, message)
+        if (.not. ok) return
+        call schema_validate_name(value%clause, ok, message)
+        if (.not. ok) return
+        call schema_validate_name(value%rule, ok, message)
+        if (.not. ok) return
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_source_ref
+
+    subroutine schema_validate_item_kind(value, ok, message)
+        integer, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        select case (value)
+        case (1)
+            ok = .true.
+            message = ''
+        case (2)
+            ok = .true.
+            message = ''
+        case (3)
+            ok = .true.
+            message = ''
+        case (4)
+            ok = .true.
+            message = ''
+        case (5)
+            ok = .true.
+            message = ''
+        case default
+            call schema_runtime_error('unknown enum value: item-kind', ok, message)
+        end select
+    end subroutine schema_validate_item_kind
+
+    subroutine schema_validate_item(value, ok, message)
+        type(item_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = .false.
+        message = ''
+        select case (value%kind)
+        case (ITEM_SYNTAX)
+            if (.not. allocated(value%syntax)) then
+                call schema_runtime_error('sum payload is not allocated: syntax', ok, message)
+                return
+            end if
+            call schema_validate_string(value%syntax%value, ok, message)
+            if (.not. ok) return
+            ok = .true.
+            message = ''
+        case (ITEM_CONSTRAINT)
+            if (allocated(value%syntax)) then
+                call schema_runtime_error('sum has inactive payload: syntax', ok, message)
+                return
+            end if
+            ok = .true.
+            message = ''
+        case (ITEM_RELATION)
+            if (allocated(value%syntax)) then
+                call schema_runtime_error('sum has inactive payload: syntax', ok, message)
+                return
+            end if
+            ok = .true.
+            message = ''
+        case (ITEM_RULE)
+            if (allocated(value%syntax)) then
+                call schema_runtime_error('sum has inactive payload: syntax', ok, message)
+                return
+            end if
+            ok = .true.
+            message = ''
+        case (ITEM_DEFINITION)
+            if (allocated(value%syntax)) then
+                call schema_runtime_error('sum has inactive payload: syntax', ok, message)
+                return
+            end if
+            ok = .true.
+            message = ''
+        case default
+            call schema_runtime_error('unknown sum kind: item', ok, message)
+        end select
+    end subroutine schema_validate_item
+
+    subroutine schema_validate_items(value, ok, message)
+        type(items_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+        ok = .false.
+        message = ''
+        if (allocated(value%values)) then
+            do i = 1, size(value%values)
+                call schema_validate_item(value%values(i), ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_items
+
+    subroutine schema_validate_source_ref_option(value, ok, message)
+        type(source_ref_option_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = .false.
+        message = ''
+        if (.not. allocated(value%value)) then
+            ok = .true.
+            message = ''
+            return
+        end if
+        call schema_validate_source_ref(value%value, ok, message)
+        if (.not. ok) return
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_source_ref_option
+
+    logical function schema_equal_bool(left, right) result(equal)
+        logical, intent(in) :: left, right
+        equal = left .eqv. right
+    end function schema_equal_bool
+
+    logical function schema_equal_int(left, right) result(equal)
+        integer, intent(in) :: left, right
+        equal = left == right
+    end function schema_equal_int
+
+    logical function schema_equal_status(left, right) result(equal)
+        integer, intent(in) :: left, right
+        equal = left == right
+    end function schema_equal_status
+
+    logical function schema_equal_name(left, right) result(equal)
+        character(len=128), intent(in) :: left, right
+        equal = trim(left) == trim(right)
+    end function schema_equal_name
+
+    logical function schema_equal_string(left, right) result(equal)
+        character(len=128), intent(in) :: left, right
+        equal = trim(left) == trim(right)
+    end function schema_equal_string
+
+    logical function schema_equal_source_ref(left, right) result(equal)
+        type(source_ref_t), intent(in) :: left, right
+        equal = .false.
+        if (.not. schema_equal_name(left%document, right%document)) return
+        if (.not. schema_equal_name(left%clause, right%clause)) return
+        if (.not. schema_equal_name(left%rule, right%rule)) return
+        equal = .true.
+    end function schema_equal_source_ref
+
+    logical function schema_equal_item_kind(left, right) result(equal)
+        integer, intent(in) :: left, right
+        equal = left == right
+    end function schema_equal_item_kind
+
+    logical function schema_equal_item(left, right) result(equal)
+        type(item_t), intent(in) :: left, right
+        equal = .false.
+        if (left%kind /= right%kind) return
+        select case (left%kind)
+        case (ITEM_SYNTAX)
+            if (allocated(left%syntax) .neqv. allocated(right%syntax)) return
+            if (.not. allocated(left%syntax)) then
+                equal = .true.
+                return
+            end if
+            equal = schema_equal_string(left%syntax%value, right%syntax%value)
+        case (ITEM_CONSTRAINT)
+            equal = .true.
+        case (ITEM_RELATION)
+            equal = .true.
+        case (ITEM_RULE)
+            equal = .true.
+        case (ITEM_DEFINITION)
+            equal = .true.
+        case default
+            equal = .false.
+        end select
+    end function schema_equal_item
+
+    logical function schema_equal_items(left, right) result(equal)
+        type(items_t), intent(in) :: left, right
+        integer :: left_count, right_count, i
+        equal = .false.
+        left_count = 0
+        right_count = 0
+        if (allocated(left%values)) left_count = size(left%values)
+        if (allocated(right%values)) right_count = size(right%values)
+        if (left_count /= right_count) return
+        do i = 1, left_count
+            if (.not. schema_equal_item(left%values(i), right%values(i))) return
+        end do
+        equal = .true.
+    end function schema_equal_items
+
+    logical function schema_equal_source_ref_option(left, right) result(equal)
+        type(source_ref_option_t), intent(in) :: left, right
+        equal = .false.
+        if (allocated(left%value) .neqv. allocated(right%value)) return
+        if (.not. allocated(left%value)) then
+            equal = .true.
+            return
+        end if
+        equal = schema_equal_source_ref(left%value, right%value)
+    end function schema_equal_source_ref_option
 
 end module schema_v0_generated

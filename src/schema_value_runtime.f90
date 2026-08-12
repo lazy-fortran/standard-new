@@ -23,6 +23,7 @@ module schema_value_runtime
     public :: schema_runtime_read_string
     public :: schema_runtime_read_variant
     public :: schema_runtime_record_field
+    public :: schema_runtime_validate_name
     public :: schema_runtime_write_atom
     public :: schema_runtime_write_bool
     public :: schema_runtime_write_int
@@ -136,6 +137,19 @@ contains
 
         call schema_runtime_write_atom(unit, value, ok, message)
     end subroutine schema_runtime_write_name
+
+    subroutine schema_runtime_validate_name(value, ok, message)
+        character(len=*), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        if (.not. is_plain_atom(value)) then
+            call schema_runtime_error('name is not a canonical atom', ok, message)
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_runtime_validate_name
 
     subroutine schema_runtime_write_none(unit, ok, message)
         integer, intent(in) :: unit

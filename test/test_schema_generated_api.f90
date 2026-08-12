@@ -82,6 +82,7 @@ program test_schema_generated_api
     call expect_failure('(source-ref (clause 5) (document 1) (rule 501))', &
         'generated schema record fields are out of order')
     call expect_item_failure('(syntax)', 'sum variant payload is missing')
+    call check_generated_semantics()
 
     print '(a)', 'generated schema API test passed'
 
@@ -238,6 +239,89 @@ contains
         call require(trim(message) == expected_message, &
             'invalid generated sum diagnostic differs')
     end subroutine expect_item_failure
+
+    subroutine check_generated_semantics()
+        type(source_ref_t) :: source_ref_copy, invalid_source_ref
+        type(item_t) :: item_copy, invalid_item
+        type(items_t) :: empty_items, allocated_empty_items, items_copy
+        type(source_ref_option_t) :: optional_copy
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        call schema_validate_source_ref(source_ref, local_ok, local_message)
+        call require(local_ok, local_message)
+        invalid_source_ref = source_ref
+        invalid_source_ref%document = 'bad name'
+        call schema_validate_source_ref(invalid_source_ref, local_ok, local_message)
+        call require(.not. local_ok, 'invalid name passed generated validation')
+        call require(trim(local_message) == 'name is not a canonical atom', &
+            'invalid name diagnostic differs')
+
+        call schema_validate_item_kind(ITEM_KIND_SYNTAX, local_ok, local_message)
+        call require(local_ok, local_message)
+        call schema_validate_item_kind(99, local_ok, local_message)
+        call require(.not. local_ok, 'invalid enum passed generated validation')
+        call require(trim(local_message) == 'unknown enum value: item-kind', &
+            'invalid enum diagnostic differs')
+
+        item%kind = ITEM_SYNTAX
+        if (allocated(item%syntax)) deallocate (item%syntax)
+        allocate (item%syntax)
+        item%syntax%value = 'semantic value'
+        call schema_validate_item(item, local_ok, local_message)
+        call require(local_ok, local_message)
+        item_copy = item
+        call require(schema_equal_item(item, item_copy), 'equal generated sums differ')
+        item_copy%syntax%value = 'different'
+        call require(.not. schema_equal_item(item, item_copy), &
+            'different generated sums compare equal')
+        invalid_item = item
+        deallocate (invalid_item%syntax)
+        call schema_validate_item(invalid_item, local_ok, local_message)
+        call require(.not. local_ok, 'missing sum payload passed generated validation')
+        call require(trim(local_message) == 'sum payload is not allocated: syntax', &
+            'missing sum payload diagnostic differs')
+        invalid_item = item
+        invalid_item%kind = ITEM_CONSTRAINT
+        call schema_validate_item(invalid_item, local_ok, local_message)
+        call require(.not. local_ok, 'inactive sum payload passed generated validation')
+        call require(trim(local_message) == 'sum has inactive payload: syntax', &
+            'inactive sum payload diagnostic differs')
+
+        call schema_validate_items(items, local_ok, local_message)
+        call require(local_ok, local_message)
+        items_copy = items
+        call require(schema_equal_items(items, items_copy), 'equal generated lists differ')
+        items_copy%values(2)%kind = ITEM_SYNTAX
+        if (allocated(items_copy%values(2)%syntax)) deallocate (items_copy%values(2)%syntax)
+        call require(.not. schema_equal_items(items, items_copy), &
+            'different generated lists compare equal')
+        call schema_validate_items(items_copy, local_ok, local_message)
+        call require(.not. local_ok, 'invalid list element passed generated validation')
+
+        call require(schema_equal_items(empty_items, empty_items), &
+            'unallocated empty lists do not compare equal')
+        allocate (allocated_empty_items%values(0))
+        call require(schema_equal_items(empty_items, allocated_empty_items), &
+            'empty list representations are not canonical-equal')
+        call schema_validate_items(empty_items, local_ok, local_message)
+        call require(local_ok, local_message)
+
+        if (allocated(optional_ref%value)) deallocate (optional_ref%value)
+        call schema_validate_source_ref_option(optional_ref, local_ok, local_message)
+        call require(local_ok, local_message)
+        optional_ref%value = source_ref
+        call schema_validate_source_ref_option(optional_ref, local_ok, local_message)
+        call require(local_ok, local_message)
+        optional_copy = optional_ref
+        call require(schema_equal_source_ref_option(optional_ref, optional_copy), &
+            'equal generated optionals differ')
+
+        source_ref_copy = source_ref
+        source_ref_copy%rule = 'R502'
+        call require(.not. schema_equal_source_ref(source_ref, source_ref_copy), &
+            'different generated records compare equal')
+    end subroutine check_generated_semantics
 
     subroutine open_output(unit)
         integer, intent(out) :: unit

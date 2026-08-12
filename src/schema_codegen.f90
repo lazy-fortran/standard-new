@@ -271,6 +271,21 @@ contains
             call emit_public_pair(unit, schema%declarations(i)%name, ok, message)
             if (.not. ok) return
         end do
+        call emit_public_validation_pair(unit, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_public_validation_pair(unit, 'int', ok, message)
+        if (.not. ok) return
+        call emit_public_validation_pair(unit, 'status', ok, message)
+        if (.not. ok) return
+        call emit_public_validation_pair(unit, 'name', ok, message)
+        if (.not. ok) return
+        call emit_public_validation_pair(unit, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_public_validation_pair(unit, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
         call emit_line(unit, '', ok, message)
     end subroutine emit_api_publics
 
@@ -287,6 +302,20 @@ contains
             trim(identifier)
         call emit_line(unit, trim(line), ok, message)
     end subroutine emit_public_pair
+
+    subroutine emit_public_validation_pair(unit, name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=1024) :: line
+        character(len=128) :: identifier
+
+        identifier = fortran_identifier(name)
+        line = '    public :: schema_validate_'//trim(identifier)//', schema_equal_'// &
+            trim(identifier)
+        call emit_line(unit, trim(line), ok, message)
+    end subroutine emit_public_validation_pair
 
     subroutine emit_apis(unit, schema, ok, message)
         integer, intent(in) :: unit
@@ -313,6 +342,9 @@ contains
             call emit_api(unit, schema, schema%declarations(i)%name, ok, message)
             if (.not. ok) return
         end do
+        call emit_validation_apis(unit, schema, ok, message)
+        if (.not. ok) return
+        call emit_equality_apis(unit, schema, ok, message)
     end subroutine emit_apis
 
     subroutine emit_api(unit, schema, name, ok, message)
@@ -1065,6 +1097,659 @@ contains
         call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
         call emit_line(unit, '', ok, message)
     end subroutine emit_optional_api
+
+    subroutine emit_validation_apis(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_validation_api(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_validation_api(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_validation_api(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_validation_api(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_validation_api(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_validation_api(unit, schema, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_validation_apis
+
+    subroutine emit_validation_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: index
+
+        index = declaration_index(schema, name)
+        if (index == 0) then
+            call emit_primitive_validation_api(unit, schema, name, ok, message)
+            return
+        end if
+        select case (schema%declarations(index)%kind)
+        case (schema_primitive)
+            call emit_primitive_validation_api(unit, schema, name, ok, message)
+        case (schema_enum)
+            call emit_enum_validation_api(unit, schema%declarations(index), ok, message)
+        case (schema_record)
+            call emit_record_validation_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_sum)
+            call emit_sum_validation_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_list)
+            call emit_list_validation_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_optional)
+            call emit_optional_validation_api(unit, schema, schema%declarations(index), ok, message)
+        case default
+            ok = .false.
+            message = 'cannot emit validator for unknown schema declaration kind'
+        end select
+    end subroutine emit_validation_api
+
+    subroutine emit_primitive_validation_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(name)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        if (trim(name) == 'name') then
+            line = '        call schema_runtime_validate_name(value, ok, message)'
+        else if (trim(name) == 'bool') then
+            line = '        ok = value .eqv. value'
+        else if (trim(name) == 'string') then
+            line = '        ok = len_trim(value) >= 0'
+        else
+            line = '        ok = value == value'
+        end if
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        if (trim(name) /= 'name') then
+            call emit_line(unit, "        message = ''", ok, message)
+            if (.not. ok) return
+        end if
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_primitive_validation_api
+
+    subroutine emit_enum_validation_api(unit, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, number
+        character(len=1024) :: line
+        integer :: i
+
+        identifier = fortran_identifier(declaration%name)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (value)', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            write (number, '(i0)') i
+            call emit_line(unit, '        case ('//trim(number)//')', ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '            ok = .true.', ok, message)
+            if (.not. ok) return
+            call emit_line(unit, "            message = ''", ok, message)
+            if (.not. ok) return
+        end do
+        line = '        case default'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        line = '            call schema_runtime_error('//trim(fortran_literal( &
+            'unknown enum value: '//trim(declaration%name)))//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_enum_validation_api
+
+    subroutine emit_record_validation_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, member_id
+        character(len=1024) :: line
+        integer :: i
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            member_id = fortran_identifier(declaration%members(i)%name)
+            line = '        call schema_validate_'//trim(fortran_identifier( &
+                declaration%members(i)%type_name))//'('//'value%'//trim(member_id)// &
+                ', ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        if (.not. ok) return', ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_record_validation_api
+
+    subroutine emit_sum_validation_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, variant_id
+        character(len=1024) :: line
+        integer :: i, j
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (value%kind)', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            variant_id = fortran_identifier(declaration%members(i)%name)
+            line = '        case ('//trim(uppercase(identifier))//'_'//trim(uppercase(variant_id))//')'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            do j = 1, declaration%member_count
+                if (j == i .or. len_trim(declaration%members(j)%type_name) == 0) cycle
+                line = '            if (allocated(value%'//trim(fortran_identifier( &
+                    declaration%members(j)%name))//')) then'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                line = '                call schema_runtime_error('//trim(fortran_literal( &
+                    'sum has inactive payload: '//trim(declaration%members(j)%name)))// &
+                    ', ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+            end do
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                variant_id = fortran_identifier(declaration%members(i)%name)
+                line = '            if (.not. allocated(value%'//trim(variant_id)//')) then'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                line = '                call schema_runtime_error('//trim(fortran_literal( &
+                    'sum payload is not allocated: '//trim(declaration%members(i)%name)))// &
+                    ', ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+                line = '            call schema_validate_'//trim(fortran_identifier( &
+                    declaration%members(i)%type_name))//'(value%'//trim(variant_id)//'%value, '// &
+                    'ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            if (.not. ok) return', ok, message)
+                if (.not. ok) return
+            end if
+            call emit_line(unit, '            ok = .true.', ok, message)
+            if (.not. ok) return
+            call emit_line(unit, "            message = ''", ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        line = '            call schema_runtime_error('//trim(fortran_literal( &
+            'unknown sum kind: '//trim(declaration%name)))//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_sum_validation_api
+
+    subroutine emit_list_validation_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: i', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(value%values)) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            do i = 1, size(value%values)', ok, message)
+        if (.not. ok) return
+        line = '                call schema_validate_'//trim(target_id)// &
+            '(value%values(i), ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '                if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_list_validation_api
+
+    subroutine emit_optional_validation_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        call emit_line(unit, '    subroutine schema_validate_'//trim(identifier)// &
+            '(value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. allocated(value%value)) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "            message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        line = '        call schema_validate_'//trim(target_id)//'(value%value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_validate_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_optional_validation_api
+
+    subroutine emit_equality_apis(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_equality_api(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_equality_api(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_equality_api(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_equality_api(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_equality_api(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_equality_api(unit, schema, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_equality_apis
+
+    subroutine emit_equality_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: index
+
+        index = declaration_index(schema, name)
+        if (index == 0) then
+            call emit_primitive_equality_api(unit, schema, name, ok, message)
+            return
+        end if
+        select case (schema%declarations(index)%kind)
+        case (schema_primitive)
+            call emit_primitive_equality_api(unit, schema, name, ok, message)
+        case (schema_enum)
+            call emit_simple_equality_api(unit, name, 'integer', ok, message)
+        case (schema_record)
+            call emit_record_equality_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_sum)
+            call emit_sum_equality_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_list)
+            call emit_list_equality_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_optional)
+            call emit_optional_equality_api(unit, schema, schema%declarations(index), ok, message)
+        case default
+            ok = .false.
+            message = 'cannot emit equality for unknown schema declaration kind'
+        end select
+    end subroutine emit_equality_api
+
+    subroutine emit_primitive_equality_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: type_name
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        call emit_simple_equality_api(unit, name, type_name, ok, message)
+    end subroutine emit_primitive_equality_api
+
+    subroutine emit_simple_equality_api(unit, name, type_name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name, type_name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier
+        character(len=1024) :: line
+
+        identifier = fortran_identifier(name)
+        call emit_line(unit, '    logical function schema_equal_'//trim(identifier)// &
+            '(left, right) result(equal)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: left, right', ok, message)
+        if (.not. ok) return
+        if (trim(type_name) == 'logical') then
+            line = '        equal = left .eqv. right'
+        else if (index(trim(type_name), 'character') == 1) then
+            line = '        equal = trim(left) == trim(right)'
+        else
+            line = '        equal = left == right'
+        end if
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_simple_equality_api
+
+    subroutine emit_record_equality_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, member_id
+        character(len=1024) :: line
+        integer :: i
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        call emit_line(unit, '    logical function schema_equal_'//trim(identifier)// &
+            '(left, right) result(equal)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: left, right', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        equal = .false.', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            member_id = fortran_identifier(declaration%members(i)%name)
+            line = '        if (.not. schema_equal_'//trim(fortran_identifier( &
+                declaration%members(i)%type_name))//'('//trim( &
+                'left%'//trim(member_id)//', right%'//trim(member_id))//')) return'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        equal = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_record_equality_api
+
+    subroutine emit_sum_equality_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, variant_id
+        character(len=1024) :: line
+        integer :: i
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        call emit_line(unit, '    logical function schema_equal_'//trim(identifier)// &
+            '(left, right) result(equal)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: left, right', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        equal = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (left%kind /= right%kind) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (left%kind)', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            variant_id = fortran_identifier(declaration%members(i)%name)
+            line = '        case ('//trim(uppercase(identifier))//'_'//trim(uppercase(variant_id))//')'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                line = '            if (allocated(left%'//trim(variant_id)//') .neqv. '// &
+                    'allocated(right%'//trim(variant_id)//')) return'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            if (.not. allocated(left%'//trim(variant_id)// &
+                    ')) then', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                equal = .true.', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+                line = '            equal = schema_equal_'//trim(fortran_identifier( &
+                    declaration%members(i)%type_name))//'(left%'//trim(variant_id)// &
+                    '%value, right%'//trim(variant_id)//'%value)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+            else
+                call emit_line(unit, '            equal = .true.', ok, message)
+                if (.not. ok) return
+            end if
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            equal = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_sum_equality_api
+
+    subroutine emit_list_equality_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        call emit_line(unit, '    logical function schema_equal_'//trim(identifier)// &
+            '(left, right) result(equal)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: left, right', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: left_count, right_count, i', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        equal = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        left_count = 0', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        right_count = 0', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(left%values)) left_count = size(left%values)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(right%values)) right_count = size(right%values)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (left_count /= right_count) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        do i = 1, left_count', ok, message)
+        if (.not. ok) return
+        line = '            if (.not. schema_equal_'//trim(target_id)// &
+            '(left%values(i), right%values(i))) return'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        equal = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_list_equality_api
+
+    subroutine emit_optional_equality_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        call emit_line(unit, '    logical function schema_equal_'//trim(identifier)// &
+            '(left, right) result(equal)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: left, right', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        equal = .false.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(left%value) .neqv. allocated(right%value)) return', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. allocated(left%value)) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            equal = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        line = '        equal = schema_equal_'//trim(target_id)//'(left%value, right%value)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end function schema_equal_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_optional_equality_api
 
     subroutine type_name_fortran(schema, name, result, ok, message)
         type(schema_t), intent(in) :: schema
