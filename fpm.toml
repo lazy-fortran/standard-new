@@ -147,6 +147,11 @@ source-dir = "test"
 main = "test_fortsx_arena.f90"
 
 [[test]]
+name = "test_fortsx_corpus"
+source-dir = "test"
+main = "test_fortsx_corpus.f90"
+
+[[test]]
 name = "test_standardir_normalize"
 source-dir = "test"
 main = "test_standardir_normalize.f90"
