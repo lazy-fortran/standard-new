@@ -5,8 +5,7 @@ program sxschema
     use schema_ir, only: schema_parse_text, schema_t
     implicit none
 
-    character(len=4096) :: input_path, output_path, module_name, text, message
-    character(len=256) :: line
+    character(len=4096) :: input_path, output_path, module_name, text, message, line
     type(schema_t) :: schema
     logical :: ok
     integer :: ios, input_unit, output_unit
