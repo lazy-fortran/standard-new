@@ -543,7 +543,7 @@ contains
         call standardir_read_atom(node%children(1), label, ok, message)
     end subroutine read_label
 
-    character(len=1024) function helper_for(node, helpers, helper_count)
+    character(len=256) function helper_for(node, helpers, helper_count)
         type(sx_node_t), intent(in) :: node
         type(bison_helper_t), intent(in) :: helpers(:)
         integer, intent(in) :: helper_count

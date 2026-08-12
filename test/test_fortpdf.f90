@@ -123,7 +123,10 @@ contains
         if (.not. ok) then
             print *, 'FAIL: text layout failed: ', trim(message)
             ok_all = .false.
-        else if (len(text) < 4 .or. text(1:4) /= 'R501') then
+        else if (len(text) < 4) then
+            print *, 'FAIL: text layout returned too little text: ', text
+            ok_all = .false.
+        else if (text(1:4) /= 'R501') then
             print *, 'FAIL: text layout returned unexpected text: ', text
             ok_all = .false.
         else if (size(glyphs) < 4) then
@@ -302,7 +305,7 @@ contains
         character(len=1), parameter :: nl = achar(10)
         character(len=:), allocatable :: content
 
-        content = 'BT /F1 12 Tf 72 720 Td (R'//achar(150)//'501) Tj ET'//nl
+        content = 'BT /F1 12 Tf 72 720 Td (R'//char(150)//'501) Tj ET'//nl
         call write_content_fixture_pdf(path, content)
     end subroutine write_unicode_fixture_pdf
 
