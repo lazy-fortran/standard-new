@@ -61,6 +61,11 @@ name = "sxdependencies"
 source-dir = "app"
 main = "sxdependencies.f90"
 
+[[executable]]
+name = "sxebnf"
+source-dir = "app"
+main = "sxebnf.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -90,3 +95,8 @@ main = "test_standardir_normalize.f90"
 name = "test_standardir_dependencies"
 source-dir = "test"
 main = "test_standardir_dependencies.f90"
+
+[[test]]
+name = "test_standardir_grammar"
+source-dir = "test"
+main = "test_standardir_grammar.f90"
