@@ -175,3 +175,8 @@ main = "test_standardir_grammar.f90"
 name = "test_schema_ir"
 source-dir = "test"
 main = "test_schema_ir.f90"
+
+[[test]]
+name = "test_schema_codegen"
+source-dir = "test"
+main = "test_schema_codegen.f90"
