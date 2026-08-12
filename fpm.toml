@@ -112,6 +112,11 @@ source-dir = "test"
 main = "test_interner.f90"
 
 [[test]]
+name = "test_utf8_boundary"
+source-dir = "test"
+main = "test_utf8_boundary.f90"
+
+[[test]]
 name = "test_standardir"
 source-dir = "test"
 main = "test_standardir.f90"
