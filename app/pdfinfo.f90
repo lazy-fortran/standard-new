@@ -11,7 +11,7 @@ program pdfinfo
     !! from it.
 
     use fortpdf, only: pdf_document_t, pdf_open, pdf_close, pdf_page_count, &
-                       pdf_message_len
+        pdf_message_len
     implicit none
 
     type(pdf_document_t) :: doc
