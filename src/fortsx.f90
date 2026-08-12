@@ -5,6 +5,7 @@ module fortsx
     !! the serializer has one spelling for every tree and never concatenates a
     !! growing character buffer.
 
+    use writer, only: writer_t, writer_write_ascii, writer_write_newline
     implicit none
     private
 
@@ -19,7 +20,7 @@ module fortsx
         type(sx_node_t), allocatable :: children(:)
     end type sx_node_t
 
-    public :: sx_clear, sx_parse, sx_write
+    public :: sx_clear, sx_parse, sx_validate, sx_write, sx_write_writer
 
 contains
 
@@ -220,6 +221,135 @@ contains
         if (.not. ok) return
         call finish_line(unit, ok, message)
     end subroutine sx_write
+
+    subroutine sx_validate(node, ok, message)
+        type(sx_node_t), intent(in) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call validate_node(node, ok, message)
+    end subroutine sx_validate
+
+    recursive subroutine validate_node(node, ok, message)
+        type(sx_node_t), intent(in) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .false.
+        message = ''
+        select case (node%kind)
+        case (sx_atom)
+            if (node%child_count /= 0) then
+                message = 'SX atom has children'
+                return
+            end if
+            if (allocated(node%children)) then
+                message = 'SX atom has child storage'
+                return
+            end if
+        case (sx_list)
+            if (node%child_count < 0 .or. node%child_count > sx_max_children) then
+                message = 'SX list child count is invalid'
+                return
+            end if
+            if (node%child_count > 0) then
+                if (.not. allocated(node%children)) then
+                    message = 'SX list has no child storage'
+                    return
+                end if
+                if (size(node%children) < node%child_count) then
+                    message = 'SX list child storage is too small'
+                    return
+                end if
+            end if
+            do i = 1, node%child_count
+                call validate_node(node%children(i), ok, message)
+                if (.not. ok) return
+            end do
+        case default
+            message = 'invalid SX node kind'
+            return
+        end select
+        ok = .true.
+    end subroutine validate_node
+
+    subroutine sx_write_writer(output, node, ok, message)
+        type(writer_t), intent(inout) :: output
+        type(sx_node_t), intent(in) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call sx_validate(node, ok, message)
+        if (.not. ok) return
+        call write_node_writer(output, node, ok, message)
+        if (.not. ok) return
+        call writer_write_newline(output, ok, message)
+    end subroutine sx_write_writer
+
+    recursive subroutine write_node_writer(output, node, ok, message)
+        type(writer_t), intent(inout) :: output
+        type(sx_node_t), intent(in) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .true.
+        message = ''
+        select case (node%kind)
+        case (sx_atom)
+            call write_atom_writer(output, node%atom, ok, message)
+        case (sx_list)
+            call writer_write_ascii(output, '(', ok, message)
+            if (.not. ok) return
+            do i = 1, node%child_count
+                if (i > 1) then
+                    call writer_write_ascii(output, ' ', ok, message)
+                    if (.not. ok) return
+                end if
+                call write_node_writer(output, node%children(i), ok, message)
+                if (.not. ok) return
+            end do
+            call writer_write_ascii(output, ')', ok, message)
+        case default
+            ok = .false.
+            message = 'invalid SX node kind'
+        end select
+    end subroutine write_node_writer
+
+    subroutine write_atom_writer(output, atom, ok, message)
+        type(writer_t), intent(inout) :: output
+        character(len=*), intent(in) :: atom
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=1) :: one
+        integer :: i, n
+        logical :: quoted
+
+        n = len_trim(atom)
+        quoted = n == 0
+        do i = 1, n
+            if (atom(i:i) == ' ' .or. atom(i:i) == achar(9) .or. &
+                atom(i:i) == '(' .or. atom(i:i) == ')' .or. &
+                atom(i:i) == '"' .or. atom(i:i) == achar(92)) quoted = .true.
+        end do
+        if (.not. quoted) then
+            call writer_write_ascii(output, trim(atom), ok, message)
+            return
+        end if
+        call writer_write_ascii(output, '"', ok, message)
+        if (.not. ok) return
+        do i = 1, n
+            if (atom(i:i) == '"' .or. atom(i:i) == achar(92)) then
+                call writer_write_ascii(output, achar(92), ok, message)
+                if (.not. ok) return
+            end if
+            one = atom(i:i)
+            call writer_write_ascii(output, one, ok, message)
+            if (.not. ok) return
+        end do
+        call writer_write_ascii(output, '"', ok, message)
+    end subroutine write_atom_writer
 
     recursive subroutine write_node(unit, node, ok, message)
         integer, intent(in) :: unit
