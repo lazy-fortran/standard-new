@@ -81,6 +81,11 @@ name = "sxtreesitter"
 source-dir = "app"
 main = "sxtreesitter.f90"
 
+[[executable]]
+name = "sxschema"
+source-dir = "app"
+main = "sxschema.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
