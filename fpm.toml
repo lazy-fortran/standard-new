@@ -190,3 +190,8 @@ main = "test_schema_codegen.f90"
 name = "test_schema_value"
 source-dir = "test"
 main = "test_schema_value.f90"
+
+[[test]]
+name = "test_schema_generated_api"
+source-dir = "test"
+main = "test_schema_generated_api.f90"

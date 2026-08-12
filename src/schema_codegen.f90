@@ -1,5 +1,5 @@
 module schema_codegen
-    !! Deterministically emit the first Fortran type layer from a .sxs schema.
+    !! Deterministically emit Fortran types and schema-specific value APIs.
     !!
     !! This is deliberately separate from schema parsing.  The schema remains
     !! authoritative; this module only chooses a stable source order and emits
@@ -39,6 +39,10 @@ contains
         if (.not. ok) go to 900
         call emit_line(unit, 'module '//trim(module_name), ok, message)
         if (.not. ok) go to 900
+        call emit_line(unit, '    use fortsx, only: sx_node_t', ok, message)
+        if (.not. ok) go to 900
+        call emit_line(unit, '    use schema_value_runtime', ok, message)
+        if (.not. ok) go to 900
         call emit_line(unit, '    implicit none', ok, message)
         if (.not. ok) go to 900
         call emit_line(unit, '    private', ok, message)
@@ -67,6 +71,13 @@ contains
                 go to 900
             end if
         end do
+
+        call emit_api_publics(unit, schema, ok, message)
+        if (.not. ok) go to 900
+        call emit_line(unit, 'contains', ok, message)
+        if (.not. ok) go to 900
+        call emit_apis(unit, schema, ok, message)
+        if (.not. ok) go to 900
 
         call emit_line(unit, 'end module '//trim(module_name), ok, message)
 
@@ -235,6 +246,826 @@ contains
         call emit_line(unit, '', ok, message)
     end subroutine emit_declaration
 
+    subroutine emit_api_publics(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_public_pair(unit, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_public_pair(unit, 'int', ok, message)
+        if (.not. ok) return
+        call emit_public_pair(unit, 'status', ok, message)
+        if (.not. ok) return
+        call emit_public_pair(unit, 'name', ok, message)
+        if (.not. ok) return
+        call emit_public_pair(unit, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_public_pair(unit, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_api_publics
+
+    subroutine emit_public_pair(unit, name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=1024) :: line
+        character(len=128) :: identifier
+
+        identifier = fortran_identifier(name)
+        line = '    public :: schema_write_'//trim(identifier)//', schema_read_'// &
+            trim(identifier)
+        call emit_line(unit, trim(line), ok, message)
+    end subroutine emit_public_pair
+
+    subroutine emit_apis(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_api(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_api(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_api(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_api(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_api(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_api(unit, schema, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_apis
+
+    subroutine emit_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: index
+
+        index = declaration_index(schema, name)
+        ok = .true.
+        message = ''
+        if (index == 0) then
+            call emit_primitive_api(unit, schema, name, ok, message)
+            return
+        end if
+        select case (schema%declarations(index)%kind)
+        case (schema_primitive)
+            call emit_primitive_api(unit, schema, name, ok, message)
+        case (schema_enum)
+            call emit_enum_api(unit, schema%declarations(index), ok, message)
+        case (schema_record)
+            call emit_record_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_sum)
+            call emit_sum_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_list)
+            call emit_list_api(unit, schema, schema%declarations(index), ok, message)
+        case (schema_optional)
+            call emit_optional_api(unit, schema, schema%declarations(index), ok, message)
+        case default
+            ok = .false.
+            message = 'cannot emit API for unknown schema declaration kind'
+        end select
+    end subroutine emit_api
+
+    subroutine emit_primitive_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name, writer_type_name, writer_name, reader_name
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        writer_type_name = type_name
+        if (trim(name) == 'string') writer_type_name = 'character(len=*)'
+        identifier = fortran_identifier(name)
+        select case (trim(name))
+        case ('bool')
+            writer_name = 'schema_runtime_write_bool'
+            reader_name = 'schema_runtime_read_bool'
+        case ('int', 'status')
+            writer_name = 'schema_runtime_write_int'
+            reader_name = 'schema_runtime_read_int'
+        case ('name')
+            writer_name = 'schema_runtime_write_name'
+            reader_name = 'schema_runtime_read_name'
+        case ('string')
+            writer_name = 'schema_runtime_write_string'
+            reader_name = 'schema_runtime_read_string'
+        case default
+            ok = .false.
+            message = 'primitive type has no generated API mapping: '//trim(name)
+            return
+        end select
+
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(writer_type_name)//', intent(in) :: value', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call '//trim(writer_name)//'(unit, value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_write_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(writer_type_name)//', intent(in) :: value', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call schema_emit_'//trim(identifier)//'(value, unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_finish(unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_write_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call '//trim(reader_name)//'(node, value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_primitive_api
+
+    subroutine emit_enum_api(unit, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, number
+        character(len=1024) :: line
+        integer :: i
+
+        identifier = fortran_identifier(declaration%name)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (value)', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            write (number, '(i0)') i
+            call emit_line(unit, '        case ('//trim(number)//')', ok, message)
+            if (.not. ok) return
+            line = '            call schema_runtime_write_atom(unit, '// &
+                fortran_literal(declaration%members(i)%name)//', ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        line = '            call schema_runtime_error('// &
+            fortran_literal('unknown enum value: '//trim(declaration%name))// &
+            ', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+        call emit_writer_wrapper(unit, declaration%name, 'integer', ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=256) :: atom', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_read_atom(node, atom, ok, message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (trim(atom))', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            write (number, '(i0)') i
+            call emit_line(unit, '        case ('//fortran_literal( &
+                declaration%members(i)%name)//')', ok, message)
+            if (.not. ok) return
+            line = '            value = '//trim(number)
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        line = '            call schema_runtime_error('// &
+            fortran_literal('unknown enum value: '//trim(declaration%name))// &
+            ', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_enum_api
+
+    subroutine emit_writer_wrapper(unit, name, type_name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name, type_name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier
+        character(len=1024) :: line
+
+        identifier = fortran_identifier(name)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_write_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call schema_emit_'//trim(identifier)//'(value, unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_finish(unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_write_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_writer_wrapper
+
+    subroutine emit_record_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name, member_type, member_id
+        character(len=1024) :: line
+        integer :: i
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        line = '        call schema_runtime_open_list(unit, '// &
+            fortran_literal(declaration%name)//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            member_type = declaration%members(i)%type_name
+            member_id = fortran_identifier(declaration%members(i)%name)
+            line = '        call schema_runtime_write_space(unit, ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            line = '        call schema_runtime_open_list(unit, '// &
+                fortran_literal(declaration%members(i)%name)//', ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        if (.not. ok) return', ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        call schema_runtime_write_space(unit, ok, message)', &
+                ok, message)
+            if (.not. ok) return
+            line = '        call schema_emit_'//trim(fortran_identifier(member_type))// &
+                '(value%'//trim(member_id)//', unit, ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        if (.not. ok) return', ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        call schema_runtime_close_list(unit, ok, message)', &
+                ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        call schema_runtime_close_list(unit, ok, message)', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+        call emit_writer_wrapper(unit, declaration%name, trim(type_name), ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t) :: field', ok, message)
+        if (.not. ok) return
+        line = '        call schema_runtime_expect_list(node, '// &
+            fortran_literal(declaration%name)//', '//trim(int_literal( &
+            declaration%member_count + 1))//', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            member_type = declaration%members(i)%type_name
+            member_id = fortran_identifier(declaration%members(i)%name)
+            line = '        call schema_runtime_record_field(node, '// &
+                trim(int_literal(i))//', '//fortran_literal( &
+                declaration%members(i)%name)//', field, ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        if (.not. ok) return', ok, message)
+            if (.not. ok) return
+            line = '        call schema_read_'//trim(fortran_identifier(member_type))// &
+                '(field, value%'//trim(member_id)//', ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '        if (.not. ok) return', ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_record_api
+
+    subroutine emit_sum_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name, variant_id, payload_type
+        character(len=1024) :: line
+        integer :: i
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        select case (value%kind)', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            variant_id = fortran_identifier(declaration%members(i)%name)
+            line = '        case ('//trim(uppercase(identifier))//'_'// &
+                trim(uppercase(variant_id))//')'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                line = '            if (.not. allocated(value%'//trim(variant_id)//')) then'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                line = '                call schema_runtime_error('// &
+                    fortran_literal('sum payload is not allocated: '// &
+                    trim(declaration%members(i)%name))//', ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+            end if
+            line = '            call schema_runtime_open_list(unit, '// &
+                fortran_literal(declaration%members(i)%name)//', ok, message)'
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+            call emit_line(unit, '            if (.not. ok) return', ok, message)
+            if (.not. ok) return
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                call emit_line(unit, '            call schema_runtime_write_space(unit, ok, &', &
+                    ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                message)', ok, message)
+                if (.not. ok) return
+                payload_type = declaration%members(i)%type_name
+                line = '            call schema_emit_'//trim(fortran_identifier(payload_type))// &
+                    '(value%'//trim(variant_id)//'%value, unit, ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            if (.not. ok) return', ok, message)
+                if (.not. ok) return
+            end if
+            call emit_line(unit, '            call schema_runtime_close_list(unit, ok, message)', &
+                ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        line = '            call schema_runtime_error('// &
+            fortran_literal('unknown sum kind: '//trim(declaration%name))// &
+            ', ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+        call emit_writer_wrapper(unit, declaration%name, trim(type_name), ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=256) :: tag', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t) :: payload', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical :: has_payload', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_read_variant(node, tag, payload, &', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            has_payload, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            variant_id = fortran_identifier(declaration%members(i)%name)
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                line = '        if (allocated(value%'//trim(variant_id)//')) deallocate(value%'// &
+                    trim(variant_id)//')'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+            end if
+        end do
+        call emit_line(unit, '        select case (trim(tag))', ok, message)
+        if (.not. ok) return
+        do i = 1, declaration%member_count
+            variant_id = fortran_identifier(declaration%members(i)%name)
+            call emit_line(unit, '        case ('//fortran_literal( &
+                declaration%members(i)%name)//')', ok, message)
+            if (.not. ok) return
+            if (len_trim(declaration%members(i)%type_name) > 0) then
+                call emit_line(unit, '            if (.not. has_payload) then', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                call schema_runtime_error('// &
+                    fortran_literal('sum variant payload is missing')// &
+                    ', ok, message)', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+                line = '            allocate(value%'//trim(variant_id)//')'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                line = '            call schema_read_'//trim(fortran_identifier( &
+                    declaration%members(i)%type_name))//'('// &
+                    'payload, value%'//trim(variant_id)//'%value, ok, message)'
+                call emit_line(unit, trim(line), ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            if (.not. ok) return', ok, message)
+                if (.not. ok) return
+            else
+                call emit_line(unit, '            if (has_payload) then', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                call schema_runtime_error('// &
+                    fortran_literal('payload-less sum variant has a payload')// &
+                    ', ok, message)', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '                return', ok, message)
+                if (.not. ok) return
+                call emit_line(unit, '            end if', ok, message)
+                if (.not. ok) return
+            end if
+            line = '            value%kind = '//trim(uppercase(identifier))//'_'// &
+                trim(uppercase(variant_id))
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+        end do
+        call emit_line(unit, '        case default', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            call schema_runtime_error('// &
+            fortran_literal('unknown sum variant')//', ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end select', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_sum_api
+
+    subroutine emit_list_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: i', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_open_list(unit, '// &
+            fortran_literal(declaration%name)//', ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(value%values)) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            do i = 1, size(value%values)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '                call schema_runtime_write_space(unit, ok, message)', &
+            ok, message)
+        if (.not. ok) return
+        line = '                call schema_emit_'//trim(target_id)// &
+            '(value%values(i), unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '                if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_close_list(unit, ok, message)', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+        call emit_writer_wrapper(unit, declaration%name, trim(type_name), ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t) :: element', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: i, count', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_expect_list(node, '// &
+            fortran_literal(declaration%name)//', -1, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(value%values)) deallocate(value%values)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        count = node%child_count - 1', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (count > 0) allocate(value%values(count))', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        do i = 1, count', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            call schema_runtime_list_element(node, i, element, ok, &', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '                message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        line = '            call schema_read_'//trim(target_id)// &
+            '(element, value%values(i), ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_list_api
+
+    subroutine emit_optional_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name, target_id
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, declaration%name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_emit_'//trim(identifier)// &
+            '(value, unit, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer, intent(in) :: unit', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. allocated(value%value)) then', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            call schema_runtime_write_none(unit, ok, message)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end if', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_open_list(unit, '// &
+            fortran_literal('some')//', ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_write_space(unit, ok, message)', &
+            ok, message)
+        if (.not. ok) return
+        line = '        call schema_emit_'//trim(target_id)// &
+            '(value%value, unit, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_close_list(unit, ok, message)', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_emit_'//trim(identifier), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+        if (.not. ok) return
+        call emit_writer_wrapper(unit, declaration%name, trim(type_name), ok, message)
+        if (.not. ok) return
+
+        call emit_line(unit, '    subroutine schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//', intent(out) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical :: present', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t) :: payload', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        call schema_runtime_read_optional(node, present, payload, &', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (allocated(value%value)) deallocate(value%value)', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. present) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        allocate(value%value)', ok, message)
+        if (.not. ok) return
+        line = '        call schema_read_'//trim(target_id)// &
+            '(payload, value%value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_read_'//trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_optional_api
+
     subroutine type_name_fortran(schema, name, result, ok, message)
         type(schema_t), intent(in) :: schema
         character(len=*), intent(in) :: name
@@ -250,14 +1081,19 @@ contains
         select case (trim(name))
         case ('bool')
             result = 'logical'
-        case ('int', 'status', 'node', 'symbol', 'type', 'scope', 'name')
+        case ('int', 'status', 'node', 'symbol', 'type', 'scope')
             result = 'integer'
-        case ('string')
+        case ('name', 'string')
             result = 'character(len=128)'
         case default
             index = declaration_index(schema, name)
             if (index == 0) then
                 message = 'cannot emit unknown type: '//trim(name)
+                return
+            end if
+            if (schema%declarations(index)%kind == schema_enum) then
+                result = 'integer'
+                ok = .true.
                 return
             end if
             if (schema%declarations(index)%kind == schema_primitive) then
@@ -282,6 +1118,50 @@ contains
             end if
         end do
     end function declaration_index
+
+    logical function is_builtin_primitive(name)
+        character(len=*), intent(in) :: name
+
+        select case (trim(name))
+        case ('bool', 'int', 'status', 'name', 'string')
+            is_builtin_primitive = .true.
+        case default
+            is_builtin_primitive = .false.
+        end select
+    end function is_builtin_primitive
+
+    function int_literal(value) result(text)
+        integer, intent(in) :: value
+        character(len=32) :: text
+
+        write (text, '(i0)') value
+    end function int_literal
+
+    function fortran_literal(value) result(text)
+        character(len=*), intent(in) :: value
+        character(len=:), allocatable :: text
+        integer :: extra, i, n, position
+
+        n = len_trim(value)
+        extra = 0
+        do i = 1, n
+            if (value(i:i) == "'") extra = extra + 1
+        end do
+        allocate (character(len=n + extra + 2) :: text)
+        text = repeat(' ', len(text))
+        text(1:1) = "'"
+        position = 1
+        do i = 1, n
+            position = position + 1
+            if (value(i:i) == "'") then
+                text(position:position) = "'"
+                position = position + 1
+            end if
+            text(position:position) = value(i:i)
+        end do
+        position = position + 1
+        text(position:position) = "'"
+    end function fortran_literal
 
     function fortran_identifier(name) result(identifier)
         character(len=*), intent(in) :: name

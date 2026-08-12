@@ -22,15 +22,15 @@ program test_schema_codegen
         '        character(len=128) :: value', &
         '    end type item_syntax_t', &
         '    type, public :: source_ref_t', &
-        '        integer :: document', &
-        '        integer :: rule', &
+        '        character(len=128) :: document', &
+        '        character(len=128) :: rule', &
         '    type, public :: item_t', &
         '        type(item_syntax_t), allocatable :: syntax', &
         '        type(item_t), allocatable :: values(:)', &
         '        type(source_ref_t), allocatable :: value', &
         'end module schema_v0_generated']
     character(len=256) :: message
-    character(len=256) :: lines(64)
+    character(len=256) :: lines(4096)
     type(schema_t) :: schema
     logical :: ok
     integer :: count, ios, unit
