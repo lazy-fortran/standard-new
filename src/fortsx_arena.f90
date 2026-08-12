@@ -169,9 +169,9 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         integer :: first_child, child, count
+        integer :: direct_children(sx_arena_max_children)
 
         position = position + 1
-        first_child = arena%child_count + 1
         count = 0
         do
             call skip_space(arena, position)
@@ -182,6 +182,7 @@ contains
             end if
             if (text_at(arena, position) == ')') then
                 position = position + 1
+                call append_list_children(arena, direct_children, count, first_child)
                 call add_node(arena, sx_arena_list, first_child, count, 0, 0, &
                     node, ok, message)
                 return
@@ -193,11 +194,23 @@ contains
             end if
             call parse_form(arena, position, child, ok, message)
             if (.not. ok) return
-            arena%child_count = arena%child_count + 1
-            arena%children(arena%child_count) = child
             count = count + 1
+            direct_children(count) = child
         end do
     end subroutine parse_list
+
+    subroutine append_list_children(arena, direct_children, count, first_child)
+        type(sx_arena_t), intent(inout) :: arena
+        integer, intent(in) :: direct_children(:), count
+        integer, intent(out) :: first_child
+        integer :: i
+
+        first_child = arena%child_count + 1
+        do i = 1, count
+            arena%child_count = arena%child_count + 1
+            arena%children(arena%child_count) = direct_children(i)
+        end do
+    end subroutine append_list_children
 
     subroutine add_node(arena, kind, first_child, child_count, text_start, text_length, &
             node, ok, message)
