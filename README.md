@@ -32,6 +32,7 @@ fo exec sxroundtrip <standardir.sx> <roundtripped.sx>
 fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 fo exec sxebnf <standardir.sx> <grammar.ebnf>
 fo exec sxantlr <standardir.sx> <grammar.g4>
+fo exec sxbison <standardir.sx> <grammar.y>
 ```
 
 Requires `poppler-glib`, `gobject-2.0` and `glib-2.0`, reached through
@@ -49,6 +50,10 @@ cd ../standard-new && fo exec pdfinfo ../lazy-fortran-new/.cache/j3-24-007.pdf
 
 The target is J3/24-007, the Fortran 2023 final working draft: freely
 available, and technically near-identical to ISO/IEC 1539-1:2023.
+
+The Bison projection lowers StandardIR optional and repeated expressions to
+generated helper nonterminals because Bison has no native EBNF repetition
+operators.
 
 ## Licence
 

@@ -71,6 +71,11 @@ name = "sxantlr"
 source-dir = "app"
 main = "sxantlr.f90"
 
+[[executable]]
+name = "sxbison"
+source-dir = "app"
+main = "sxbison.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"

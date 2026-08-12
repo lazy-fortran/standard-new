@@ -2,6 +2,7 @@ program test_standardir_grammar
     !! Fixed EBNF is the independent oracle for the grammar projection.
 
     use fortsx, only: sx_node_t, sx_parse
+    use standardir_bison, only: standardir_emit_bison
     use standardir_grammar, only: standardir_emit_antlr, standardir_emit_ebnf
     implicit none
 
@@ -20,6 +21,12 @@ program test_standardir_grammar
     character(len=*), parameter :: expected_antlr_name = 'r_program'
     character(len=*), parameter :: expected_antlr_rule = &
         '    : r_program_x2D_unit ( r_program_x2D_unit )*'
+    character(len=*), parameter :: expected_bison_comment = &
+        '/* rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef */'
+    character(len=*), parameter :: expected_bison_rule = 'r_program:'
+    character(len=*), parameter :: expected_bison_rhs = &
+        '    r_program_x2D_unit h_R501_1'
+    character(len=*), parameter :: expected_bison_helper = 'h_R501_1:'
     character(len=256) :: line, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -57,6 +64,25 @@ program test_standardir_grammar
     if (ios /= 0 .or. trim(line) /= expected_antlr_name) call fail('ANTLR name differs')
     read (unit, '(a)', iostat=ios) line
     if (ios /= 0 .or. trim(line) /= expected_antlr_rule) call fail('ANTLR rule differs')
+    close (unit)
+    open (newunit=unit, file='build/test_standardir_grammar.y', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open Bison fixture')
+    call standardir_emit_bison(unit, node, ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar.y', action='read', iostat=ios)
+    if (ios /= 0) call fail('cannot read Bison fixture')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_bison_comment) call fail('Bison provenance differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_bison_rule) call fail('Bison name differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_bison_rhs) call fail('Bison rhs differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= '  ;') call fail('Bison rule terminator differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_bison_helper) call fail('Bison helper differs')
     close (unit)
     print '(a)', 'StandardIR grammar tests passed'
 
