@@ -56,6 +56,11 @@ name = "sxnormalize"
 source-dir = "app"
 main = "sxnormalize.f90"
 
+[[executable]]
+name = "sxdependencies"
+source-dir = "app"
+main = "sxdependencies.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -80,3 +85,8 @@ main = "test_fortsx.f90"
 name = "test_standardir_normalize"
 source-dir = "test"
 main = "test_standardir_normalize.f90"
+
+[[test]]
+name = "test_standardir_dependencies"
+source-dir = "test"
+main = "test_standardir_dependencies.f90"
