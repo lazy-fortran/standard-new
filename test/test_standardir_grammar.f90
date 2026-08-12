@@ -4,6 +4,7 @@ program test_standardir_grammar
     use fortsx, only: sx_node_t, sx_parse
     use standardir_bison, only: standardir_emit_bison
     use standardir_grammar, only: standardir_emit_antlr, standardir_emit_ebnf
+    use standardir_treesitter, only: standardir_emit_treesitter
     implicit none
 
     character(len=*), parameter :: input = &
@@ -27,6 +28,10 @@ program test_standardir_grammar
     character(len=*), parameter :: expected_bison_rhs = &
         '    r_program_x2D_unit h_R501_1'
     character(len=*), parameter :: expected_bison_helper = 'h_R501_1:'
+    character(len=*), parameter :: expected_treesitter_comment = &
+        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef'
+    character(len=*), parameter :: expected_treesitter_rule = &
+        'r_program: $ => seq($.r_program_x2D_unit, repeat($.r_program_x2D_unit)),'
     character(len=256) :: line, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -83,6 +88,21 @@ program test_standardir_grammar
     if (ios /= 0 .or. trim(line) /= '  ;') call fail('Bison rule terminator differs')
     read (unit, '(a)', iostat=ios) line
     if (ios /= 0 .or. trim(line) /= expected_bison_helper) call fail('Bison helper differs')
+    close (unit)
+    open (newunit=unit, file='build/test_standardir_grammar.js', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open tree-sitter fixture')
+    call standardir_emit_treesitter(unit, node, ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar.js', action='read', iostat=ios)
+    if (ios /= 0) call fail('cannot read tree-sitter fixture')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_treesitter_comment) &
+        call fail('tree-sitter provenance differs')
+    read (unit, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= expected_treesitter_rule) &
+        call fail('tree-sitter rule differs')
     close (unit)
     print '(a)', 'StandardIR grammar tests passed'
 

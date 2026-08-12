@@ -33,7 +33,12 @@ fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 fo exec sxebnf <standardir.sx> <grammar.ebnf>
 fo exec sxantlr <standardir.sx> <grammar.g4>
 fo exec sxbison <standardir.sx> <grammar.y>
+fo exec sxtreesitter <standardir.sx> <grammar.js>
 ```
+
+The tree-sitter output is a grammar.js projection. It uses reversible
+StandardIR-safe rule identifiers and tree-sitter's `seq`, `choice`, `optional`,
+`repeat` and `repeat1` constructors.
 
 Requires `poppler-glib`, `gobject-2.0` and `glib-2.0`, reached through
 `ISO_C_BINDING`. No C shim, no other language in the build path.
