@@ -25,7 +25,7 @@ module fortsx_arena
         integer :: node_count = 0
         integer :: children(sx_arena_max_nodes * sx_arena_max_children) = 0
         integer :: child_count = 0
-        character(len=1), allocatable :: text(:)
+        integer(int8), allocatable :: text(:)
         integer :: text_length = 0
     end type sx_arena_t
 
@@ -58,7 +58,7 @@ contains
         allocate (arena%text(max(1, len(input))))
         if (len(input) > 0) then
             do position = 1, len(input)
-                arena%text(position) = input(position:position)
+                arena%text(position) = int(iachar(input(position:position)), int8)
             end do
         end if
         arena%text_length = len(input)
@@ -154,7 +154,7 @@ contains
                 end if
                 position = position + 1
             end if
-            arena%text(write_position) = text_at(arena, position)
+            arena%text(write_position) = int(iachar(text_at(arena, position)), int8)
             write_position = write_position + 1
             position = position + 1
         end do
@@ -237,7 +237,7 @@ contains
         type(sx_arena_t), intent(in) :: arena
         integer, intent(in) :: position
 
-        value = arena%text(position)
+        value = achar(byte_as_integer(arena%text(position)))
     end function text_at
 
     subroutine sx_arena_write(output, arena, root, ok, message)
@@ -302,24 +302,31 @@ contains
         length = arena%nodes(node)%text_length
         quoted = length == 0
         do i = 0, length - 1
-            if (arena%text(start + i) == ' ' .or. arena%text(start + i) == achar(9) .or. &
-                arena%text(start + i) == '(' .or. arena%text(start + i) == ')' .or. &
-                arena%text(start + i) == '"' .or. arena%text(start + i) == achar(92)) quoted = .true.
+            if (text_at(arena, start + i) == ' ' .or. text_at(arena, start + i) == achar(9) .or. &
+                text_at(arena, start + i) == '(' .or. text_at(arena, start + i) == ')' .or. &
+                text_at(arena, start + i) == '"' .or. text_at(arena, start + i) == achar(92)) quoted = .true.
         end do
         if (quoted) then
             call writer_write_ascii(output, '"', ok, message)
             if (.not. ok) return
         end if
         do i = 0, length - 1
-            value = arena%text(start + i)
+            value = text_at(arena, start + i)
             if (quoted .and. (value == '"' .or. value == achar(92))) then
                 call writer_write_ascii(output, achar(92), ok, message)
                 if (.not. ok) return
             end if
-            call writer_write_byte(output, int(iachar(value), int8), ok, message)
+            call writer_write_byte(output, arena%text(start + i), ok, message)
             if (.not. ok) return
         end do
         if (quoted) call writer_write_ascii(output, '"', ok, message)
     end subroutine write_atom
+
+    integer function byte_as_integer(value) result(unsigned)
+        integer(int8), intent(in) :: value
+
+        unsigned = int(value)
+        if (unsigned < 0) unsigned = unsigned + 256
+    end function byte_as_integer
 
 end module fortsx_arena
