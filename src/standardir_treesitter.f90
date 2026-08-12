@@ -2,12 +2,14 @@ module standardir_treesitter
     !! Emit a tree-sitter grammar.js projection from StandardIR syntax objects.
 
     use fortsx, only: sx_node_t
+    use standardir_grouping, only: standardir_group_t
     use standardir_syntax_fields, only: standardir_read_atom, &
         standardir_read_syntax_header
     implicit none
     private
 
     public :: standardir_emit_treesitter
+    public :: standardir_emit_treesitter_group
 
 contains
 
@@ -42,6 +44,60 @@ contains
         if (.not. ok) return
         write (unit, '(a)') ','
     end subroutine standardir_emit_treesitter
+
+    subroutine standardir_emit_treesitter_group(unit, nodes, group, ok, message)
+        integer, intent(in) :: unit
+        type(sx_node_t), intent(in) :: nodes(:)
+        type(standardir_group_t), intent(in) :: group
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=256) :: rule, lhs, document, clause, page, source_hash
+        integer :: i, index
+
+        ok = .false.
+        message = ''
+        if (group%count < 1) then
+            message = 'cannot emit an empty tree-sitter group'
+            return
+        end if
+        do i = 1, group%count
+            index = group%indices(i)
+            call standardir_read_syntax_header(nodes(index), rule, lhs, document, clause, page, &
+                source_hash, ok, message)
+            if (.not. ok) return
+            call emit_provenance(unit, rule, document, clause, page, source_hash)
+        end do
+        write (unit, '(a)', advance='no') trim(treesitter_name(group%lhs))//': $ => '
+        if (group%count > 1) write (unit, '(a)', advance='no') 'choice('
+        do i = 1, group%count
+            index = group%indices(i)
+            if (i > 1) write (unit, '(a)', advance='no') ', '
+            call emit_expression(unit, nodes(index)%children(4), ok, message)
+            if (.not. ok) return
+        end do
+        if (group%count > 1) write (unit, '(a)', advance='no') ')'
+        write (unit, '(a)') ','
+        ok = .true.
+        message = ''
+    end subroutine standardir_emit_treesitter_group
+
+    subroutine emit_provenance(unit, rule, document, clause, page, source_hash)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: rule, document, clause, page, source_hash
+
+        write (unit, '(a)', advance='no') '// rule='
+        write (unit, '(a)', advance='no') trim(rule)
+        write (unit, '(a)', advance='no') ' document='
+        write (unit, '(a)', advance='no') trim(document)
+        write (unit, '(a)', advance='no') ' clause='
+        write (unit, '(a)', advance='no') trim(clause)
+        write (unit, '(a)', advance='no') ' page='
+        write (unit, '(a)', advance='no') trim(page)
+        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') trim(source_hash)
+        write (unit, '(a)')
+    end subroutine emit_provenance
 
     recursive subroutine emit_expression(unit, node, ok, message)
         integer, intent(in) :: unit

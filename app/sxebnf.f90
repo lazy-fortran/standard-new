@@ -1,14 +1,17 @@
 program sxebnf
-    !! Emit canonical EBNF from one StandardIR SX object per input line.
+    !! Emit canonical EBNF from StandardIR SX objects, grouped by lhs.
 
     use fortsx, only: sx_node_t, sx_parse
-    use standardir_grammar, only: standardir_emit_ebnf
+    use standardir_grammar, only: standardir_emit_ebnf_group
+    use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
+        standardir_max_syntax_records, standardir_max_syntax_groups
     implicit none
 
     character(len=4096) :: input_path, output_path, message
     character(len=65536) :: line
-    type(sx_node_t) :: node
-    integer :: argc, input_unit, output_unit, ios, records
+    type(sx_node_t) :: node, nodes(standardir_max_syntax_records)
+    type(standardir_group_t) :: groups(standardir_max_syntax_groups)
+    integer :: argc, input_unit, output_unit, ios, records, group_count, i
     logical :: ok
 
     argc = command_argument_count()
@@ -38,13 +41,19 @@ program sxebnf
         call sx_parse(line, node, ok, message)
         if (.not. ok) call fail(trim(message))
         if (is_header(node)) cycle
-        call standardir_emit_ebnf(output_unit, node, ok, message)
-        if (.not. ok) call fail(trim(message))
+        if (records >= standardir_max_syntax_records) call fail('syntax record limit exceeded')
         records = records + 1
+        nodes(records) = node
     end do
     close (input_unit)
+    call standardir_group_syntax(nodes, records, groups, group_count, ok, message)
+    if (.not. ok) call fail(trim(message))
+    do i = 1, group_count
+        call standardir_emit_ebnf_group(output_unit, nodes, groups(i), ok, message)
+        if (.not. ok) call fail(trim(message))
+    end do
     close (output_unit)
-    print '(a,i0,a)', 'emitted ', records, ' EBNF productions'
+    print '(a,i0,a,i0,a)', 'emitted ', group_count, ' EBNF productions from ', records, ' records'
 
 contains
 

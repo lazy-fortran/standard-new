@@ -5,12 +5,18 @@ program test_standardir_grammar
     use standardir_bison, only: standardir_emit_bison
     use standardir_grammar, only: standardir_emit_antlr, standardir_emit_ebnf
     use standardir_treesitter, only: standardir_emit_treesitter
+    use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
+        standardir_max_syntax_groups
     implicit none
 
     character(len=*), parameter :: input = &
         '(syntax R501 (lhs program) (rhs (seq (ref program-unit) '// &
         '(repeat (ref program-unit) 0 unbounded))) (source '// &
         '(document J3-24-007) (clause 5-15) (rule R501) (page 53) '// &
+        '(source-sha256 abcdef)))'
+    character(len=*), parameter :: duplicate_input = &
+        '(syntax R502 (lhs program) (rhs (seq (token PROGRAM))) (source '// &
+        '(document J3-24-007) (clause 5-15) (rule R502) (page 53) '// &
         '(source-sha256 abcdef)))'
     character(len=*), parameter :: expected_comment = &
         '(* rule=R501 document=J3-24-007 clause=5-15 page=53 '// &
@@ -33,8 +39,9 @@ program test_standardir_grammar
     character(len=*), parameter :: expected_treesitter_rule = &
         'r_program: $ => seq($.r_program_x2D_unit, repeat($.r_program_x2D_unit)),'
     character(len=256) :: line, message
-    type(sx_node_t) :: node
-    integer :: unit, ios
+    type(sx_node_t) :: node, nodes(2)
+    type(standardir_group_t) :: groups(standardir_max_syntax_groups)
+    integer :: unit, ios, group_count
     logical :: ok
 
     call sx_parse(input, node, ok, message)
@@ -104,6 +111,15 @@ program test_standardir_grammar
     if (ios /= 0 .or. trim(line) /= expected_treesitter_rule) &
         call fail('tree-sitter rule differs')
     close (unit)
+    call sx_parse(input, nodes(1), ok, message)
+    if (.not. ok) call fail(trim(message))
+    call sx_parse(duplicate_input, nodes(2), ok, message)
+    if (.not. ok) call fail(trim(message))
+    call standardir_group_syntax(nodes, 2, groups, group_count, ok, message)
+    if (.not. ok) call fail(trim(message))
+    if (group_count /= 1 .or. groups(1)%count /= 2 .or. &
+        groups(1)%indices(1) /= 1 .or. groups(1)%indices(2) /= 2) &
+        call fail('duplicate lhs grouping differs')
     print '(a)', 'StandardIR grammar tests passed'
 
 contains

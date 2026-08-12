@@ -2,6 +2,7 @@ module standardir_bison
     !! Emit a Bison grammar projection from StandardIR syntax objects.
 
     use fortsx, only: sx_atom, sx_list, sx_node_t
+    use standardir_grouping, only: standardir_group_t, standardir_max_group_members
     use standardir_syntax_fields, only: standardir_read_atom, standardir_read_pair, &
         standardir_read_syntax_header
     implicit none
@@ -16,6 +17,7 @@ module standardir_bison
     end type bison_helper_t
 
     public :: standardir_emit_bison
+    public :: standardir_emit_bison_group
 
 contains
 
@@ -66,6 +68,80 @@ contains
             if (.not. ok) return
         end do
     end subroutine standardir_emit_bison
+
+    subroutine standardir_emit_bison_group(unit, nodes, group, ok, message)
+        integer, intent(in) :: unit
+        type(sx_node_t), intent(in) :: nodes(:)
+        type(standardir_group_t), intent(in) :: group
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(bison_helper_t) :: helpers(max_helpers)
+        character(len=256) :: rule, lhs, document, clause, page, source_hash
+        character(len=256) :: top_symbols(standardir_max_group_members)
+        integer :: helper_count, i, index
+
+        ok = .false.
+        message = ''
+        helper_count = 0
+        if (group%count < 1) then
+            message = 'cannot emit an empty Bison group'
+            return
+        end if
+        do i = 1, group%count
+            index = group%indices(i)
+            call standardir_read_syntax_header(nodes(index), rule, lhs, document, clause, page, &
+                source_hash, ok, message)
+            if (.not. ok) return
+            call prepare_root(nodes(index)%children(4), rule, helpers, helper_count, &
+                top_symbols(i), ok, message)
+            if (.not. ok) return
+        end do
+        do i = 1, group%count
+            index = group%indices(i)
+            call standardir_read_syntax_header(nodes(index), rule, lhs, document, clause, page, &
+                source_hash, ok, message)
+            if (.not. ok) return
+            call emit_bison_provenance(unit, rule, document, clause, page, source_hash)
+            if (i == 1) then
+                write (unit, '(a)', advance='no') trim(bison_name(group%lhs))//':'
+            else
+                write (unit, '(a)', advance='no') '  |'
+            end if
+            write (unit, '(a)', advance='no') new_line('a')//'    '
+            if (len_trim(top_symbols(i)) > 0) then
+                write (unit, '(a)', advance='no') trim(top_symbols(i))
+            else
+                call emit_inline(unit, nodes(index)%children(4), helpers, helper_count, ok, message)
+                if (.not. ok) return
+            end if
+            write (unit, '(a)')
+        end do
+        write (unit, '(a)') '  ;'
+        do i = 1, helper_count
+            call emit_helper(unit, helpers(i), helpers, helper_count, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_emit_bison_group
+
+    subroutine emit_bison_provenance(unit, rule, document, clause, page, source_hash)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: rule, document, clause, page, source_hash
+
+        write (unit, '(a)', advance='no') '/* rule='
+        write (unit, '(a)', advance='no') trim(rule)
+        write (unit, '(a)', advance='no') ' document='
+        write (unit, '(a)', advance='no') trim(document)
+        write (unit, '(a)', advance='no') ' clause='
+        write (unit, '(a)', advance='no') trim(clause)
+        write (unit, '(a)', advance='no') ' page='
+        write (unit, '(a)', advance='no') trim(page)
+        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') trim(source_hash)
+        write (unit, '(a)') ' */'
+    end subroutine emit_bison_provenance
 
     recursive subroutine prepare_root(node, rule, helpers, helper_count, top_symbol, ok, message)
         type(sx_node_t), intent(in) :: node

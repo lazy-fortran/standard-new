@@ -2,11 +2,14 @@ module standardir_grammar
     !! Emit a canonical EBNF projection from StandardIR syntax objects.
 
     use fortsx, only: sx_atom, sx_list, sx_node_t
+    use standardir_grouping, only: standardir_group_t
     implicit none
     private
 
     public :: standardir_emit_antlr
     public :: standardir_emit_ebnf
+    public :: standardir_emit_antlr_group
+    public :: standardir_emit_ebnf_group
 
 contains
 
@@ -74,6 +77,115 @@ contains
         write (unit, '(a)')
         write (unit, '(a)') '    ;'
     end subroutine standardir_emit_antlr
+
+    subroutine standardir_emit_ebnf_group(unit, nodes, group, ok, message)
+        integer, intent(in) :: unit
+        type(sx_node_t), intent(in) :: nodes(:)
+        type(standardir_group_t), intent(in) :: group
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=256) :: rule, lhs, document, clause, page, source_hash
+        integer :: i, index
+
+        ok = .false.
+        message = ''
+        if (group%count < 1) then
+            message = 'cannot emit an empty EBNF group'
+            return
+        end if
+        do i = 1, group%count
+            index = group%indices(i)
+            call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
+                ok, message)
+            if (.not. ok) return
+            call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash)
+            if (i == 1) then
+                write (unit, '(a)', advance='no') trim(lhs)//' ::= '
+            else
+                write (unit, '(a)', advance='no') ' | '
+            end if
+            call emit_expression(unit, nodes(index)%children(4), ok, message)
+            if (.not. ok) return
+        end do
+        write (unit, '(a)') ' ;'
+        ok = .true.
+        message = ''
+    end subroutine standardir_emit_ebnf_group
+
+    subroutine standardir_emit_antlr_group(unit, nodes, group, ok, message)
+        integer, intent(in) :: unit
+        type(sx_node_t), intent(in) :: nodes(:)
+        type(standardir_group_t), intent(in) :: group
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=256) :: rule, lhs, document, clause, page, source_hash
+        integer :: i, index
+
+        ok = .false.
+        message = ''
+        if (group%count < 1) then
+            message = 'cannot emit an empty ANTLR group'
+            return
+        end if
+        do i = 1, group%count
+            index = group%indices(i)
+            call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
+                ok, message)
+            if (.not. ok) return
+            call emit_antlr_provenance(unit, rule, document, clause, page, source_hash)
+        end do
+        write (unit, '(a)') trim(antlr_name(group%lhs))
+        do i = 1, group%count
+            index = group%indices(i)
+            if (i == 1) then
+                write (unit, '(a)', advance='no') '    : '
+            else
+                write (unit, '(a)', advance='no') '    | '
+            end if
+            call emit_antlr_expression(unit, nodes(index)%children(4), ok, message)
+            if (.not. ok) return
+            write (unit, '(a)')
+        end do
+        write (unit, '(a)') '    ;'
+        ok = .true.
+        message = ''
+    end subroutine standardir_emit_antlr_group
+
+    subroutine emit_ebnf_provenance(unit, rule, document, clause, page, source_hash)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: rule, document, clause, page, source_hash
+
+        write (unit, '(a)', advance='no') '(* rule='
+        write (unit, '(a)', advance='no') trim(rule)
+        write (unit, '(a)', advance='no') ' document='
+        write (unit, '(a)', advance='no') trim(document)
+        write (unit, '(a)', advance='no') ' clause='
+        write (unit, '(a)', advance='no') trim(clause)
+        write (unit, '(a)', advance='no') ' page='
+        write (unit, '(a)', advance='no') trim(page)
+        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') trim(source_hash)
+        write (unit, '(a)') ' *)'
+    end subroutine emit_ebnf_provenance
+
+    subroutine emit_antlr_provenance(unit, rule, document, clause, page, source_hash)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: rule, document, clause, page, source_hash
+
+        write (unit, '(a)', advance='no') '// rule='
+        write (unit, '(a)', advance='no') trim(rule)
+        write (unit, '(a)', advance='no') ' document='
+        write (unit, '(a)', advance='no') trim(document)
+        write (unit, '(a)', advance='no') ' clause='
+        write (unit, '(a)', advance='no') trim(clause)
+        write (unit, '(a)', advance='no') ' page='
+        write (unit, '(a)', advance='no') trim(page)
+        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') trim(source_hash)
+        write (unit, '(a)')
+    end subroutine emit_antlr_provenance
 
     subroutine read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
             ok, message)
