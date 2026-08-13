@@ -28,7 +28,7 @@ program test_pdfstandardir
         '"byte_start":100,"byte_length":20}'
     close (unit)
 
-    command = 'build/fo/bin/pdfstandardir '//input_path//' '//legacy_path//' '//hash//' 5'
+    command = 'fo exec --no-build pdfstandardir '//input_path//' '//legacy_path//' '//hash//' 5'
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'legacy projection command failed')
     call read_line(legacy_path, 1, actual)
@@ -36,7 +36,7 @@ program test_pdfstandardir
     call read_line(legacy_path, 2, actual)
     call require(trim(actual) == syntax_expected, 'legacy syntax output changed')
 
-    command = 'build/fo/bin/pdfstandardir '//input_path//' '//records_path//' '// &
+    command = 'fo exec --no-build pdfstandardir '//input_path//' '//records_path//' '// &
         'caller-hash caller-clause --syntax-items caller-document human resolved'
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'source-backed projection command failed')
