@@ -8,28 +8,62 @@ program pdfstandardir
     use, intrinsic :: iso_fortran_env, only: int64
     use standardir, only: standardir_syntax_t, standardir_start, standardir_add, &
         standardir_emit
+    use standardir_export, only: standardir_origin_differential, &
+        standardir_origin_human, standardir_origin_imported, standardir_origin_llm, &
+        standardir_origin_llm_repair, standardir_origin_mechanical, &
+        standardir_origin_search, standardir_origin_smt, &
+        standardir_resolution_disputed, standardir_resolution_resolved, &
+        standardir_resolution_unresolved, standardir_write_syntax_item_from_production
     implicit none
 
-    character(len=4096) :: input_path, output_path, source_hash
+    character(len=4096) :: input_path, output_path, source_hash, source_document
     character(len=64) :: clause
-    character(len=16384) :: line
+    character(len=16384) :: line, output_mode
     character(len=256) :: value, kind, rule, lhs, operator, text, message
     type(standardir_syntax_t) :: production
     integer(int64) :: byte_start, byte_length
-    integer :: argc, input_unit, output_unit, ios, page, records
-    logical :: found, active, ok
+    integer :: argc, input_unit, output_unit, ios, page, records, origin, resolution
+    logical :: found, active, ok, syntax_item_mode
 
     argc = command_argument_count()
-    if (argc /= 4) then
+    if (argc /= 4 .and. argc /= 8) then
         call get_command_argument(0, input_path)
         print '(a)', 'usage: '//trim(input_path)// &
             ' <productions.jsonl> <output.sx> <source-sha256> <clause>'
+        print '(a)', '   or: '//trim(input_path)// &
+            ' <productions.jsonl> <output.sx> <source-sha256> <clause>'// &
+            ' --syntax-items <document> <origin> <resolution>'
         stop 2
     end if
     call get_command_argument(1, input_path)
     call get_command_argument(2, output_path)
     call get_command_argument(3, source_hash)
     call get_command_argument(4, clause)
+    syntax_item_mode = .false.
+    source_document = 'J3-24-007'
+    origin = standardir_origin_mechanical
+    resolution = standardir_resolution_resolved
+    if (argc == 8) then
+        call get_command_argument(5, output_mode)
+        if (trim(output_mode) /= '--syntax-items') then
+            print '(a)', 'error: unknown output mode '//trim(output_mode)
+            stop 2
+        end if
+        call get_command_argument(6, source_document)
+        call get_command_argument(7, output_mode)
+        call parse_origin(output_mode, origin, ok)
+        if (.not. ok) then
+            print '(a)', 'error: invalid origin '//trim(output_mode)
+            stop 2
+        end if
+        call get_command_argument(8, output_mode)
+        call parse_resolution(output_mode, resolution, ok)
+        if (.not. ok) then
+            print '(a)', 'error: invalid resolution '//trim(output_mode)
+            stop 2
+        end if
+        syntax_item_mode = .true.
+    end if
 
     open (newunit=input_unit, file=trim(input_path), action='read', iostat=ios)
     if (ios /= 0) then
@@ -44,9 +78,12 @@ program pdfstandardir
         stop 1
     end if
 
-    write (output_unit, '(a)') '(standardir (format 1) (origin MECHANICAL) '// &
-        '(source (document J3-24-007) (clause '//trim(clause)//') (source-sha256 '// &
-        trim(source_hash)//')))'
+    if (.not. syntax_item_mode) then
+        write (output_unit, '(a)') '(standardir (format 1) (origin MECHANICAL) '// &
+            '(source (document J3-24-007) (clause '//trim(clause)//') '// &
+            '(source-sha256 '//trim(source_hash)// &
+            ')))'
+    end if
     active = .false.
     records = 0
 
@@ -57,7 +94,7 @@ program pdfstandardir
         if (.not. found) cycle
         if (trim(kind) == 'production-start') then
             if (active) then
-                call standardir_emit(output_unit, production, source_hash, clause, ok, message)
+                call emit_production(production, ok, message)
                 if (.not. ok) call fail_output(input_unit, output_unit, message)
                 records = records + 1
             end if
@@ -98,7 +135,7 @@ program pdfstandardir
     end do
 
     if (active) then
-        call standardir_emit(output_unit, production, source_hash, clause, ok, message)
+        call emit_production(production, ok, message)
         if (.not. ok) call fail_output(input_unit, output_unit, message)
         records = records + 1
     end if
@@ -107,6 +144,69 @@ program pdfstandardir
     print '(a,i0,a)', 'wrote ', records, ' StandardIR syntax objects'
 
 contains
+
+    subroutine emit_production(production, ok, message)
+        type(standardir_syntax_t), intent(in) :: production
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        if (syntax_item_mode) then
+            call standardir_write_syntax_item_from_production(output_unit, production, &
+                source_document, clause, source_hash, origin, resolution, ok, message)
+        else
+            call standardir_emit(output_unit, production, source_hash, clause, ok, message)
+        end if
+    end subroutine emit_production
+
+    subroutine parse_origin(value, result, ok)
+        character(len=*), intent(in) :: value
+        integer, intent(out) :: result
+        logical, intent(out) :: ok
+
+        select case (trim(value))
+        case ('mechanical')
+            result = standardir_origin_mechanical
+        case ('search')
+            result = standardir_origin_search
+        case ('smt')
+            result = standardir_origin_smt
+        case ('llm')
+            result = standardir_origin_llm
+        case ('llm-repair')
+            result = standardir_origin_llm_repair
+        case ('human')
+            result = standardir_origin_human
+        case ('imported')
+            result = standardir_origin_imported
+        case ('differential')
+            result = standardir_origin_differential
+        case default
+            result = 0
+            ok = .false.
+            return
+        end select
+        ok = .true.
+    end subroutine parse_origin
+
+    subroutine parse_resolution(value, result, ok)
+        character(len=*), intent(in) :: value
+        integer, intent(out) :: result
+        logical, intent(out) :: ok
+
+        select case (trim(value))
+        case ('resolved')
+            result = standardir_resolution_resolved
+        case ('unresolved')
+            result = standardir_resolution_unresolved
+        case ('disputed')
+            result = standardir_resolution_disputed
+        case default
+            result = 0
+            ok = .false.
+            return
+        end select
+        ok = .true.
+    end subroutine parse_resolution
 
     subroutine required_string(line, key, value, ok, message)
         character(len=*), intent(in) :: line, key

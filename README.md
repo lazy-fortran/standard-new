@@ -28,6 +28,8 @@ fo exec pdfextract <file.pdf> <layout.txt>
 fo exec pdfcanonical <file.pdf> <canonical.txt> <pages.index>
 fo exec pdfproductions <canonical.txt> <pages.index> <productions.jsonl> 53 56
 fo exec pdfstandardir <productions.jsonl> <standardir.sx> <source-sha256> <clause>
+fo exec pdfstandardir <productions.jsonl> <syntax-items.sx> <source-sha256> <clause> \
+    --syntax-items <document> <origin> <resolution>
 fo exec sxroundtrip <standardir.sx> <roundtripped.sx>
 fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 fo exec sxebnf <standardir.sx> <grammar.ebnf>

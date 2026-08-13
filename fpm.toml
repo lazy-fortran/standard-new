@@ -197,6 +197,11 @@ source-dir = "test"
 main = "test_standardir_adapter.f90"
 
 [[test]]
+name = "test_pdfstandardir"
+source-dir = "test"
+main = "test_pdfstandardir.f90"
+
+[[test]]
 name = "test_schema_ir"
 source-dir = "test"
 main = "test_schema_ir.f90"
