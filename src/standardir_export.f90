@@ -51,6 +51,7 @@ module standardir_export
     public :: standardir_write_syntax_item_from_production
     public :: standardir_validate_source_ref, standardir_validate_syntax_item
     public :: standardir_read_semantic_item, standardir_write_semantic_item
+    public :: standardir_write_semantic_item_from_fields
     public :: standardir_validate_semantic_item
 
 contains
@@ -237,6 +238,27 @@ contains
         call schema_runtime_close_list(unit, ok, message)
         if (ok) call schema_runtime_finish(unit, ok, message)
     end subroutine standardir_write_semantic_item
+
+    subroutine standardir_write_semantic_item_from_fields(unit, id, subject, document, &
+            clause, rule, page, source_hash, origin, resolution, ok, message)
+        integer, intent(in) :: unit, page, origin, resolution
+        character(len=*), intent(in) :: id, subject, document, clause, rule, source_hash
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_semantic_item_t) :: value
+
+        value%id = id
+        value%subject = subject
+        value%source%document = document
+        value%source%clause = clause
+        value%source%rule = rule
+        value%source%page = page
+        value%source%source_hash = source_hash
+        value%origin = origin
+        value%resolution = resolution
+        call standardir_write_semantic_item(value, unit, ok, message)
+    end subroutine standardir_write_semantic_item_from_fields
 
     subroutine standardir_validate_source_ref(value, ok, message)
         type(standardir_source_ref_t), intent(in) :: value
