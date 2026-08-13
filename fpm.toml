@@ -225,3 +225,8 @@ main = "test_schema_generated_api.f90"
 name = "test_schema_visitor"
 source-dir = "test"
 main = "test_schema_visitor.f90"
+
+[[test]]
+name = "test_standardir_semantic_table"
+source-dir = "test"
+main = "test_standardir_semantic_table.f90"
