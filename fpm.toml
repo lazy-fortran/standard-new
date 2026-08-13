@@ -205,3 +205,8 @@ main = "test_schema_value.f90"
 name = "test_schema_generated_api"
 source-dir = "test"
 main = "test_schema_generated_api.f90"
+
+[[test]]
+name = "test_schema_visitor"
+source-dir = "test"
+main = "test_schema_visitor.f90"
