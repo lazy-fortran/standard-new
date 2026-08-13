@@ -2,6 +2,7 @@ module standardir_export
     !! Typed, source-backed StandardIR records for frontend consumers.
 
     use fortsx, only: sx_atom, sx_list, sx_node_t
+    use standardir, only: standardir_syntax_t
     use schema_value_runtime, only: schema_runtime_close_list, schema_runtime_finish, &
         schema_runtime_open_list, schema_runtime_read_atom, schema_runtime_read_int, &
         schema_runtime_write_atom, schema_runtime_write_int, schema_runtime_write_space
@@ -47,6 +48,7 @@ module standardir_export
 
     public :: standardir_read_source_ref, standardir_write_source_ref
     public :: standardir_read_syntax_item, standardir_write_syntax_item
+    public :: standardir_write_syntax_item_from_production
     public :: standardir_validate_source_ref, standardir_validate_syntax_item
     public :: standardir_read_semantic_item, standardir_write_semantic_item
     public :: standardir_validate_semantic_item
@@ -170,6 +172,45 @@ contains
         call schema_runtime_close_list(unit, ok, message)
         if (ok) call schema_runtime_finish(unit, ok, message)
     end subroutine standardir_write_syntax_item
+
+    subroutine standardir_write_syntax_item_from_production(unit, production, document, &
+            clause, source_hash, origin, resolution, ok, message)
+        integer, intent(in) :: unit
+        type(standardir_syntax_t), intent(in) :: production
+        character(len=*), intent(in) :: document, clause, source_hash
+        integer, intent(in) :: origin, resolution
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_syntax_item_t) :: value
+
+        ok = .false.
+        message = ''
+        if (production%incomplete) then
+            message = 'production has an unclosed grammar group'
+            return
+        end if
+        if (production%alternative_count < 1 .or. &
+            production%alternative_count > size(production%alternatives)) then
+            message = 'production has an invalid alternative count'
+            return
+        end if
+        if (production%first_page <= 0 .or. production%last_page < production%first_page) then
+            message = 'production has an invalid page span'
+            return
+        end if
+
+        value%id = trim(production%rule)
+        value%lhs = trim(production%lhs)
+        value%source%document = trim(document)
+        value%source%clause = trim(clause)
+        value%source%rule = trim(production%rule)
+        value%source%page = production%first_page
+        value%source%source_hash = trim(source_hash)
+        value%origin = origin
+        value%resolution = resolution
+        call standardir_write_syntax_item(value, unit, ok, message)
+    end subroutine standardir_write_syntax_item_from_production
 
     subroutine standardir_write_semantic_item(value, unit, ok, message)
         type(standardir_semantic_item_t), intent(in) :: value
