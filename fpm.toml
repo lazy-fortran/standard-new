@@ -187,6 +187,11 @@ source-dir = "test"
 main = "test_standardir_composite.f90"
 
 [[test]]
+name = "test_standardir_export"
+source-dir = "test"
+main = "test_standardir_export.f90"
+
+[[test]]
 name = "test_schema_ir"
 source-dir = "test"
 main = "test_schema_ir.f90"
