@@ -94,16 +94,31 @@ contains
             return
         end if
         do i = 1, facts%count
-            if (len_trim(facts%facts(i)%source_term) == 0 .or. &
-                len_trim(facts%facts(i)%target_name) == 0 .or. &
-                len_trim(facts%facts(i)%class_name) == 0) then
+            if (len_trim(facts%facts(i)%source_term) == 0) then
                 message = 'lexical fact lacks source term, class or target name'
                 return
             end if
-            if (len_trim(facts%facts(i)%document) == 0 .or. &
-                len_trim(facts%facts(i)%clause) == 0 .or. &
-                len_trim(facts%facts(i)%source_page) == 0 .or. &
-                .not. is_sha256(facts%facts(i)%source_hash)) then
+            if (len_trim(facts%facts(i)%target_name) == 0) then
+                message = 'lexical fact lacks source term, class or target name'
+                return
+            end if
+            if (len_trim(facts%facts(i)%class_name) == 0) then
+                message = 'lexical fact lacks source term, class or target name'
+                return
+            end if
+            if (len_trim(facts%facts(i)%document) == 0) then
+                message = 'lexical fact lacks complete source provenance'
+                return
+            end if
+            if (len_trim(facts%facts(i)%clause) == 0) then
+                message = 'lexical fact lacks complete source provenance'
+                return
+            end if
+            if (len_trim(facts%facts(i)%source_page) == 0) then
+                message = 'lexical fact lacks complete source provenance'
+                return
+            end if
+            if (.not. is_sha256(facts%facts(i)%source_hash)) then
                 message = 'lexical fact lacks complete source provenance'
                 return
             end if
