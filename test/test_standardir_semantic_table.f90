@@ -5,11 +5,11 @@ program test_standardir_semantic_table
         standardir_resolution_disputed, standardir_resolution_resolved, &
         standardir_resolution_unresolved, standardir_semantic_item_t
     use standardir_semantic_table, only: semantic_table_add, semantic_table_iterate, &
-        semantic_table_max_items, semantic_table_reset, semantic_table_t, &
-        semantic_table_validate
+        semantic_table_count_resolution, semantic_table_iterate_resolution, &
+        semantic_table_max_items, semantic_table_reset, semantic_table_t, semantic_table_validate
     implicit none
 
-    type(semantic_table_t) :: table
+    type(semantic_table_t) :: table, empty_table
     type(standardir_semantic_item_t) :: expected, actual, invalid
     character(len=256) :: message
     character(len=12), parameter :: expected_ids(3) = [character(len=12) :: &
@@ -18,7 +18,7 @@ program test_standardir_semantic_table
         'assignment', 'allocation', 'coarray']
     integer, parameter :: expected_resolutions(3) = [standardir_resolution_resolved, &
         standardir_resolution_unresolved, standardir_resolution_disputed]
-    integer :: cursor, i
+    integer :: cursor, i, count
     logical :: ok, done
 
     call make_item(expected, 'S-valid', 'assignment', standardir_resolution_resolved)
@@ -47,6 +47,62 @@ program test_standardir_semantic_table
     call semantic_table_iterate(table, cursor, actual, done, ok, message)
     call require(ok .and. done, 'iteration did not finish')
 
+    call make_item(expected, 'S-valid-2', 'assignment-2', standardir_resolution_resolved)
+    call semantic_table_add(table, expected, ok, message)
+    call require(ok, message)
+
+    call semantic_table_count_resolution(table, standardir_resolution_resolved, count, ok, message)
+    call require(ok .and. count == 2, 'resolved count differs')
+    call semantic_table_count_resolution(table, standardir_resolution_unresolved, count, ok, message)
+    call require(ok .and. count == 1, 'unresolved count differs')
+    call semantic_table_count_resolution(table, standardir_resolution_disputed, count, ok, message)
+    call require(ok .and. count == 1, 'disputed count differs')
+    call semantic_table_count_resolution(table, 0, count, ok, message)
+    call require(.not. ok .and. count == 0, 'invalid resolution was accepted')
+
+    cursor = 0
+    do i = 1, 3
+        call semantic_table_iterate_resolution(table, standardir_resolution_resolved, cursor, &
+            actual, done, ok, message)
+        if (i == 1) then
+            call require(ok .and. .not. done .and. actual%id == 'S-valid', &
+                'filtered iteration record differs')
+        else if (i == 2) then
+            call require(ok .and. .not. done .and. actual%id == 'S-valid-2', &
+                'filtered insertion order differs')
+        else
+            call require(ok .and. done, 'filtered iteration did not finish')
+        end if
+    end do
+    cursor = 0
+    call semantic_table_iterate_resolution(table, standardir_resolution_disputed, cursor, actual, &
+        done, ok, message)
+    call require(ok .and. .not. done .and. actual%id == 'S-disputed', &
+        'disputed filtered iteration differs')
+    cursor = 0
+    call semantic_table_iterate_resolution(table, 0, cursor, actual, done, ok, message)
+    call require(.not. ok .and. .not. done .and. cursor == 0, &
+        'invalid filtered resolution changed state')
+    cursor = -1
+    call semantic_table_iterate_resolution(table, standardir_resolution_resolved, cursor, actual, &
+        done, ok, message)
+    call require(.not. ok .and. cursor == -1, 'invalid filtered cursor was accepted')
+    cursor = 0
+    call semantic_table_iterate_resolution(table, standardir_resolution_unresolved, cursor, actual, &
+        done, ok, message)
+    call require(ok .and. .not. done .and. actual%id == 'S-unresolved', &
+        'unresolved filtered iteration differs')
+    call semantic_table_iterate_resolution(table, standardir_resolution_unresolved, cursor, actual, &
+        done, ok, message)
+    call require(ok .and. done, 'filtered end cursor behavior differs')
+    call semantic_table_count_resolution(empty_table, standardir_resolution_resolved, count, ok, &
+        message)
+    call require(ok .and. count == 0, 'no-match count differs')
+    cursor = 0
+    call semantic_table_iterate_resolution(empty_table, standardir_resolution_resolved, cursor, &
+        actual, done, ok, message)
+    call require(ok .and. done, 'no-match iteration differs')
+
     invalid = table%items(1)
     invalid%subject = ''
     call semantic_table_add(table, invalid, ok, message)
@@ -54,6 +110,8 @@ program test_standardir_semantic_table
     table%items(2)%resolution = 0
     call semantic_table_validate(table, ok, message)
     call require(.not. ok, 'invalid resolution mutation was accepted')
+    call semantic_table_count_resolution(table, standardir_resolution_resolved, count, ok, message)
+    call require(.not. ok .and. count == 0, 'invalid table state was queried')
     table%items(2)%resolution = standardir_resolution_unresolved
     call semantic_table_reset(table)
     call require(table%item_count == 0, 'reset did not clear table')

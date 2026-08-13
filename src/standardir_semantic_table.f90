@@ -2,7 +2,8 @@ module standardir_semantic_table
     !! Bounded, insertion-ordered storage for source-backed semantic items.
 
     use standardir_export, only: standardir_semantic_item_t, &
-        standardir_validate_semantic_item
+        standardir_resolution_disputed, standardir_resolution_resolved, &
+        standardir_resolution_unresolved, standardir_validate_semantic_item
     implicit none
     private
 
@@ -17,6 +18,8 @@ module standardir_semantic_table
     public :: semantic_table_reset
     public :: semantic_table_validate
     public :: semantic_table_iterate
+    public :: semantic_table_count_resolution
+    public :: semantic_table_iterate_resolution
 
 contains
 
@@ -101,5 +104,79 @@ contains
         done = .false.
         message = ''
     end subroutine semantic_table_iterate
+
+    subroutine semantic_table_count_resolution(table, resolution, count, ok, message)
+        type(semantic_table_t), intent(in) :: table
+        integer, intent(in) :: resolution
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        count = 0
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) return
+        if (.not. valid_resolution(resolution)) then
+            ok = .false.
+            message = 'semantic-item table resolution is invalid'
+            return
+        end if
+        do i = 1, table%item_count
+            if (table%items(i)%resolution == resolution) count = count + 1
+        end do
+        ok = .true.
+        message = ''
+    end subroutine semantic_table_count_resolution
+
+    subroutine semantic_table_iterate_resolution(table, resolution, cursor, item, done, ok, &
+            message)
+        type(semantic_table_t), intent(in) :: table
+        integer, intent(in) :: resolution
+        integer, intent(inout) :: cursor
+        type(standardir_semantic_item_t), intent(out) :: item
+        logical, intent(out) :: done, ok
+        character(len=*), intent(out) :: message
+
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) then
+            done = .false.
+            return
+        end if
+        if (.not. valid_resolution(resolution)) then
+            ok = .false.
+            done = .false.
+            message = 'semantic-item table resolution is invalid'
+            return
+        end if
+        if (cursor < 0 .or. cursor > table%item_count) then
+            ok = .false.
+            done = .false.
+            message = 'semantic-item table cursor is out of range'
+            return
+        end if
+        do while (cursor < table%item_count)
+            cursor = cursor + 1
+            if (table%items(cursor)%resolution == resolution) then
+                item = table%items(cursor)
+                ok = .true.
+                done = .false.
+                message = ''
+                return
+            end if
+        end do
+        ok = .true.
+        done = .true.
+        item = standardir_semantic_item_t()
+        message = ''
+    end subroutine semantic_table_iterate_resolution
+
+    logical function valid_resolution(resolution)
+        integer, intent(in) :: resolution
+
+        valid_resolution = resolution == standardir_resolution_resolved .or. &
+            resolution == standardir_resolution_unresolved .or. &
+            resolution == standardir_resolution_disputed
+    end function valid_resolution
 
 end module standardir_semantic_table
