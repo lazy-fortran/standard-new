@@ -399,22 +399,23 @@ contains
         type(standardir_target_expression_t), intent(in) :: left, right
         integer :: i
 
-        equal = left%kind == right%kind .and. trim(left%name) == trim(right%name) .and. &
-            left%minimum == right%minimum .and. left%unbounded .eqv. right%unbounded
-        if (.not. equal) return
+        equal = .false.
+        if (left%kind /= right%kind) return
+        if (trim(left%name) /= trim(right%name)) return
+        if (left%minimum /= right%minimum) return
+        if (left%unbounded .neqv. right%unbounded) return
         if (allocated(left%children) .neqv. allocated(right%children)) then
-            equal = .false.
             return
         end if
-        if (.not. allocated(left%children)) return
-        equal = size(left%children) == size(right%children)
-        if (.not. equal) return
+        if (.not. allocated(left%children)) then
+            equal = .true.
+            return
+        end if
+        if (size(left%children) /= size(right%children)) return
         do i = 1, size(left%children)
-            if (.not. same_expression(left%children(i), right%children(i))) then
-                equal = .false.
-                return
-            end if
+            if (.not. same_expression(left%children(i), right%children(i))) return
         end do
+        equal = .true.
     end function same_expression
 
     subroutine deduplicate_rules(values, suppressed, ok, message)
@@ -478,6 +479,65 @@ contains
         end do
     end function has_leading_reference
 
+    subroutine compute_left_corner_reachability(values, names, name_count, nullable, reachable)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=128), intent(in) :: names(:)
+        integer, intent(in) :: name_count
+        logical, intent(in) :: nullable(:)
+        logical, allocatable, intent(out) :: reachable(:,:)
+
+        logical, allocatable :: direct(:,:), visited(:)
+        integer, allocatable :: stack(:)
+        integer :: i, j, current, top
+
+        allocate (direct(name_count, name_count), reachable(name_count, name_count))
+        direct = .false.
+        do i = 1, name_count
+            do j = 1, name_count
+                direct(i, j) = has_left_corner_edge(values, names(i), names(j), names, nullable)
+            end do
+        end do
+        reachable = .false.
+        allocate (visited(name_count), stack(name_count))
+        do i = 1, name_count
+            visited = .false.
+            top = 1
+            stack(1) = i
+            do while (top > 0)
+                current = stack(top)
+                top = top - 1
+                if (visited(current)) cycle
+                visited(current) = .true.
+                do j = 1, name_count
+                    if (direct(current, j) .and. .not. visited(j)) then
+                        top = top + 1
+                        stack(top) = j
+                    end if
+                end do
+            end do
+            reachable(i, :) = visited
+        end do
+    end subroutine compute_left_corner_reachability
+
+    logical function has_left_corner_edge(values, lhs, reference, names, nullable)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs, reference
+        character(len=128), intent(in) :: names(:)
+        logical, intent(in) :: nullable(:)
+        logical :: found
+        integer :: i
+
+        has_left_corner_edge = .false.
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            call has_left_corner(values(i)%expression, reference, names, nullable, found)
+            if (found) then
+                has_left_corner_edge = .true.
+                return
+            end if
+        end do
+    end function has_left_corner_edge
+
     subroutine eliminate_left_recursion(values, suppressed, names, name_count, nullable, ok, message)
         type(standardir_target_rule_t), allocatable, intent(inout) :: values(:)
         type(standardir_target_rule_t), allocatable, intent(inout) :: suppressed(:)
@@ -488,13 +548,17 @@ contains
         character(len=*), intent(out) :: message
 
         type(standardir_target_rule_t), allocatable :: source(:), group(:)
+        logical, allocatable :: left_corner_reachable(:,:)
         integer :: i, j
 
         ok = .false.
         message = ''
+        call compute_left_corner_reachability(values, names, name_count, nullable, &
+            left_corner_reachable)
         do i = 1, name_count
             do j = 1, i - 1
                 if (.not. has_leading_reference(values, names(i), names(j))) cycle
+                if (.not. left_corner_reachable(j, i)) cycle
                 call rules_for_lhs(values, names(j), source)
                 call substitute_leading_reference(values, names(i), names(j), source, ok, message)
                 if (.not. ok) return

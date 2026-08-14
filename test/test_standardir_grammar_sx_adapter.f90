@@ -7,6 +7,8 @@ program test_standardir_grammar_sx_adapter
         standardir_grammar_reference, standardir_grammar_repeat, &
         standardir_grammar_resolution_resolved, standardir_grammar_sequence, &
         standardir_grammar_token, standardir_grammar_rule_t
+    use standardir_grammar_export, only: standardir_grammar_normalize, &
+        standardir_target_rule_t
     use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
     implicit none
 
@@ -24,10 +26,17 @@ program test_standardir_grammar_sx_adapter
         '(syntax RULE-A (lhs lhs-a) (rhs (bogus (token X))) '// &
         '(source (document DOC) (clause C) (rule RULE-A) (page 42) '// &
         '(source-sha256 HASH)))'
+    character(len=*), parameter :: program_text = &
+        '(syntax R502 (lhs program-unit) (rhs (alt (seq (ref main-program)) '// &
+        '(seq (ref external-subprogram)) (seq (ref module)) '// &
+        '(seq (ref submodule)) (seq (ref block-data)))) '// &
+        '(source (document DOC) (clause 5) (rule R502) (page 53) '// &
+        '(source-sha256 HASH)))'
     character(len=65536) :: deep_text
     character(len=256) :: message
     type(sx_node_t) :: node
     type(standardir_grammar_rule_t), allocatable :: values(:)
+    type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     logical :: ok
     integer :: i, position, depth
 
@@ -59,6 +68,36 @@ program test_standardir_grammar_sx_adapter
         values(2)%nodes%values(2)%unbounded .and. &
         values(2)%nodes%values(3)%kind == standardir_grammar_reference, &
         'optional/repeat structure differs')
+    call standardir_grammar_normalize(values, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 0, &
+        'normalization collapsed distinct source alternatives: '//trim(message))
+    call require(normalized(1)%expression%kind /= normalized(2)%expression%kind .or. &
+        normalized(1)%expression%name /= normalized(2)%expression%name .or. &
+        normalized(1)%expression%children(1)%kind /= normalized(2)%expression%children(1)%kind, &
+        'normalized alternatives lost their distinct structure')
+    deallocate (values)
+
+    call sx_parse(program_text, node, ok, message)
+    call require(ok, message)
+    call standardir_grammar_adapt_sx(node, standardir_grammar_origin_mechanical, &
+        standardir_grammar_resolution_resolved, values, ok, message)
+    call require(ok .and. size(values) == 5, 'five-way alternatives were not split')
+    call require(trim(values(1)%nodes%values(2)%name) == 'main-program' .and. &
+        trim(values(2)%nodes%values(2)%name) == 'external-subprogram' .and. &
+        trim(values(5)%nodes%values(2)%name) == 'block-data', &
+        'five-way adapter structure changed')
+    call standardir_grammar_normalize(values, normalized, suppressed, ok, message)
+    call require(ok, 'five-way normalization failed: '//trim(message))
+    if (ok) then
+        call require(size(normalized) == 5 .and. size(suppressed) == 0, &
+            'five-way alternatives collapsed during normalization')
+        if (size(normalized) >= 5) then
+            call require(trim(normalized(1)%expression%name) == 'main-program' .and. &
+                trim(normalized(2)%expression%name) == 'external-subprogram' .and. &
+                trim(normalized(5)%expression%name) == 'block-data', &
+                'five-way alternative structure changed')
+        end if
+    end if
     deallocate (values)
 
     call sx_parse(bad_expression_text, node, ok, message)

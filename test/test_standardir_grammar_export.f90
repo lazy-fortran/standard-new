@@ -83,6 +83,13 @@ program test_standardir_grammar_export
         call verify_transform_output(direct, format, 'expr__left_recursion')
     end do
 
+    call standardir_grammar_normalize(rules, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 3 .and. size(suppressed) == 0, &
+        'non-recursive references were incorrectly expanded: '//trim(message))
+    call require(normalized(1)%expression%kind == standardir_grammar_sequence .and. &
+        trim(normalized(1)%expression%children(1)%name) == 'term', &
+        'non-recursive reference was not retained in normalized grammar')
+
     call make_mutual(mutual)
     call standardir_grammar_normalize(mutual, normalized, suppressed, ok, message)
     call require(ok .and. size(normalized) == 5 .and. size(suppressed) == 1, &
