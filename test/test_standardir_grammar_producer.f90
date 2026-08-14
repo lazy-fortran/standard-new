@@ -2,6 +2,8 @@ program test_standardir_grammar_producer
     !! Fixed SX and mutation controls are the independent contract witness.
 
     use fortsx, only: sx_node_t, sx_parse
+    use, intrinsic :: iso_fortran_env, only: int64
+    use standardir, only: standardir_syntax_t, standardir_add, standardir_start
     use standardir_grammar_producer
     use standardir_export, only: standardir_source_ref_t
     implicit none
@@ -26,6 +28,8 @@ program test_standardir_grammar_producer
     character(len=256) :: message
     integer :: ios, unit
     logical :: ok
+    type(standardir_syntax_t) :: production
+    type(standardir_grammar_rule_t), allocatable :: produced(:)
 
     call make_rule(value)
     call standardir_grammar_validate(value, ok, message)
@@ -68,6 +72,74 @@ program test_standardir_grammar_producer
     malformed%nodes%values(2)%name = ''
     call standardir_grammar_validate(malformed, ok, message)
     call require(.not. ok, 'empty node name was accepted')
+
+    call standardir_start(production, 'R700', 'fixture', 23, 100_int64, 20_int64, ok, message)
+    call require(ok, message)
+    call standardir_add(production, 'sequence', 'A', 23, 100_int64, 1_int64, ok, message)
+    call require(ok, message)
+    call standardir_grammar_produce(production, 'J3-24-007', '5', 'R700', 23, 'hash', &
+        standardir_grammar_origin_human, standardir_grammar_resolution_resolved, produced, &
+        ok, message)
+    call require(ok .and. size(produced) == 1, 'simple sequence was not produced')
+    call require(produced(1)%nodes%values(1)%kind == standardir_grammar_sequence .and. &
+        produced(1)%nodes%values(2)%kind == standardir_grammar_token, &
+        'simple sequence structure differs')
+    call require(trim(produced(1)%source%document) == 'J3-24-007' .and. &
+        trim(produced(1)%source%rule) == 'R700' .and. produced(1)%origin == &
+        standardir_grammar_origin_human .and. produced(1)%resolution == &
+        standardir_grammar_resolution_resolved, 'caller provenance was not preserved')
+    deallocate (produced)
+
+    call standardir_start(production, 'R701', 'nested', 24, 100_int64, 20_int64, ok, message)
+    call require(ok, message)
+    call standardir_add(production, 'sequence', 'A [ B [ C ] ] . . .', 24, 100_int64, &
+        19_int64, &
+        ok, message)
+    call require(ok, message)
+    call standardir_grammar_produce(production, 'doc', 'clause', 'source-rule', 24, 'hash', &
+        standardir_grammar_origin_mechanical, standardir_grammar_resolution_unresolved, &
+        produced, ok, message)
+    call require(ok .and. size(produced) == 1, 'nested production was not produced')
+    call require(produced(1)%nodes%values(3)%kind == standardir_grammar_repeat .and. &
+        produced(1)%nodes%values(4)%kind == standardir_grammar_sequence .and. &
+        produced(1)%nodes%values(6)%kind == standardir_grammar_optional, &
+        'optional/repeat nesting was not preserved')
+    deallocate (produced)
+
+    call standardir_start(production, 'R702', 'choice', 25, 100_int64, 20_int64, ok, message)
+    call require(ok, message)
+    call standardir_add(production, 'sequence', 'A', 25, 100_int64, 1_int64, ok, message)
+    call require(ok, message)
+    call standardir_add(production, 'or', 'B', 25, 102_int64, 1_int64, ok, message)
+    call require(ok, message)
+    call standardir_grammar_produce(production, 'doc', 'clause', 'R702', 25, 'hash', &
+        standardir_grammar_origin_search, standardir_grammar_resolution_disputed, produced, &
+        ok, message)
+    call require(ok .and. size(produced) == 2, 'alternative order was not preserved')
+    call require(trim(produced(1)%nodes%values(2)%name) == 'A' .and. &
+        trim(produced(2)%nodes%values(2)%name) == 'B', 'alternative values were reordered')
+    deallocate (produced)
+
+    call standardir_start(production, 'R703', 'broken', 26, 100_int64, 20_int64, ok, message)
+    call require(ok, message)
+    call standardir_add(production, 'sequence', '[ unfinished', 26, 100_int64, 12_int64, &
+        ok, message)
+    call require(ok, message)
+    call standardir_grammar_produce(production, 'doc', 'clause', 'R703', 26, 'hash', &
+        standardir_grammar_origin_mechanical, standardir_grammar_resolution_resolved, produced, &
+        ok, message)
+    call require(.not. ok .and. .not. allocated(produced), &
+        'incomplete production did not clear output')
+
+    call standardir_start(production, 'R704', 'malformed', 27, 100_int64, 20_int64, ok, message)
+    call require(ok, message)
+    production%alternatives(1)%item_count = 1
+    production%alternatives(1)%items(1)%kind = 99
+    call standardir_grammar_produce(production, 'doc', 'clause', 'R704', 27, 'hash', &
+        standardir_grammar_origin_mechanical, standardir_grammar_resolution_resolved, produced, &
+        ok, message)
+    call require(.not. ok .and. .not. allocated(produced), &
+        'malformed production did not clear output')
 
     print '(a)', 'StandardIR grammar producer test passed'
 

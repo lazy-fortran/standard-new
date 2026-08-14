@@ -5,12 +5,13 @@ module standardir_grammar_producer
     !! not interpret PDF text, choose parser algorithms, or dispatch Fortran
     !! tokens.  The flat table is deliberately a serialization boundary.
 
-    use fortsx, only: sx_atom, sx_list, sx_node_t
+    use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse
     use schema_value_runtime, only: schema_runtime_close_list, schema_runtime_finish, &
         schema_runtime_open_list, schema_runtime_read_atom, schema_runtime_read_bool, &
         schema_runtime_read_int, schema_runtime_write_atom, schema_runtime_write_bool, &
         schema_runtime_write_int, schema_runtime_write_name, schema_runtime_write_space
     use standardir_export, only: standardir_source_ref_t
+    use standardir, only: standardir_emit, standardir_syntax_t
     implicit none
     private
 
@@ -61,8 +62,286 @@ module standardir_grammar_producer
     public :: standardir_grammar_read
     public :: standardir_grammar_validate
     public :: standardir_grammar_write
+    public :: standardir_grammar_produce
+
+    integer, parameter :: standardir_grammar_max_nodes = 256
 
 contains
+
+    subroutine standardir_grammar_produce(production, document, clause, source_rule, &
+            page, source_hash, origin, resolution, values, ok, message)
+        type(standardir_syntax_t), intent(in) :: production
+        character(len=*), intent(in) :: document, clause, source_rule, source_hash
+        integer, intent(in) :: page, origin, resolution
+        type(standardir_grammar_rule_t), allocatable, intent(out) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=32768) :: text
+        character(len=128) :: emit_message
+        type(sx_node_t) :: syntax
+        integer :: unit, ios, i, alternative_count
+
+        if (allocated(values)) deallocate (values)
+        ok = .false.
+        message = ''
+        if (len_trim(document) == 0 .or. len_trim(clause) == 0 .or. &
+            len_trim(source_rule) == 0 .or. len_trim(source_hash) == 0 .or. page < 1) then
+            message = 'grammar source provenance is incomplete'
+            return
+        end if
+        if (origin < standardir_grammar_origin_mechanical .or. &
+            origin > standardir_grammar_origin_differential) then
+            message = 'grammar origin is invalid'
+            return
+        end if
+        if (resolution < standardir_grammar_resolution_resolved .or. &
+            resolution > standardir_grammar_resolution_disputed) then
+            message = 'grammar resolution is invalid'
+            return
+        end if
+        if (production%incomplete .or. len_trim(production%rule) == 0 .or. &
+            len_trim(production%lhs) == 0) then
+            message = 'production is incomplete'
+            return
+        end if
+        if (production%alternative_count < 1 .or. production%alternative_count > &
+            size(production%alternatives)) then
+            message = 'production has an invalid alternative count'
+            return
+        end if
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            message = 'could not open canonical StandardIR scratch record'
+            return
+        end if
+        call standardir_emit(unit, production, source_hash, clause, ok, emit_message)
+        if (.not. ok) then
+            close (unit)
+            message = trim(emit_message)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            message = 'could not read canonical StandardIR record'
+            return
+        end if
+        call sx_parse(trim(text), syntax, ok, message)
+        if (.not. ok) return
+        call syntax_expression_count(syntax, alternative_count, ok, message)
+        if (.not. ok) return
+        allocate (values(alternative_count))
+        do i = 1, alternative_count
+            call produce_alternative(syntax, i, production%rule, production%lhs, document, &
+                clause, source_rule, page, source_hash, origin, resolution, values(i), ok, &
+                message)
+            if (.not. ok) then
+                deallocate (values)
+                return
+            end if
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_produce
+
+    subroutine syntax_expression_count(syntax, count, ok, message)
+        type(sx_node_t), intent(in) :: syntax
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: label
+
+        count = 0
+        call expect_list(syntax, 'syntax', 5, ok, message)
+        if (.not. ok) return
+        if (syntax%children(2)%kind /= sx_atom) then
+            ok = .false.; message = 'syntax rule is not an atom'; return
+        end if
+        if (.not. is_pair(syntax%children(3), 'lhs')) then
+            ok = .false.; message = 'syntax lhs field is malformed'; return
+        end if
+        if (.not. is_pair(syntax%children(4), 'rhs')) then
+            ok = .false.; message = 'syntax rhs field is malformed'; return
+        end if
+        if (syntax%children(4)%children(2)%kind /= sx_list .or. &
+            syntax%children(4)%children(2)%child_count < 1) then
+            ok = .false.; message = 'syntax rhs expression is malformed'; return
+        end if
+        label = trim(syntax%children(4)%children(2)%children(1)%atom)
+        if (label == 'alt') then
+            count = syntax%children(4)%children(2)%child_count - 1
+            if (count < 1) then
+                ok = .false.; message = 'syntax alternative expression is empty'; return
+            end if
+        else if (label == 'seq') then
+            count = 1
+        else
+            ok = .false.; message = 'syntax rhs is not a sequence or alternatives'; return
+        end if
+        ok = .true.; message = ''
+    end subroutine syntax_expression_count
+
+    subroutine produce_alternative(syntax, alternative, rule, lhs, document, clause, &
+            source_rule, page, source_hash, origin, resolution, value, ok, message)
+        type(sx_node_t), intent(in) :: syntax
+        integer, intent(in) :: alternative, page, origin, resolution
+        character(len=*), intent(in) :: rule, lhs, document, clause, source_rule, source_hash
+        type(standardir_grammar_rule_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: expression
+        integer :: cursor, count, first
+
+        call clear_rule(value)
+        expression = syntax%children(4)%children(2)
+        if (trim(expression%children(1)%atom) == 'alt') then
+            expression = expression%children(alternative + 1)
+        end if
+        call expression_node_count(expression, count, ok, message)
+        if (.not. ok) return
+        if (count > standardir_grammar_max_nodes) then
+            ok = .false.; message = 'grammar expression exceeds node capacity'; return
+        end if
+        allocate (value%nodes%values(count))
+        cursor = 0
+        call append_expression(expression, value%nodes%values, cursor, first, ok, message)
+        if (.not. ok) then
+            call clear_rule(value)
+            return
+        end if
+        value%id = trim(rule)
+        value%alternative = alternative
+        value%lhs = trim(lhs)
+        value%root = first
+        value%source = standardir_source_ref_t(trim(document), trim(clause), trim(source_rule), &
+            page, trim(source_hash))
+        value%origin = origin
+        value%resolution = resolution
+        call standardir_grammar_validate(value, ok, message)
+        if (.not. ok) call clear_rule(value)
+    end subroutine produce_alternative
+
+    recursive subroutine expression_node_count(node, count, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=32) :: label
+        integer :: i, child_count, child_nodes
+
+        count = 0; ok = .false.; message = ''
+        if (node%kind /= sx_list) then
+            message = 'grammar expression has the wrong shape'; return
+        end if
+        if (node%child_count < 1) then
+            message = 'grammar expression has the wrong shape'; return
+        end if
+        if (node%children(1)%kind /= sx_atom) then
+            message = 'grammar expression has the wrong shape'; return
+        end if
+        label = trim(node%children(1)%atom)
+        select case (label)
+        case ('ref', 'token')
+            if (node%child_count /= 2) then
+                message = 'grammar leaf is malformed'; return
+            end if
+            if (node%children(2)%kind /= sx_atom) then
+                message = 'grammar leaf is malformed'; return
+            end if
+            count = 1
+        case ('seq', 'alt')
+            child_count = node%child_count - 1
+            if (child_count < 1) then
+                message = 'grammar group is empty'; return
+            end if
+            count = 1
+            do i = 2, node%child_count
+                call expression_node_count(node%children(i), child_nodes, ok, message)
+                if (.not. ok) return
+                count = count + child_nodes
+            end do
+        case ('optional')
+            if (node%child_count /= 2) then
+                message = 'optional expression is malformed'; return
+            end if
+            call expression_node_count(node%children(2), child_nodes, ok, message)
+            if (.not. ok) return
+            count = 1 + child_nodes
+        case ('repeat')
+            if (node%child_count /= 4) then
+                message = 'repeat expression is malformed'; return
+            end if
+            if (node%children(3)%kind /= sx_atom) then
+                message = 'repeat expression is malformed'; return
+            end if
+            if (node%children(4)%kind /= sx_atom) then
+                message = 'repeat expression is malformed'; return
+            end if
+            if (trim(node%children(4)%atom) /= 'unbounded') then
+                message = 'repeat expression is not unbounded'; return
+            end if
+            if (trim(node%children(3)%atom) /= '0' .and. &
+                trim(node%children(3)%atom) /= '1') then
+                message = 'repeat expression has an unsupported minimum'; return
+            end if
+            call expression_node_count(node%children(2), child_nodes, ok, message)
+            if (.not. ok) return
+            count = 1 + child_nodes
+        case default
+            message = 'unknown grammar expression '//trim(label); return
+        end select
+        ok = .true.
+    end subroutine expression_node_count
+
+    recursive subroutine append_expression(node, values, cursor, first, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(standardir_grammar_node_t), intent(inout) :: values(:)
+        integer, intent(inout) :: cursor
+        integer, intent(out) :: first
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=32) :: label
+        integer :: i, child_first, child_count, minimum
+
+        first = 0; ok = .false.; message = ''
+        label = trim(node%children(1)%atom)
+        cursor = cursor + 1; first = cursor
+        values(first)%name = '-'; values(first)%minimum = 1
+        select case (label)
+        case ('ref', 'token')
+            values(first)%kind = merge(standardir_grammar_token, standardir_grammar_reference, &
+                label == 'token')
+            values(first)%name = trim(node%children(2)%atom)
+        case ('seq', 'alt')
+            values(first)%kind = merge(standardir_grammar_choice, standardir_grammar_sequence, &
+                label == 'alt')
+            values(first)%child_count = node%child_count - 1
+            values(first)%first_child = cursor + 1
+            do i = 2, node%child_count
+                call append_expression(node%children(i), values, cursor, child_first, ok, message)
+                if (.not. ok) return
+            end do
+        case ('optional', 'repeat')
+            values(first)%kind = merge(standardir_grammar_repeat, standardir_grammar_optional, &
+                label == 'repeat')
+            values(first)%minimum = 0
+            if (label == 'repeat') then
+                read (node%children(3)%atom, *) minimum
+                values(first)%minimum = minimum
+                values(first)%unbounded = .true.
+            end if
+            values(first)%child_count = 1
+            values(first)%first_child = cursor + 1
+            call append_expression(node%children(2), values, cursor, child_first, ok, message)
+            if (.not. ok) return
+        case default
+            message = 'unknown grammar expression '//trim(label); return
+        end select
+        ok = .true.; message = ''
+    end subroutine append_expression
 
     subroutine standardir_grammar_validate(value, ok, message)
         type(standardir_grammar_rule_t), intent(in) :: value
