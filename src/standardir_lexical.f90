@@ -9,6 +9,12 @@ module standardir_lexical
     private
 
     integer, parameter, public :: standardir_max_lexical_facts = 16
+    integer, parameter, public :: standardir_lexical_lookup_match = 0
+    integer, parameter, public :: standardir_lexical_lookup_no_match = 1
+    integer, parameter, public :: standardir_lexical_lookup_unsupported = 2
+    integer, parameter, public :: standardir_lexical_lookup_ambiguous = 3
+    integer, parameter, public :: standardir_lexical_lookup_invalid_scalar = 4
+    integer, parameter, public :: standardir_lexical_lookup_invalid_facts = 5
     integer, parameter :: lexical_max_ranges = 4
     integer, parameter :: lexical_text_length = 256
 
@@ -33,6 +39,7 @@ module standardir_lexical
     end type standardir_lexical_facts_t
 
     public :: standardir_lexical_add
+    public :: standardir_lexical_lookup
     public :: standardir_lexical_reset
     public :: standardir_lexical_validate
 
@@ -80,12 +87,70 @@ contains
         ok = .true.
     end subroutine standardir_lexical_add
 
+    subroutine standardir_lexical_lookup(facts, scalar, result, status, message)
+        type(standardir_lexical_facts_t), intent(in) :: facts
+        integer(int64), intent(in) :: scalar
+        type(standardir_lexical_fact_t), intent(out) :: result
+        integer, intent(out) :: status
+        character(len=*), intent(out) :: message
+
+        logical :: ok
+        integer :: i, j, match_count
+        logical :: processor_defined
+
+        result = standardir_lexical_fact_t()
+        status = standardir_lexical_lookup_no_match
+        message = ''
+        if (.not. is_unicode_scalar(scalar)) then
+            status = standardir_lexical_lookup_invalid_scalar
+            message = 'lookup value is not a Unicode scalar'
+            return
+        end if
+        call standardir_lexical_validate(facts, ok, message)
+        if (.not. ok) then
+            status = standardir_lexical_lookup_invalid_facts
+            return
+        end if
+
+        match_count = 0
+        processor_defined = .false.
+        do i = 1, facts%count
+            if (facts%facts(i)%range_count == 0) then
+                processor_defined = .true.
+                if (.not. processor_defined_fact_is_set(result)) result = facts%facts(i)
+            else
+                do j = 1, facts%facts(i)%range_count
+                    if (scalar >= facts%facts(i)%range_first(j) .and. &
+                        scalar <= facts%facts(i)%range_last(j)) then
+                        match_count = match_count + 1
+                        result = facts%facts(i)
+                        exit
+                    end if
+                end do
+            end if
+        end do
+        if (match_count > 1) then
+            result = standardir_lexical_fact_t()
+            status = standardir_lexical_lookup_ambiguous
+            message = 'lookup value matches overlapping lexical facts'
+        else if (match_count == 1) then
+            status = standardir_lexical_lookup_match
+        else if (processor_defined) then
+            status = standardir_lexical_lookup_unsupported
+            message = 'lookup requires a processor-defined lexical fact'
+        else
+            result = standardir_lexical_fact_t()
+            status = standardir_lexical_lookup_no_match
+            message = 'lookup value matches no lexical fact'
+        end if
+    end subroutine standardir_lexical_lookup
+
     subroutine standardir_lexical_validate(facts, ok, message)
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        integer :: i, j
+        integer :: i, j, k, l
 
         ok = .false.
         message = ''
@@ -132,11 +197,48 @@ contains
                 message = 'lexical fact has no source-defined scalar or range'
                 return
             end if
+            do j = 1, facts%facts(i)%range_count
+                do k = 1, j - 1
+                    if (ranges_overlap(facts%facts(i)%range_first(k), &
+                        facts%facts(i)%range_last(k), facts%facts(i)%range_first(j), &
+                        facts%facts(i)%range_last(j))) then
+                        message = 'overlapping lexical codepoint ranges'
+                        return
+                    end if
+                end do
+            end do
             do j = 1, i - 1
+                if (trim(facts%facts(i)%source_term) == &
+                    trim(facts%facts(j)%source_term)) then
+                    message = 'duplicate lexical source term: '// &
+                        trim(facts%facts(i)%source_term)
+                    return
+                end if
                 if (trim(facts%facts(i)%target_name) == &
                     trim(facts%facts(j)%target_name)) then
                     message = 'duplicate lexical target: '// &
                         trim(facts%facts(i)%target_name)
+                    return
+                end if
+                do k = 1, facts%facts(i)%range_count
+                    do l = 1, facts%facts(j)%range_count
+                        if (ranges_overlap(facts%facts(i)%range_first(k), &
+                            facts%facts(i)%range_last(k), facts%facts(j)%range_first(l), &
+                            facts%facts(j)%range_last(l))) then
+                            message = 'overlapping lexical codepoint ranges'
+                            return
+                        end if
+                    end do
+                end do
+            end do
+            do j = 1, facts%facts(i)%range_count
+                if (.not. is_unicode_scalar(facts%facts(i)%range_first(j)) .or. &
+                    .not. is_unicode_scalar(facts%facts(i)%range_last(j))) then
+                    message = 'lexical codepoint range is outside Unicode scalar range'
+                    return
+                end if
+                if (facts%facts(i)%range_first(j) > facts%facts(i)%range_last(j)) then
+                    message = 'lexical codepoint range is reversed'
                     return
                 end if
             end do
@@ -147,6 +249,30 @@ contains
         end do
         ok = .true.
     end subroutine standardir_lexical_validate
+
+    logical function processor_defined_fact_is_set(fact)
+        type(standardir_lexical_fact_t), intent(in) :: fact
+
+        processor_defined_fact_is_set = len_trim(fact%target_name) > 0
+    end function processor_defined_fact_is_set
+
+    logical function ranges_overlap(first_a, last_a, first_b, last_b)
+        integer(int64), intent(in) :: first_a, last_a, first_b, last_b
+
+        ranges_overlap = first_a <= last_b .and. first_b <= last_a
+    end function ranges_overlap
+
+    logical function is_unicode_scalar(value)
+        integer(int64), intent(in) :: value
+
+        is_unicode_scalar = value >= 0_int64
+        if (.not. is_unicode_scalar) return
+        is_unicode_scalar = value <= int(z'10ffff', int64)
+        if (.not. is_unicode_scalar) return
+        if (value >= int(z'd800', int64)) then
+            if (value <= int(z'dfff', int64)) is_unicode_scalar = .false.
+        end if
+    end function is_unicode_scalar
 
     logical function is_sha256(value)
         character(len=*), intent(in) :: value
