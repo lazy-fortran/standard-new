@@ -63,6 +63,8 @@ program test_schema_codegen
     call require(trim(message) == 'schema has cyclic type dependencies', &
         'cyclic schema diagnostic differs')
 
+    call check_stable_forward_dependency_order()
+
     print '(a)', 'schema codegen test passed'
 
 contains
@@ -100,6 +102,51 @@ contains
             call require(found, 'expected generated line is absent')
         end do
     end subroutine check_expected_lines
+
+    subroutine check_stable_forward_dependency_order()
+        character(len=*), parameter :: ordering_input = &
+            '(schema ordering (record consumer (value producer)) '// &
+            '(record independent (value name)) (record producer (value name)))'
+        character(len=256) :: ordering_lines(4096), ordering_message
+        type(schema_t) :: ordering_schema
+        logical :: ordering_ok
+        integer :: ordering_count, consumer_line, independent_line, producer_line
+
+        call schema_parse_text(ordering_input, ordering_schema, ordering_ok, ordering_message)
+        call require(ordering_ok, ordering_message)
+        open (newunit=unit, file='build/schema_ordering.f90', status='replace', &
+            action='write', iostat=ios)
+        call require(ios == 0, 'could not open ordering output')
+        call schema_generate_types(ordering_schema, unit, 'schema_ordering', ordering_ok, &
+            ordering_message)
+        close (unit)
+        call require(ordering_ok, ordering_message)
+        call read_lines('build/schema_ordering.f90', ordering_lines, ordering_count)
+        consumer_line = line_number(ordering_lines, ordering_count, &
+            '    type, public :: consumer_t')
+        independent_line = line_number(ordering_lines, ordering_count, &
+            '    type, public :: independent_t')
+        producer_line = line_number(ordering_lines, ordering_count, &
+            '    type, public :: producer_t')
+        call require(producer_line < consumer_line, &
+            'forward dependency was emitted after its consumer')
+        call require(consumer_line < independent_line, &
+            'stable source order was lost after resolving a dependency')
+    end subroutine check_stable_forward_dependency_order
+
+    integer function line_number(values, value_count, expected) result(line)
+        character(len=*), intent(in) :: values(:), expected
+        integer, intent(in) :: value_count
+        integer :: i
+
+        line = 0
+        do i = 1, value_count
+            if (trim(values(i)) == trim(expected)) then
+                line = i
+                return
+            end if
+        end do
+    end function line_number
 
     subroutine require(condition, failure_message)
         logical, intent(in) :: condition
