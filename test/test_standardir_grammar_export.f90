@@ -4,11 +4,15 @@ program test_standardir_grammar_export
     use standardir_grammar_export
     use standardir_grammar_producer, only: standardir_grammar_node_t, &
         standardir_grammar_origin_human, standardir_grammar_reference, &
+        standardir_grammar_optional, &
+        standardir_grammar_repeat, &
         standardir_grammar_resolution_resolved, standardir_grammar_resolution_unresolved, &
         standardir_grammar_rule_t, standardir_grammar_sequence, standardir_grammar_token
     implicit none
 
     type(standardir_grammar_rule_t) :: rules(3), bad(3), cyclic(3), unresolved(3), interleaved(3)
+    type(standardir_grammar_rule_t) :: duplicate(2), direct(2), mutual(4), wrapped(1), unsupported(1)
+    type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     integer :: format, unit, ios
     logical :: ok
     character(len=256) :: message, line
@@ -35,7 +39,9 @@ program test_standardir_grammar_export
     unresolved(3)%resolution = standardir_grammar_resolution_unresolved
     call verify_failure(unresolved, standardir_grammar_format_antlr4, 'unresolved rule')
 
-    interleaved = [rules(1), rules(3), rules(2)]
+    interleaved = rules
+    interleaved(2) = rules(3)
+    interleaved(3) = rules(2)
     call verify_failure(interleaved, standardir_grammar_format_bison, 'interleaved LHS groups')
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
@@ -49,6 +55,44 @@ program test_standardir_grammar_export
         'invalid format did not leave output untouched')
     close (unit)
 
+    call make_duplicate(duplicate)
+    call standardir_grammar_normalize(duplicate, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 1 .and. size(suppressed) == 1, &
+        'duplicate alternatives were not deterministically eliminated')
+    call require(normalized(1)%alternative == 1 .and. suppressed(1)%alternative == 2, &
+        'duplicate alternative provenance was not retained')
+
+    call make_wrapped(wrapped(1))
+    call standardir_grammar_normalize(wrapped, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 1 .and. size(suppressed) == 0, &
+        'nullable normalization failed: '//trim(message))
+    call require(normalized(1)%expression%kind == 5, &
+        'nullable wrapper and singleton sequence were not simplified')
+
+    call make_direct(direct)
+    call standardir_grammar_normalize(direct, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 1, &
+        'direct normalization failed: '//trim(message))
+    call require(trim(normalized(1)%lhs) == 'expr' .and. &
+        normalized(1)%expression%kind == standardir_grammar_sequence .and. &
+        trim(normalized(2)%lhs) == 'expr__left_recursion', &
+        'direct left recursion was not transformed into a generic helper')
+    call require(direct_witnesses_preserved(normalized), &
+        'direct left-recursion witness structure changed')
+    do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+        call verify_transform_output(direct, format, 'expr__left_recursion')
+    end do
+
+    call make_mutual(mutual)
+    call standardir_grammar_normalize(mutual, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 5 .and. size(suppressed) == 1, &
+        'mutual normalization failed: '//trim(message))
+    call require(no_left_corner(normalized), 'mutually recursive family remains left recursive')
+
+    call make_unsupported(unsupported(1))
+    call verify_failure(unsupported, standardir_grammar_format_tree_sitter, &
+        'nullable left recursion')
+
     print '(a)', 'StandardIR grammar export tests passed'
 
 contains
@@ -61,6 +105,82 @@ contains
         call make_simple(values(2), 'R-A2', 2, 'expr', 'ELSE', 'DOC-A', '5.2', 11, 'HASH-A2')
         call make_simple(values(3), 'R-B1', 1, 'term', 'X', 'DOC-B', '6.1', 20, 'HASH-B1')
     end subroutine make_rules
+
+    subroutine make_duplicate(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'DUP-1', 1, 'duplicate', 'X', 'DOC-D', '1', 1, 'HASH-D1')
+        call make_simple(values(2), 'DUP-2', 2, 'duplicate', 'X', 'DOC-D', '2', 2, 'HASH-D2')
+    end subroutine make_duplicate
+
+    subroutine make_direct(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'REC-1', 1, 'expr', 'expr', 'X', 'DOC-R', '1', 1, 'HASH-R1')
+        call make_simple(values(2), 'REC-2', 2, 'expr', 'Y', 'DOC-R', '2', 2, 'HASH-R2')
+    end subroutine make_direct
+
+    subroutine make_mutual(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'M-A1', 1, 'a', 'b', 'X', 'DOC-M', '1', 1, 'HASH-M1')
+        call make_simple(values(2), 'M-A2', 2, 'a', 'Y', 'DOC-M', '2', 2, 'HASH-M2')
+        call make_sequence_rule(values(3), 'M-B1', 1, 'b', 'a', 'Z', 'DOC-M', '3', 3, 'HASH-M3')
+        call make_simple(values(4), 'M-B2', 2, 'b', 'W', 'DOC-M', '4', 4, 'HASH-M4')
+    end subroutine make_mutual
+
+    subroutine make_wrapped(value)
+        type(standardir_grammar_rule_t), intent(out) :: value
+
+        value = standardir_grammar_rule_t()
+        value%id = 'WRAP-1'
+        value%alternative = 1
+        value%lhs = 'wrapped'
+        value%root = 1
+        allocate (value%nodes%values(4))
+        value%nodes%values = standardir_grammar_node_t()
+        call set_node(value%nodes%values(1), standardir_grammar_sequence, '-', 1, .false., 2, 1)
+        call set_node(value%nodes%values(2), standardir_grammar_optional, '-', 0, .false., 3, 1)
+        call set_node(value%nodes%values(3), standardir_grammar_optional, '-', 0, .false., 4, 1)
+        call set_node(value%nodes%values(4), standardir_grammar_token, 'X', 1, .false., 0, 0)
+        call set_source(value, 'DOC-W', '1', 'WRAP-1', 1, 'HASH-W1')
+    end subroutine make_wrapped
+
+    subroutine make_unsupported(value)
+        type(standardir_grammar_rule_t), intent(out) :: value
+
+        value = standardir_grammar_rule_t()
+        value%id = 'BAD-LEFT'
+        value%alternative = 1
+        value%lhs = 'bad'
+        value%root = 1
+        allocate (value%nodes%values(4))
+        value%nodes%values = standardir_grammar_node_t()
+        call set_node(value%nodes%values(1), standardir_grammar_sequence, '-', 1, .false., 2, 2)
+        call set_node(value%nodes%values(2), standardir_grammar_optional, '-', 0, .false., 3, 1)
+        call set_node(value%nodes%values(3), standardir_grammar_reference, 'bad', 1, .false., 0, 0)
+        call set_node(value%nodes%values(4), standardir_grammar_token, 'X', 1, .false., 0, 0)
+        call set_source(value, 'DOC-U', '1', 'BAD-LEFT', 1, 'HASH-U1')
+    end subroutine make_unsupported
+
+    subroutine make_sequence_rule(value, id, alternative, lhs, reference, token, document, clause, &
+            page, hash)
+        type(standardir_grammar_rule_t), intent(out) :: value
+        character(len=*), intent(in) :: id, lhs, reference, token, document, clause, hash
+        integer, intent(in) :: alternative, page
+
+        value = standardir_grammar_rule_t()
+        value%id = id
+        value%alternative = alternative
+        value%lhs = lhs
+        value%root = 1
+        allocate (value%nodes%values(3))
+        value%nodes%values = standardir_grammar_node_t()
+        call set_node(value%nodes%values(1), standardir_grammar_sequence, '-', 1, .false., 2, 2)
+        call set_node(value%nodes%values(2), standardir_grammar_reference, reference, 1, .false., 0, 0)
+        call set_node(value%nodes%values(3), standardir_grammar_token, token, 1, .false., 0, 0)
+        call set_source(value, document, clause, id, page, hash)
+    end subroutine make_sequence_rule
 
     subroutine make_nested(value, id, alternative, lhs, document, clause, page, hash)
         type(standardir_grammar_rule_t), intent(out) :: value
@@ -129,6 +249,95 @@ contains
         value%origin = standardir_grammar_origin_human
         value%resolution = standardir_grammar_resolution_resolved
     end subroutine set_source
+
+    logical function direct_witnesses_preserved(values)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=4), parameter :: witnesses(5) = ['Y   ', 'YX  ', 'YXX ', 'X   ', 'YXY ']
+        logical, parameter :: expected(5) = [.true., .true., .true., .false., .false.]
+        integer :: i, j
+        logical :: actual
+
+        direct_witnesses_preserved = .true.
+        if (size(values) /= 2) then
+            direct_witnesses_preserved = .false.
+            return
+        end if
+        if (values(1)%expression%kind /= standardir_grammar_sequence .or. &
+            size(values(1)%expression%children) /= 2 .or. &
+            values(2)%expression%kind /= standardir_grammar_repeat) then
+            direct_witnesses_preserved = .false.
+            return
+        end if
+        do i = 1, size(witnesses)
+            actual = len_trim(witnesses(i)) >= 1 .and. witnesses(i)(1:1) == 'Y'
+            if (actual) then
+                do j = 2, len_trim(witnesses(i))
+                    if (witnesses(i)(j:j) /= 'X') actual = .false.
+                end do
+            end if
+            if (actual .neqv. expected(i)) direct_witnesses_preserved = .false.
+        end do
+    end function direct_witnesses_preserved
+
+    logical function no_left_corner(values)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        integer :: i
+
+        no_left_corner = .true.
+        do i = 1, size(values)
+            if (values(i)%expression%kind == standardir_grammar_reference) then
+                if (trim(values(i)%expression%name) == trim(values(i)%lhs)) no_left_corner = .false.
+            else if (values(i)%expression%kind == standardir_grammar_sequence) then
+                if (size(values(i)%expression%children) > 0) then
+                    if (values(i)%expression%children(1)%kind == standardir_grammar_reference .and. &
+                        trim(values(i)%expression%children(1)%name) == trim(values(i)%lhs)) &
+                        no_left_corner = .false.
+                end if
+            end if
+        end do
+    end function no_left_corner
+
+    subroutine verify_transform_output(values, format, marker)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        integer, intent(in) :: format
+        character(len=*), intent(in) :: marker
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open transform scratch output')
+        call standardir_grammar_export_batch(unit, values, format, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call read_text(unit, text)
+        call require(index(text, trim(marker)) > 0, 'left-recursion helper is absent from target output')
+        call require(index(text, 'source-rule=REC-1') > 0 .and. &
+            index(text, 'source-rule=REC-2') > 0 .and. &
+            index(text, 'source-alternative=1') > 0, &
+            'left-recursion source mapping is absent from target output')
+        close (unit)
+    end subroutine verify_transform_output
+
+    subroutine read_text(unit, text)
+        integer, intent(in) :: unit
+        character(len=*), intent(out) :: text
+        character(len=1024) :: line
+        integer :: ios, length
+
+        text = ''
+        length = 0
+        rewind (unit)
+        do
+            read (unit, '(a)', iostat=ios) line
+            if (ios < 0) exit
+            call require(ios == 0 .and. length + len_trim(line) + 1 < len(text), &
+                'transform output buffer is full')
+            text(length + 1:length + len_trim(line)) = trim(line)
+            length = length + len_trim(line) + 1
+            text(length:length) = new_line('a')
+        end do
+    end subroutine read_text
 
     subroutine verify_format(unit, format)
         integer, intent(in) :: unit, format
