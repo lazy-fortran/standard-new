@@ -14,6 +14,7 @@ program pdfproductions
         character(len=16) :: rule = ''
         character(len=256) :: lhs = ''
         integer :: sequence_index = 0
+        integer :: occurrence = 0
     end type parser_state_t
 
     character(len=4096) :: canonical_path, index_path, output_path, argument
@@ -192,7 +193,7 @@ contains
         character(len=16) :: rule
         character(len=256) :: lhs
         integer :: rule_number
-        logical :: found, boundary
+        logical :: found, boundary, layout_only
 
         ok = .false.
         message = ''
@@ -204,8 +205,10 @@ contains
             state%rule = adjustl(rule)
             state%lhs = lhs
             state%sequence_index = 0
+            state%occurrence = state%occurrence + 1
             call emit_record('production-start', state%rule, lhs, 'is', rhs, &
-                page, source_start, len_trim(line), output_unit, records, ok, message)
+                page, source_start, len(line), line, state%occurrence, output_unit, &
+                records, ok, message)
             return
         end if
 
@@ -213,16 +216,16 @@ contains
             ok = .true.
             return
         end if
-        call continuation(clean, boundary, operator, rhs)
+        call continuation(clean, boundary, layout_only, operator, rhs)
         if (boundary) then
-            if (index(adjustl(clean), 'J3/') /= 1) state%active = .false.
+            if (.not. layout_only) state%active = .false.
             ok = .true.
             return
         end if
         state%sequence_index = state%sequence_index + 1
         call emit_record('production-continuation', state%rule, state%lhs, &
-            operator, rhs, page, source_start, len_trim(line), output_unit, &
-            records, ok, message)
+            operator, rhs, page, source_start, len(line), line, state%occurrence, &
+            output_unit, records, ok, message)
     end subroutine process_line
 
     subroutine strip_line_number(line, clean)
@@ -230,7 +233,9 @@ contains
         character(len=*), intent(out) :: clean
         integer :: i, n
 
-        clean = adjustl(line)
+        clean = line
+        call remove_layout_controls(clean)
+        clean = adjustl(clean)
         n = len_trim(clean)
         i = 1
         do while (i <= n)
@@ -281,9 +286,9 @@ contains
         found = len_trim(lhs) > 0 .and. len_trim(rhs) > 0
     end subroutine parse_start
 
-    subroutine continuation(clean, boundary, operator, rhs)
+    subroutine continuation(clean, boundary, layout_only, operator, rhs)
         character(len=*), intent(in) :: clean
-        logical, intent(out) :: boundary
+        logical, intent(out) :: boundary, layout_only
         character(len=*), intent(out) :: operator, rhs
         character(len=4096) :: text
         integer :: n
@@ -291,31 +296,38 @@ contains
         text = adjustl(clean)
         n = len_trim(text)
         boundary = n == 0
+        layout_only = boundary
         operator = ''
         rhs = ''
         if (boundary) return
-        if (index(text, 'J3/') == 1) then
+        if (is_layout_line(text)) then
             boundary = .true.
+            layout_only = .true.
             return
         end if
         if (index(text, '5.2 ') == 1 .or. index(text, '5.3 ') == 1) then
             boundary = .true.
+            layout_only = .false.
             return
         end if
         if (index(text, '2023-') == 1 .or. index(text, 'WD ') == 1) then
             boundary = .true.
+            layout_only = .false.
             return
         end if
         if (text(1:1) >= '0' .and. text(1:1) <= '9') then
             boundary = .true.
+            layout_only = .false.
             return
         end if
         if (is_prose_boundary(text)) then
             boundary = .true.
+            layout_only = .false.
             return
         end if
         if (.not. looks_like_grammar(text)) then
             boundary = .true.
+            layout_only = .false.
             return
         end if
         if (n >= 3) then
@@ -329,6 +341,36 @@ contains
             rhs = trim(text)
         end if
     end subroutine continuation
+
+    logical function is_layout_line(text)
+        character(len=*), intent(in) :: text
+
+        is_layout_line = index(text, 'J3/') == 1 .or. index(text, '2023-') == 1 .or. &
+            index(text, '2024-') == 1 .or. index(text, '2025-') == 1 .or. &
+            index(text, 'WD ') == 1
+        if (.not. is_layout_line) then
+            is_layout_line = all_digits(text)
+        end if
+    end function is_layout_line
+
+    logical function all_digits(text)
+        character(len=*), intent(in) :: text
+        integer :: i
+
+        all_digits = len_trim(text) > 0
+        do i = 1, len_trim(text)
+            if (text(i:i) < '0' .or. text(i:i) > '9') all_digits = .false.
+        end do
+    end function all_digits
+
+    subroutine remove_layout_controls(text)
+        character(len=*), intent(inout) :: text
+        integer :: i
+
+        do i = 1, len(text)
+            if (text(i:i) == achar(12) .or. text(i:i) == achar(13)) text(i:i) = ' '
+        end do
+    end subroutine remove_layout_controls
 
     logical function is_prose_boundary(text)
         character(len=*), intent(in) :: text
@@ -352,8 +394,9 @@ contains
 
     logical function looks_like_grammar(text)
         character(len=*), intent(in) :: text
-        character(len=16), parameter :: prose_prefixes(7) = [ character(len=16) :: &
-            'The', 'A ', 'An ', 'Each ', 'For ', 'This ', 'Examples' ]
+        character(len=16), parameter :: prose_prefixes(15) = [ character(len=16) :: &
+            'The', 'A ', 'An ', 'Each ', 'For ', 'This ', 'Examples', 'is ', &
+            'shall ', 'must ', 'means ', 'where ', 'which ', 'that ', 'if ' ]
         integer :: i, n
 
         looks_like_grammar = .false.
@@ -382,6 +425,8 @@ contains
         end do
         if (text(1:1) >= 'A' .and. text(1:1) <= 'Z') then
             looks_like_grammar = .true.
+        else if (text(1:1) >= 'a' .and. text(1:1) <= 'z') then
+            looks_like_grammar = .true.
         end if
     end function looks_like_grammar
 
@@ -396,9 +441,11 @@ contains
     end function has_prefix
 
     subroutine emit_record(kind, rule, lhs, operator, rhs, page, source_start, &
-            source_length, output_unit, records, ok, message)
+            source_length, source_line, occurrence, output_unit, records, ok, message)
         character(len=*), intent(in) :: kind, rule, lhs, operator, rhs
+        character(len=*), intent(in) :: source_line
         integer, intent(in) :: page, output_unit, source_length
+        integer, intent(in) :: occurrence
         integer(int64), intent(in) :: source_start
         integer, intent(inout) :: records
         logical, intent(out) :: ok
@@ -417,6 +464,9 @@ contains
         write (output_unit, '(a,i0)', advance='no') ',"page":', page
         write (output_unit, '(a,i0)', advance='no') ',"byte_start":', source_start
         write (output_unit, '(a,i0)', advance='no') ',"byte_length":', source_length
+        write (output_unit, '(a,i0)', advance='no') ',"occurrence":', occurrence
+        write (output_unit, '(a)', advance='no') ',"source_line":'
+        call json_string_exact(output_unit, source_line)
         write (output_unit, '(a)', advance='no') ',"origin":"MECHANICAL"}'
         write (output_unit, '(a)') ''
         records = records + 1
@@ -442,5 +492,30 @@ contains
         end do
         write (unit, '(a)', advance='no') '"'
     end subroutine json_string
+
+    subroutine json_string_exact(unit, value)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: value
+        integer :: i
+
+        write (unit, '(a)', advance='no') '"'
+        do i = 1, len(value)
+            select case (value(i:i))
+            case ('"')
+                write (unit, '(a)', advance='no') '\"'
+            case ('\')
+                write (unit, '(a)', advance='no') '\\'
+            case (achar(9))
+                write (unit, '(a)', advance='no') '\t'
+            case (achar(12))
+                write (unit, '(a)', advance='no') '\f'
+            case (achar(13))
+                write (unit, '(a)', advance='no') '\r'
+            case default
+                write (unit, '(a)', advance='no') value(i:i)
+            end select
+        end do
+        write (unit, '(a)', advance='no') '"'
+    end subroutine json_string_exact
 
 end program pdfproductions

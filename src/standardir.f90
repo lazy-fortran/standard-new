@@ -287,6 +287,10 @@ contains
                     alternative%items(alternative%item_count) = item
                 else
                     item%kind = token_kind(token)
+                    if (item%kind == 0) then
+                        message = 'unclassified grammar lexeme '//trim(token)
+                        return
+                    end if
                     item%base_kind = item%kind
                     item%name = trim(token)
                     item%minimum = 1
@@ -349,11 +353,47 @@ contains
 
         token = ''
         first = position
-        do while (position <= n)
-            if (is_space(text(position:position))) exit
-            if (text(position:position) == '[' .or. text(position:position) == ']') exit
+        if (is_delimiter(text(position:position))) return
+        if (text(first:first) == '.') then
             position = position + 1
-        end do
+            if (position <= n) then
+                if (is_ascii_letter(text(position:position))) then
+                    do while (position <= n)
+                        if (text(position:position) == '.') then
+                            position = position + 1
+                            exit
+                        end if
+                        position = position + 1
+                    end do
+                end if
+            end if
+        else if (is_punctuation(text(first:first))) then
+            position = position + 1
+            if (position <= n) then
+                if (is_two_character_operator(text(first:first), text(position:position))) then
+                    position = position + 1
+                end if
+            end if
+        else if (is_ascii_upper(text(first:first))) then
+            position = position + 1
+            do while (position <= n)
+                if (is_ascii_upper(text(position:position)) .or. &
+                    is_ascii_digit(text(position:position)) .or. &
+                    text(position:position) == '_') then
+                    position = position + 1
+                else
+                    exit
+                end if
+            end do
+        else
+            do while (position <= n)
+                if (is_delimiter(text(position:position)) .or. &
+                    (is_punctuation(text(position:position)) .and. &
+                    text(position:position) /= '-') .or. &
+                    text(position:position) == '.') exit
+                position = position + 1
+            end do
+        end if
         if (position > first) token = text(first:position - 1)
     end subroutine read_token
 
@@ -389,14 +429,67 @@ contains
         is_space = character == ' ' .or. character == char(9)
     end function is_space
 
+    logical function is_delimiter(character)
+        character(len=1), intent(in) :: character
+        is_delimiter = is_space(character) .or. character == '[' .or. character == ']'
+    end function is_delimiter
+
+    logical function is_punctuation(character)
+        character(len=1), intent(in) :: character
+        is_punctuation = index('(),=*+-/:?@''"%<>|&!;', character) > 0
+    end function is_punctuation
+
+    logical function is_two_character_operator(first, second)
+        character(len=1), intent(in) :: first, second
+        character(len=2) :: pair
+
+        pair = first//second
+        select case (pair)
+        case ('::', '=>', '<=', '>=', '==', '/=', '**', '//')
+            is_two_character_operator = .true.
+        case default
+            is_two_character_operator = .false.
+        end select
+    end function is_two_character_operator
+
+    logical function is_ascii_upper(character)
+        character(len=1), intent(in) :: character
+        is_ascii_upper = character >= 'A' .and. character <= 'Z'
+    end function is_ascii_upper
+
+    logical function is_ascii_lower(character)
+        character(len=1), intent(in) :: character
+        is_ascii_lower = character >= 'a' .and. character <= 'z'
+    end function is_ascii_lower
+
+    logical function is_ascii_letter(character)
+        character(len=1), intent(in) :: character
+        is_ascii_letter = is_ascii_upper(character) .or. is_ascii_lower(character)
+    end function is_ascii_letter
+
+    logical function is_ascii_digit(character)
+        character(len=1), intent(in) :: character
+        is_ascii_digit = character >= '0' .and. character <= '9'
+    end function is_ascii_digit
+
     integer function token_kind(token)
         character(len=*), intent(in) :: token
         character(len=1) :: first
+        integer :: i
 
-        token_kind = 1
+        token_kind = 0
         if (len_trim(token) == 0) return
         first = token(1:1)
-        if ((first >= 'A' .and. first <= 'Z') .or. index('(),=*+-/:?@_''"', first) > 0) then
+        if (is_ascii_lower(first)) then
+            do i = 1, len_trim(token)
+                if (is_ascii_lower(token(i:i)) .or. is_ascii_digit(token(i:i)) .or. &
+                    index('_-', token(i:i)) > 0) cycle
+                return
+            end do
+            token_kind = 1
+        else if (is_ascii_upper(first) .or. is_ascii_digit(first) .or. &
+                is_punctuation(first) .or. first == '_' .or. first == '.' .or. &
+                iachar(first) >= 128) then
             token_kind = 6
         end if
     end function token_kind

@@ -52,6 +52,11 @@ source-dir = "app"
 main = "pdfstandardir.f90"
 
 [[executable]]
+name = "pdfvalidity"
+source-dir = "app"
+main = "pdfvalidity.f90"
+
+[[executable]]
 name = "sxroundtrip"
 source-dir = "app"
 main = "sxroundtrip.f90"
@@ -225,6 +230,11 @@ main = "test_standardir_adapter.f90"
 name = "test_pdfstandardir"
 source-dir = "test"
 main = "test_pdfstandardir.f90"
+
+[[test]]
+name = "test_pdfvalidity"
+source-dir = "test"
+main = "test_pdfvalidity.f90"
 
 [[test]]
 name = "test_schema_ir"

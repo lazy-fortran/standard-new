@@ -72,6 +72,47 @@ program test_standardir
         call fail('multi-token SX bytes differ')
     end if
 
+    call standardir_start(production, 'R760', 'enum-def-stmt', 109, 20_int64, 10_int64, &
+        ok, message)
+    if (.not. ok) call fail(trim(message))
+    call standardir_add(production, 'sequence', 'ENUM, BIND(C) [ :: enum-type-name ]', &
+        109, 20_int64, 40_int64, ok, message)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/standardir_attached_fixture.sx', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('could not open attached-token fixture')
+    call standardir_emit(unit, production, source_hash, '5', ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/standardir_attached_fixture.sx', action='read', &
+        iostat=ios)
+    if (ios /= 0) call fail('could not reopen attached-token fixture')
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    if (ios /= 0 .or. index(actual, '(token ENUM) (token ,) (token BIND)') == 0) then
+        call fail('attached punctuation was not lexed mechanically')
+    end if
+
+    call standardir_start(production, 'R1315', 'position-edit-desc', 291, 30_int64, &
+        5_int64, ok, message)
+    if (.not. ok) call fail(trim(message))
+    call standardir_add(production, 'sequence', 'Tn', 291, 30_int64, 5_int64, ok, message)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/standardir_transition_fixture.sx', status='replace', &
+        action='write', iostat=ios)
+    if (ios /= 0) call fail('could not open transition fixture')
+    call standardir_emit(unit, production, source_hash, '5', ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/standardir_transition_fixture.sx', action='read', &
+        iostat=ios)
+    if (ios /= 0) call fail('could not reopen transition fixture')
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    if (ios /= 0 .or. index(actual, '(token T) (ref n)') == 0) then
+        call fail('terminal/reference transition was not lexed mechanically')
+    end if
+
     call standardir_start(production, 'R999', 'unfinished', 67, 40_int64, 12_int64, &
         ok, message)
     if (.not. ok) call fail(trim(message))
