@@ -192,6 +192,11 @@ source-dir = "test"
 main = "test_standardir_dependencies.f90"
 
 [[test]]
+name = "test_standardir_reference_closure"
+source-dir = "test"
+main = "test_standardir_reference_closure.f90"
+
+[[test]]
 name = "test_standardir_grammar"
 source-dir = "test"
 main = "test_standardir_grammar.f90"
