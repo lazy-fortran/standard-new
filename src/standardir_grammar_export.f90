@@ -200,6 +200,9 @@ contains
             return
         end if
 
+        call validate_export_tree(rule, rule%root, 0, ok, message)
+        if (.not. ok) return
+
         call make_list(syntax, 5)
         call make_atom(syntax%children(1), 'syntax')
         call make_atom(syntax%children(2), trim(rule%id))
@@ -211,6 +214,42 @@ contains
         if (.not. ok) return
         call make_source(syntax%children(5), rule, ok, message)
     end subroutine rule_to_syntax
+
+    recursive subroutine validate_export_tree(rule, index, depth, ok, message)
+        type(standardir_grammar_rule_t), intent(in) :: rule
+        integer, intent(in) :: index, depth
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_grammar_node_t) :: node
+        integer :: i, child, last
+
+        ok = .false.
+        message = ''
+        if (index < 1 .or. index > size(rule%nodes%values)) then
+            message = 'grammar export child index is outside the node table'
+            return
+        end if
+        if (depth >= size(rule%nodes%values)) then
+            message = 'grammar export node table is cyclic'
+            return
+        end if
+        node = rule%nodes%values(index)
+        if (node%child_count == 0) then
+            ok = .true.
+            return
+        end if
+        child = node%first_child
+        do i = 1, node%child_count
+            call validate_export_tree(rule, child, depth + 1, ok, message)
+            if (.not. ok) return
+            call subtree_end(rule, child, 0, last, ok, message)
+            if (.not. ok) return
+            child = last + 1
+        end do
+        ok = .true.
+        message = ''
+    end subroutine validate_export_tree
 
     recursive subroutine build_expression(rule, index, expression, ok, message)
         type(standardir_grammar_rule_t), intent(in) :: rule

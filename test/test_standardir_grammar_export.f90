@@ -8,7 +8,7 @@ program test_standardir_grammar_export
         standardir_grammar_rule_t, standardir_grammar_sequence, standardir_grammar_token
     implicit none
 
-    type(standardir_grammar_rule_t) :: rules(3), bad(3), unresolved(3), interleaved(3)
+    type(standardir_grammar_rule_t) :: rules(3), bad(3), cyclic(3), unresolved(3), interleaved(3)
     integer :: format, unit, ios
     logical :: ok
     character(len=256) :: message, line
@@ -26,6 +26,10 @@ program test_standardir_grammar_export
     bad = rules
     bad(2)%nodes%values(1)%first_child = 99
     call verify_failure(bad, standardir_grammar_format_ebnf, 'malformed rule')
+
+    cyclic = rules
+    cyclic(2)%nodes%values(1)%first_child = 1
+    call verify_failure(cyclic, standardir_grammar_format_ebnf, 'cyclic rule')
 
     unresolved = rules
     unresolved(3)%resolution = standardir_grammar_resolution_unresolved
