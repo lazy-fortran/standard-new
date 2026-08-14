@@ -13,7 +13,8 @@ program test_schema_consumer
     integer :: source_calls, item_calls, enum_calls
 
     source_calls = 0
-    call sx_parse('(source-ref (document J3) (clause 5) (rule R501))', node, ok, message)
+    call sx_parse('(source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+        '(source-hash fixture))', node, ok, message)
     call require(ok, message)
     call schema_consume_source_ref(node, consume_source, ok, message)
     call require(ok, message)
@@ -49,7 +50,8 @@ contains
         character(len=*), intent(out) :: callback_message
 
         callback_ok = trim(value%document) == 'J3' .and. trim(value%clause) == '5' .and. &
-            trim(value%rule) == 'R501'
+            trim(value%rule) == 'R501' .and. value%page == 53 .and. &
+            trim(value%source_hash) == 'fixture'
         callback_message = ''
         if (.not. callback_ok) callback_message = 'consumer lost provenance fields'
         if (callback_ok) source_calls = source_calls + 1

@@ -13,10 +13,16 @@ program test_schema_generated_api
     character(len=*), parameter :: schema_text = &
         '(schema standardir-v0 (primitive bool) (primitive int) '// &
         '(primitive status) (primitive name) '// &
-        '(record source-ref (document name) (clause name) (rule name)) '// &
+        '(record source-ref (document name) (clause name) (rule name) '// &
+        '(page int) (source-hash name)) '// &
         '(enum item-kind syntax constraint relation rule definition) '// &
         '(sum item (syntax string) constraint relation rule definition) '// &
-        '(list items item) (optional source-ref-option source-ref))'
+        '(enum origin mechanical search smt llm llm-repair human imported differential) '// &
+        '(enum resolution resolved unresolved disputed) '// &
+        '(record semantic-item (id name) (subject name) (source source-ref) '// &
+        '(origin origin) (resolution resolution)) '// &
+        '(list semantic-items semantic-item) (list items item) '// &
+        '(optional source-ref-option source-ref))'
     character(len=256) :: message, actual, reference
     type(schema_t) :: schema
     type(source_ref_t) :: source_ref, decoded_source_ref
@@ -32,14 +38,19 @@ program test_schema_generated_api
     source_ref%document = 'J3'
     source_ref%clause = '5'
     source_ref%rule = 'R501'
-    call write_source_ref(source_ref, '(source-ref (document J3) (clause 5) (rule R501))')
-    call sx_parse('(source-ref (document J3) (clause 5) (rule R501))', node, ok, message)
+    source_ref%page = 53
+    source_ref%source_hash = 'fixture'
+    call write_source_ref(source_ref, '(source-ref (document J3) (clause 5) (rule R501) '// &
+        '(page 53) (source-hash fixture))')
+    call sx_parse('(source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+        '(source-hash fixture))', node, ok, message)
     call require(ok, message)
     call schema_read_source_ref(node, decoded_source_ref, ok, message)
     call require(ok, message)
     call require(trim(decoded_source_ref%document) == 'J3' .and. &
         trim(decoded_source_ref%clause) == '5' .and. &
-        trim(decoded_source_ref%rule) == 'R501', 'generated record reader differs')
+        trim(decoded_source_ref%rule) == 'R501' .and. decoded_source_ref%page == 53 .and. &
+        trim(decoded_source_ref%source_hash) == 'fixture', 'generated record reader differs')
 
     item%kind = ITEM_SYNTAX
     allocate (item%syntax)
@@ -73,7 +84,8 @@ program test_schema_generated_api
 
     optional_ref%value = source_ref
     call write_optional(optional_ref, &
-        '(some (source-ref (document J3) (clause 5) (rule R501)))')
+        '(some (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+        '(source-hash fixture)))')
     deallocate (optional_ref%value)
     call write_optional(optional_ref, 'none')
 
@@ -82,7 +94,8 @@ program test_schema_generated_api
     call write_int(-7, '-7')
     call write_string('a"b', '"a\"b"')
 
-    call expect_failure('(source-ref (clause 5) (document 1) (rule 501))', &
+    call expect_failure('(source-ref (clause 5) (document 1) (rule 501) (page 53) '// &
+        '(source-hash fixture))', &
         'generated schema record fields are out of order')
     call expect_item_failure('(syntax)', 'sum variant payload is missing')
     call check_generated_semantics()
@@ -105,7 +118,8 @@ contains
         call schema_write_source_ref(value, unit, ok, message)
         close (unit)
         call require(ok, message)
-        call check_output('source-ref', '(source-ref (document J3) (clause 5) (rule R501))', &
+        call check_output('source-ref', '(source-ref (document J3) (clause 5) (rule R501) '// &
+            '(page 53) (source-hash fixture))', &
             expected)
     end subroutine write_source_ref
 
@@ -150,7 +164,8 @@ contains
             call check_output('source-ref-option', 'none', expected)
         else
             call check_output('source-ref-option', &
-                '(some (source-ref (document J3) (clause 5) (rule R501)))', expected)
+                '(some (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+                '(source-hash fixture)))', expected)
         end if
     end subroutine write_optional
 
@@ -340,10 +355,13 @@ contains
         call schema_print_source_ref(value, unit, ok, message)
         close (unit)
         call require(ok, message)
-        call check_output('source-ref', '(source-ref (document J3) (clause 5) (rule R501))', &
-            '(source-ref (document J3) (clause 5) (rule R501))')
+        call check_output('source-ref', '(source-ref (document J3) (clause 5) (rule R501) '// &
+            '(page 53) (source-hash fixture))', &
+            '(source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+            '(source-hash fixture))')
         call reference_hash('source-ref', &
-            '(source-ref (document J3) (clause 5) (rule R501))', reference_digest)
+            '(source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+            '(source-hash fixture))', reference_digest)
         call schema_hash_source_ref(value, generated_digest, ok, message)
         call require(ok, message)
         call require(all(generated_digest == reference_digest), &
@@ -395,10 +413,13 @@ contains
         close (unit)
         call require(ok, message)
         call check_output('source-ref-option', &
-            '(some (source-ref (document J3) (clause 5) (rule R501)))', &
-            '(some (source-ref (document J3) (clause 5) (rule R501)))')
+            '(some (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+            '(source-hash fixture)))', &
+            '(some (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+            '(source-hash fixture)))')
         call reference_hash('source-ref-option', &
-            '(some (source-ref (document J3) (clause 5) (rule R501)))', reference_digest)
+            '(some (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+            '(source-hash fixture)))', reference_digest)
         call schema_hash_source_ref_option(value, generated_digest, ok, message)
         call require(ok, message)
         call require(all(generated_digest == reference_digest), &

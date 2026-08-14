@@ -11,6 +11,8 @@ module schema_v0_generated
         character(len=128) :: document
         character(len=128) :: clause
         character(len=128) :: rule
+        integer :: page
+        character(len=128) :: source_hash
     end type source_ref_t
 
     integer, parameter, public :: ITEM_KIND_SYNTAX = 1
@@ -18,6 +20,19 @@ module schema_v0_generated
     integer, parameter, public :: ITEM_KIND_RELATION = 3
     integer, parameter, public :: ITEM_KIND_RULE = 4
     integer, parameter, public :: ITEM_KIND_DEFINITION = 5
+
+    integer, parameter, public :: ORIGIN_MECHANICAL = 1
+    integer, parameter, public :: ORIGIN_SEARCH = 2
+    integer, parameter, public :: ORIGIN_SMT = 3
+    integer, parameter, public :: ORIGIN_LLM = 4
+    integer, parameter, public :: ORIGIN_LLM_REPAIR = 5
+    integer, parameter, public :: ORIGIN_HUMAN = 6
+    integer, parameter, public :: ORIGIN_IMPORTED = 7
+    integer, parameter, public :: ORIGIN_DIFFERENTIAL = 8
+
+    integer, parameter, public :: RESOLUTION_RESOLVED = 1
+    integer, parameter, public :: RESOLUTION_UNRESOLVED = 2
+    integer, parameter, public :: RESOLUTION_DISPUTED = 3
 
     integer, parameter, public :: ITEM_SYNTAX = 1
     integer, parameter, public :: ITEM_CONSTRAINT = 2
@@ -33,6 +48,18 @@ module schema_v0_generated
         integer :: kind = 0
         type(item_syntax_t), allocatable :: syntax
     end type item_t
+
+    type, public :: semantic_item_t
+        character(len=128) :: id
+        character(len=128) :: subject
+        type(source_ref_t) :: source
+        integer :: origin
+        integer :: resolution
+    end type semantic_item_t
+
+    type, public :: semantic_items_t
+        type(semantic_item_t), allocatable :: values(:)
+    end type semantic_items_t
 
     type, public :: items_t
         type(item_t), allocatable :: values(:)
@@ -100,12 +127,46 @@ module schema_v0_generated
     end interface
 
     abstract interface
+        subroutine schema_consume_origin_callback(value, ok, message)
+            integer, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_origin_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_resolution_callback(value, ok, message)
+            integer, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_resolution_callback
+    end interface
+
+    abstract interface
         subroutine schema_consume_item_callback(value, ok, message)
             import :: item_t
             type(item_t), intent(in) :: value
             logical, intent(out) :: ok
             character(len=*), intent(out) :: message
         end subroutine schema_consume_item_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_semantic_item_callback(value, ok, message)
+            import :: semantic_item_t
+            type(semantic_item_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_semantic_item_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_semantic_items_callback(value, ok, message)
+            import :: semantic_items_t
+            type(semantic_items_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_semantic_items_callback
     end interface
 
     abstract interface
@@ -140,8 +201,16 @@ module schema_v0_generated
         schema_print_source_ref, schema_hash_source_ref
     public :: schema_write_item_kind, schema_read_item_kind, &
         schema_print_item_kind, schema_hash_item_kind
+    public :: schema_write_origin, schema_read_origin, &
+        schema_print_origin, schema_hash_origin
+    public :: schema_write_resolution, schema_read_resolution, &
+        schema_print_resolution, schema_hash_resolution
     public :: schema_write_item, schema_read_item, &
         schema_print_item, schema_hash_item
+    public :: schema_write_semantic_item, schema_read_semantic_item, &
+        schema_print_semantic_item, schema_hash_semantic_item
+    public :: schema_write_semantic_items, schema_read_semantic_items, &
+        schema_print_semantic_items, schema_hash_semantic_items
     public :: schema_write_items, schema_read_items, &
         schema_print_items, schema_hash_items
     public :: schema_write_source_ref_option, schema_read_source_ref_option, &
@@ -153,7 +222,11 @@ module schema_v0_generated
     public :: schema_validate_string, schema_equal_string
     public :: schema_validate_source_ref, schema_equal_source_ref
     public :: schema_validate_item_kind, schema_equal_item_kind
+    public :: schema_validate_origin, schema_equal_origin
+    public :: schema_validate_resolution, schema_equal_resolution
     public :: schema_validate_item, schema_equal_item
+    public :: schema_validate_semantic_item, schema_equal_semantic_item
+    public :: schema_validate_semantic_items, schema_equal_semantic_items
     public :: schema_validate_items, schema_equal_items
     public :: schema_validate_source_ref_option, schema_equal_source_ref_option
     public :: schema_consume_bool
@@ -163,7 +236,11 @@ module schema_v0_generated
     public :: schema_consume_string
     public :: schema_consume_source_ref
     public :: schema_consume_item_kind
+    public :: schema_consume_origin
+    public :: schema_consume_resolution
     public :: schema_consume_item
+    public :: schema_consume_semantic_item
+    public :: schema_consume_semantic_items
     public :: schema_consume_items
     public :: schema_consume_source_ref_option
 
@@ -326,6 +403,20 @@ contains
         call schema_emit_name(value%rule, unit, ok, message)
         if (.not. ok) return
         call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'page', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_int(value%page, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'source-hash', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_name(value%source_hash, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
         call schema_runtime_close_list(unit, ok, message)
     end subroutine schema_emit_source_ref
 
@@ -345,7 +436,7 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         type(sx_node_t) :: field
-        call schema_runtime_expect_list(node, 'source-ref', 4, ok, message)
+        call schema_runtime_expect_list(node, 'source-ref', 6, ok, message)
         if (.not. ok) return
         call schema_runtime_record_field(node, 1, 'document', field, ok, message)
         if (.not. ok) return
@@ -358,6 +449,14 @@ contains
         call schema_runtime_record_field(node, 3, 'rule', field, ok, message)
         if (.not. ok) return
         call schema_read_name(field, value%rule, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 4, 'page', field, ok, message)
+        if (.not. ok) return
+        call schema_read_int(field, value%page, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 5, 'source-hash', field, ok, message)
+        if (.not. ok) return
+        call schema_read_name(field, value%source_hash, ok, message)
         if (.not. ok) return
     end subroutine schema_read_source_ref
 
@@ -415,6 +514,120 @@ contains
             call schema_runtime_error('unknown enum value: item-kind', ok, message)
         end select
     end subroutine schema_read_item_kind
+
+    subroutine schema_emit_origin(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        select case (value)
+        case (1)
+            call schema_runtime_write_atom(unit, 'mechanical', ok, message)
+        case (2)
+            call schema_runtime_write_atom(unit, 'search', ok, message)
+        case (3)
+            call schema_runtime_write_atom(unit, 'smt', ok, message)
+        case (4)
+            call schema_runtime_write_atom(unit, 'llm', ok, message)
+        case (5)
+            call schema_runtime_write_atom(unit, 'llm-repair', ok, message)
+        case (6)
+            call schema_runtime_write_atom(unit, 'human', ok, message)
+        case (7)
+            call schema_runtime_write_atom(unit, 'imported', ok, message)
+        case (8)
+            call schema_runtime_write_atom(unit, 'differential', ok, message)
+        case default
+            call schema_runtime_error('unknown enum value: origin', ok, message)
+        end select
+    end subroutine schema_emit_origin
+
+    subroutine schema_write_origin(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_origin(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_origin
+
+    subroutine schema_read_origin(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=256) :: atom
+        call schema_runtime_read_atom(node, atom, ok, message)
+        if (.not. ok) return
+        select case (trim(atom))
+        case ('mechanical')
+            value = 1
+        case ('search')
+            value = 2
+        case ('smt')
+            value = 3
+        case ('llm')
+            value = 4
+        case ('llm-repair')
+            value = 5
+        case ('human')
+            value = 6
+        case ('imported')
+            value = 7
+        case ('differential')
+            value = 8
+        case default
+            call schema_runtime_error('unknown enum value: origin', ok, message)
+        end select
+    end subroutine schema_read_origin
+
+    subroutine schema_emit_resolution(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        select case (value)
+        case (1)
+            call schema_runtime_write_atom(unit, 'resolved', ok, message)
+        case (2)
+            call schema_runtime_write_atom(unit, 'unresolved', ok, message)
+        case (3)
+            call schema_runtime_write_atom(unit, 'disputed', ok, message)
+        case default
+            call schema_runtime_error('unknown enum value: resolution', ok, message)
+        end select
+    end subroutine schema_emit_resolution
+
+    subroutine schema_write_resolution(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_resolution(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_resolution
+
+    subroutine schema_read_resolution(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=256) :: atom
+        call schema_runtime_read_atom(node, atom, ok, message)
+        if (.not. ok) return
+        select case (trim(atom))
+        case ('resolved')
+            value = 1
+        case ('unresolved')
+            value = 2
+        case ('disputed')
+            value = 3
+        case default
+            call schema_runtime_error('unknown enum value: resolution', ok, message)
+        end select
+    end subroutine schema_read_resolution
 
     subroutine schema_emit_item(value, unit, ok, message)
         type(item_t), intent(in) :: value
@@ -515,6 +728,140 @@ contains
             call schema_runtime_error('unknown sum variant', ok, message)
         end select
     end subroutine schema_read_item
+
+    subroutine schema_emit_semantic_item(value, unit, ok, message)
+        type(semantic_item_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_runtime_open_list(unit, 'semantic-item', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'id', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_name(value%id, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'subject', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_name(value%subject, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'source', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_source_ref(value%source, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'origin', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_origin(value%origin, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'resolution', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_resolution(value%resolution, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_close_list(unit, ok, message)
+    end subroutine schema_emit_semantic_item
+
+    subroutine schema_write_semantic_item(value, unit, ok, message)
+        type(semantic_item_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_semantic_item(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_semantic_item
+
+    subroutine schema_read_semantic_item(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(semantic_item_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: field
+        call schema_runtime_expect_list(node, 'semantic-item', 6, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 1, 'id', field, ok, message)
+        if (.not. ok) return
+        call schema_read_name(field, value%id, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 2, 'subject', field, ok, message)
+        if (.not. ok) return
+        call schema_read_name(field, value%subject, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 3, 'source', field, ok, message)
+        if (.not. ok) return
+        call schema_read_source_ref(field, value%source, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 4, 'origin', field, ok, message)
+        if (.not. ok) return
+        call schema_read_origin(field, value%origin, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 5, 'resolution', field, ok, message)
+        if (.not. ok) return
+        call schema_read_resolution(field, value%resolution, ok, message)
+        if (.not. ok) return
+    end subroutine schema_read_semantic_item
+
+    subroutine schema_emit_semantic_items(value, unit, ok, message)
+        type(semantic_items_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+        call schema_runtime_open_list(unit, 'semantic-items', ok, message)
+        if (.not. ok) return
+        if (allocated(value%values)) then
+            do i = 1, size(value%values)
+                call schema_runtime_write_space(unit, ok, message)
+                call schema_emit_semantic_item(value%values(i), unit, ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        call schema_runtime_close_list(unit, ok, message)
+    end subroutine schema_emit_semantic_items
+
+    subroutine schema_write_semantic_items(value, unit, ok, message)
+        type(semantic_items_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_semantic_items(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_semantic_items
+
+    subroutine schema_read_semantic_items(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(semantic_items_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: element
+        integer :: i, count
+        call schema_runtime_expect_list(node, 'semantic-items', -1, ok, message)
+        if (.not. ok) return
+        if (allocated(value%values)) deallocate(value%values)
+        count = node%child_count - 1
+        if (count > 0) allocate(value%values(count))
+        do i = 1, count
+            call schema_runtime_list_element(node, i, element, ok, &
+                message)
+            if (.not. ok) return
+            call schema_read_semantic_item(element, value%values(i), ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine schema_read_semantic_items
 
     subroutine schema_emit_items(value, unit, ok, message)
         type(items_t), intent(in) :: value
@@ -659,6 +1006,10 @@ contains
         if (.not. ok) return
         call schema_validate_name(value%rule, ok, message)
         if (.not. ok) return
+        call schema_validate_int(value%page, ok, message)
+        if (.not. ok) return
+        call schema_validate_name(value%source_hash, ok, message)
+        if (.not. ok) return
         ok = .true.
         message = ''
     end subroutine schema_validate_source_ref
@@ -687,6 +1038,59 @@ contains
             call schema_runtime_error('unknown enum value: item-kind', ok, message)
         end select
     end subroutine schema_validate_item_kind
+
+    subroutine schema_validate_origin(value, ok, message)
+        integer, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        select case (value)
+        case (1)
+            ok = .true.
+            message = ''
+        case (2)
+            ok = .true.
+            message = ''
+        case (3)
+            ok = .true.
+            message = ''
+        case (4)
+            ok = .true.
+            message = ''
+        case (5)
+            ok = .true.
+            message = ''
+        case (6)
+            ok = .true.
+            message = ''
+        case (7)
+            ok = .true.
+            message = ''
+        case (8)
+            ok = .true.
+            message = ''
+        case default
+            call schema_runtime_error('unknown enum value: origin', ok, message)
+        end select
+    end subroutine schema_validate_origin
+
+    subroutine schema_validate_resolution(value, ok, message)
+        integer, intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        select case (value)
+        case (1)
+            ok = .true.
+            message = ''
+        case (2)
+            ok = .true.
+            message = ''
+        case (3)
+            ok = .true.
+            message = ''
+        case default
+            call schema_runtime_error('unknown enum value: resolution', ok, message)
+        end select
+    end subroutine schema_validate_resolution
 
     subroutine schema_validate_item(value, ok, message)
         type(item_t), intent(in) :: value
@@ -736,6 +1140,43 @@ contains
             call schema_runtime_error('unknown sum kind: item', ok, message)
         end select
     end subroutine schema_validate_item
+
+    subroutine schema_validate_semantic_item(value, ok, message)
+        type(semantic_item_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = .false.
+        message = ''
+        call schema_validate_name(value%id, ok, message)
+        if (.not. ok) return
+        call schema_validate_name(value%subject, ok, message)
+        if (.not. ok) return
+        call schema_validate_source_ref(value%source, ok, message)
+        if (.not. ok) return
+        call schema_validate_origin(value%origin, ok, message)
+        if (.not. ok) return
+        call schema_validate_resolution(value%resolution, ok, message)
+        if (.not. ok) return
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_semantic_item
+
+    subroutine schema_validate_semantic_items(value, ok, message)
+        type(semantic_items_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+        ok = .false.
+        message = ''
+        if (allocated(value%values)) then
+            do i = 1, size(value%values)
+                call schema_validate_semantic_item(value%values(i), ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_semantic_items
 
     subroutine schema_validate_items(value, ok, message)
         type(items_t), intent(in) :: value
@@ -802,6 +1243,8 @@ contains
         if (.not. schema_equal_name(left%document, right%document)) return
         if (.not. schema_equal_name(left%clause, right%clause)) return
         if (.not. schema_equal_name(left%rule, right%rule)) return
+        if (.not. schema_equal_int(left%page, right%page)) return
+        if (.not. schema_equal_name(left%source_hash, right%source_hash)) return
         equal = .true.
     end function schema_equal_source_ref
 
@@ -809,6 +1252,16 @@ contains
         integer, intent(in) :: left, right
         equal = left == right
     end function schema_equal_item_kind
+
+    logical function schema_equal_origin(left, right) result(equal)
+        integer, intent(in) :: left, right
+        equal = left == right
+    end function schema_equal_origin
+
+    logical function schema_equal_resolution(left, right) result(equal)
+        integer, intent(in) :: left, right
+        equal = left == right
+    end function schema_equal_resolution
 
     logical function schema_equal_item(left, right) result(equal)
         type(item_t), intent(in) :: left, right
@@ -834,6 +1287,32 @@ contains
             equal = .false.
         end select
     end function schema_equal_item
+
+    logical function schema_equal_semantic_item(left, right) result(equal)
+        type(semantic_item_t), intent(in) :: left, right
+        equal = .false.
+        if (.not. schema_equal_name(left%id, right%id)) return
+        if (.not. schema_equal_name(left%subject, right%subject)) return
+        if (.not. schema_equal_source_ref(left%source, right%source)) return
+        if (.not. schema_equal_origin(left%origin, right%origin)) return
+        if (.not. schema_equal_resolution(left%resolution, right%resolution)) return
+        equal = .true.
+    end function schema_equal_semantic_item
+
+    logical function schema_equal_semantic_items(left, right) result(equal)
+        type(semantic_items_t), intent(in) :: left, right
+        integer :: left_count, right_count, i
+        equal = .false.
+        left_count = 0
+        right_count = 0
+        if (allocated(left%values)) left_count = size(left%values)
+        if (allocated(right%values)) right_count = size(right%values)
+        if (left_count /= right_count) return
+        do i = 1, left_count
+            if (.not. schema_equal_semantic_item(left%values(i), right%values(i))) return
+        end do
+        equal = .true.
+    end function schema_equal_semantic_items
 
     logical function schema_equal_items(left, right) result(equal)
         type(items_t), intent(in) :: left, right
@@ -1358,6 +1837,148 @@ contains
         message = ''
     end subroutine schema_hash_item_kind
 
+    subroutine schema_print_origin(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_origin(value, unit, ok, message)
+    end subroutine schema_print_origin
+
+    subroutine schema_hash_origin(value, digest, ok, message)
+        integer, intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_origin(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_origin
+
+    subroutine schema_print_resolution(value, unit, ok, message)
+        integer, intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_resolution(value, unit, ok, message)
+    end subroutine schema_print_resolution
+
+    subroutine schema_hash_resolution(value, digest, ok, message)
+        integer, intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_resolution(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_resolution
+
     subroutine schema_print_item(value, unit, ok, message)
         type(item_t), intent(in) :: value
         integer, intent(in) :: unit
@@ -1428,6 +2049,148 @@ contains
         ok = .true.
         message = ''
     end subroutine schema_hash_item
+
+    subroutine schema_print_semantic_item(value, unit, ok, message)
+        type(semantic_item_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_semantic_item(value, unit, ok, message)
+    end subroutine schema_print_semantic_item
+
+    subroutine schema_hash_semantic_item(value, digest, ok, message)
+        type(semantic_item_t), intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_semantic_item(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_semantic_item
+
+    subroutine schema_print_semantic_items(value, unit, ok, message)
+        type(semantic_items_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_semantic_items(value, unit, ok, message)
+    end subroutine schema_print_semantic_items
+
+    subroutine schema_hash_semantic_items(value, digest, ok, message)
+        type(semantic_items_t), intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_semantic_items(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_semantic_items
 
     subroutine schema_print_items(value, unit, ok, message)
         type(items_t), intent(in) :: value
@@ -1662,6 +2425,32 @@ contains
         call consumer(value, ok, message)
     end subroutine schema_consume_item_kind
 
+    subroutine schema_consume_origin(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_origin_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: value
+        call schema_read_origin(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_origin(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_origin
+
+    subroutine schema_consume_resolution(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_resolution_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: value
+        call schema_read_resolution(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_resolution(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_resolution
+
     subroutine schema_consume_item(node, consumer, ok, message)
         type(sx_node_t), intent(in) :: node
         procedure(schema_consume_item_callback) :: consumer
@@ -1674,6 +2463,32 @@ contains
         if (.not. ok) return
         call consumer(value, ok, message)
     end subroutine schema_consume_item
+
+    subroutine schema_consume_semantic_item(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_semantic_item_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(semantic_item_t) :: value
+        call schema_read_semantic_item(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_semantic_item(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_semantic_item
+
+    subroutine schema_consume_semantic_items(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_semantic_items_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(semantic_items_t) :: value
+        call schema_read_semantic_items(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_semantic_items(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_semantic_items
 
     subroutine schema_consume_items(node, consumer, ok, message)
         type(sx_node_t), intent(in) :: node
