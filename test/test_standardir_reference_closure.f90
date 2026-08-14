@@ -80,6 +80,7 @@ program test_standardir_reference_closure
     call conflicting_classification_control(records, facts, roots, result)
     call cycle_control(records, facts, roots, result)
     call unclassified_control(records, facts, roots, result)
+    call large_dynamic_capacity_control
     print '(a)', 'StandardIR reference closure test passed'
 
 contains
@@ -260,6 +261,45 @@ contains
         call require(.not. local_ok .and. output%record_count == 0, &
             'unclassified reference was accepted')
     end subroutine unclassified_control
+
+    subroutine large_dynamic_capacity_control
+        integer, parameter :: large_count = closure_max_records + 1
+        type(closure_input_record_t), allocatable :: large(:)
+        type(closure_classification_t) :: no_facts(1)
+        type(closure_result_t) :: output
+        type(standardir_source_ref_t) :: value_source
+        character(len=32) :: current_name, next_name, last_name
+        character(len=32) :: large_roots(1)
+        character(len=256) :: local_message
+        logical :: local_ok
+        integer :: i
+
+        allocate (large(large_count))
+        no_facts = closure_classification_t()
+        call make_source(value_source, 'fixture', 'large-closure', 'N-large', 13)
+        do i = 1, large_count
+            write (current_name, '(a,i0)') 'node-', i
+            call make_record(large(i), 'record-'//trim(current_name), trim(current_name), &
+                value_source, local_ok, local_message)
+            call require(local_ok, local_message)
+            if (i < large_count) then
+                write (next_name, '(a,i0)') 'node-', i + 1
+                call closure_add_reference(large(i), trim(next_name), value_source, local_ok, &
+                    local_message)
+                call require(local_ok, local_message)
+            end if
+        end do
+        large_roots(1) = 'node-1'
+        write (last_name, '(a,i0)') 'node-', large_count
+        call closure_compute(large, large_count, no_facts, 0, large_roots, 1, output, local_ok, &
+            local_message)
+        call require(local_ok, local_message)
+        call require(output%normative_count == large_count .and. output%derived_count == 0, &
+            'dynamic closure capacity did not retain all normative records')
+        call require(output%record_count == large_count .and. &
+            trim(output%records(large_count)%lhs) == trim(last_name), &
+            'dynamic closure output order or capacity differs')
+    end subroutine large_dynamic_capacity_control
 
     subroutine require(condition, text)
         logical, intent(in) :: condition
