@@ -78,6 +78,8 @@ contains
             end if
         end do
 
+        call emit_consumer_interfaces(unit, schema, ok, message)
+        if (.not. ok) go to 900
         call emit_api_publics(unit, schema, ok, message)
         if (.not. ok) go to 900
         call emit_line(unit, 'contains', ok, message)
@@ -292,6 +294,21 @@ contains
             call emit_public_validation_pair(unit, schema%declarations(i)%name, ok, message)
             if (.not. ok) return
         end do
+        call emit_public_consumer(unit, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_public_consumer(unit, 'int', ok, message)
+        if (.not. ok) return
+        call emit_public_consumer(unit, 'status', ok, message)
+        if (.not. ok) return
+        call emit_public_consumer(unit, 'name', ok, message)
+        if (.not. ok) return
+        call emit_public_consumer(unit, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_public_consumer(unit, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
         call emit_line(unit, '', ok, message)
     end subroutine emit_api_publics
 
@@ -326,6 +343,90 @@ contains
         call emit_line(unit, trim(line), ok, message)
     end subroutine emit_public_validation_pair
 
+    subroutine emit_public_consumer(unit, name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=1024) :: line
+        character(len=128) :: identifier
+
+        identifier = fortran_identifier(name)
+        line = '    public :: schema_consume_'//trim(identifier)
+        call emit_line(unit, trim(line), ok, message)
+    end subroutine emit_public_consumer
+
+    subroutine emit_consumer_interfaces(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_consumer_interface(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_consumer_interface(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_consumer_interface(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_consumer_interface(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_consumer_interface(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_consumer_interface(unit, schema, &
+                schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_consumer_interfaces
+
+    subroutine emit_consumer_interface(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: type_name, identifier, imported_name
+        character(len=1024) :: line
+        integer :: last
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(name)
+        call emit_line(unit, '    abstract interface', ok, message)
+        if (.not. ok) return
+        line = '        subroutine schema_consume_'//trim(identifier)// &
+            '_callback(value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        if (index(trim(type_name), 'type(') == 1) then
+            last = len_trim(type_name) - 1
+            imported_name = type_name(6:last)
+            line = '            import :: '//trim(imported_name)
+            call emit_line(unit, trim(line), ok, message)
+            if (.not. ok) return
+        end if
+        call emit_line(unit, '            '//trim(type_name)// &
+            ', intent(in) :: value', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            character(len=*), intent(out) :: '// &
+            'message', ok, message)
+        if (.not. ok) return
+        line = '        end subroutine schema_consume_'//trim(identifier)//'_callback'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end interface', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_consumer_interface
+
     subroutine emit_apis(unit, schema, ok, message)
         integer, intent(in) :: unit
         type(schema_t), intent(in) :: schema
@@ -356,7 +457,85 @@ contains
         call emit_equality_apis(unit, schema, ok, message)
         if (.not. ok) return
         call emit_print_hash_apis(unit, schema, ok, message)
+        if (.not. ok) return
+        call emit_consumer_apis(unit, schema, ok, message)
     end subroutine emit_apis
+
+    subroutine emit_consumer_apis(unit, schema, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .true.
+        message = ''
+        call emit_consumer_api(unit, schema, 'bool', ok, message)
+        if (.not. ok) return
+        call emit_consumer_api(unit, schema, 'int', ok, message)
+        if (.not. ok) return
+        call emit_consumer_api(unit, schema, 'status', ok, message)
+        if (.not. ok) return
+        call emit_consumer_api(unit, schema, 'name', ok, message)
+        if (.not. ok) return
+        call emit_consumer_api(unit, schema, 'string', ok, message)
+        if (.not. ok) return
+        do i = 1, schema%declaration_count
+            if (is_builtin_primitive(schema%declarations(i)%name)) cycle
+            call emit_consumer_api(unit, schema, &
+                schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine emit_consumer_apis
+
+    subroutine emit_consumer_api(unit, schema, name, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, type_name
+        character(len=1024) :: line
+
+        call type_name_fortran(schema, name, type_name, ok, message)
+        if (.not. ok) return
+        identifier = fortran_identifier(name)
+        call emit_line(unit, '    subroutine schema_consume_'//trim(identifier)// &
+            '(node, consumer, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        line = '        procedure(schema_consume_'//trim(identifier)// &
+            '_callback) :: consumer'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '        '//trim(type_name)//' :: value', ok, message)
+        if (.not. ok) return
+        line = '        call schema_read_'//trim(identifier)// &
+            '(node, value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        line = '        call schema_validate_'//trim(identifier)//'(value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        line = '        call consumer(value, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_consume_'// &
+            trim(identifier), ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_consumer_api
 
     subroutine emit_api(unit, schema, name, ok, message)
         integer, intent(in) :: unit

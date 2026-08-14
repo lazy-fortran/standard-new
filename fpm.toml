@@ -232,6 +232,11 @@ source-dir = "test"
 main = "test_schema_visitor.f90"
 
 [[test]]
+name = "test_schema_consumer"
+source-dir = "test"
+main = "test_schema_consumer.f90"
+
+[[test]]
 name = "test_standardir_semantic_table"
 source-dir = "test"
 main = "test_standardir_semantic_table.f90"

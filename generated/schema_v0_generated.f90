@@ -42,6 +42,90 @@ module schema_v0_generated
         type(source_ref_t), allocatable :: value
     end type source_ref_option_t
 
+    abstract interface
+        subroutine schema_consume_bool_callback(value, ok, message)
+            logical, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_bool_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_int_callback(value, ok, message)
+            integer, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_int_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_status_callback(value, ok, message)
+            integer, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_status_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_name_callback(value, ok, message)
+            character(len=128), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_name_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_string_callback(value, ok, message)
+            character(len=128), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_string_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_source_ref_callback(value, ok, message)
+            import :: source_ref_t
+            type(source_ref_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_source_ref_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_item_kind_callback(value, ok, message)
+            integer, intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_item_kind_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_item_callback(value, ok, message)
+            import :: item_t
+            type(item_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_item_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_items_callback(value, ok, message)
+            import :: items_t
+            type(items_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_items_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_source_ref_option_callback(value, ok, message)
+            import :: source_ref_option_t
+            type(source_ref_option_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_source_ref_option_callback
+    end interface
+
     public :: schema_write_bool, schema_read_bool, &
         schema_print_bool, schema_hash_bool
     public :: schema_write_int, schema_read_int, &
@@ -72,6 +156,16 @@ module schema_v0_generated
     public :: schema_validate_item, schema_equal_item
     public :: schema_validate_items, schema_equal_items
     public :: schema_validate_source_ref_option, schema_equal_source_ref_option
+    public :: schema_consume_bool
+    public :: schema_consume_int
+    public :: schema_consume_status
+    public :: schema_consume_name
+    public :: schema_consume_string
+    public :: schema_consume_source_ref
+    public :: schema_consume_item_kind
+    public :: schema_consume_item
+    public :: schema_consume_items
+    public :: schema_consume_source_ref_option
 
 contains
     subroutine schema_emit_bool(value, unit, ok, message)
@@ -1476,5 +1570,135 @@ contains
         ok = .true.
         message = ''
     end subroutine schema_hash_source_ref_option
+
+    subroutine schema_consume_bool(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_bool_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        logical :: value
+        call schema_read_bool(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_bool(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_bool
+
+    subroutine schema_consume_int(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_int_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: value
+        call schema_read_int(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_int(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_int
+
+    subroutine schema_consume_status(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_status_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: value
+        call schema_read_status(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_status(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_status
+
+    subroutine schema_consume_name(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_name_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: value
+        call schema_read_name(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_name(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_name
+
+    subroutine schema_consume_string(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_string_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128) :: value
+        call schema_read_string(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_string(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_string
+
+    subroutine schema_consume_source_ref(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_source_ref_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(source_ref_t) :: value
+        call schema_read_source_ref(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_source_ref(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_source_ref
+
+    subroutine schema_consume_item_kind(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_item_kind_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: value
+        call schema_read_item_kind(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_item_kind(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_item_kind
+
+    subroutine schema_consume_item(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_item_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(item_t) :: value
+        call schema_read_item(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_item(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_item
+
+    subroutine schema_consume_items(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_items_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(items_t) :: value
+        call schema_read_items(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_items(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_items
+
+    subroutine schema_consume_source_ref_option(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_source_ref_option_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(source_ref_option_t) :: value
+        call schema_read_source_ref_option(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_source_ref_option(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_source_ref_option
 
 end module schema_v0_generated

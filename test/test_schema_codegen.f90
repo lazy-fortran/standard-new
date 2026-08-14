@@ -28,6 +28,9 @@ program test_schema_codegen
         '        type(item_syntax_t), allocatable :: syntax', &
         '        type(item_t), allocatable :: values(:)', &
         '        type(source_ref_t), allocatable :: value', &
+        '    public :: schema_consume_source_ref', &
+        '        subroutine schema_consume_source_ref_callback(value, ok, message)', &
+        '    subroutine schema_consume_source_ref(node, consumer, ok, message)', &
         'end module schema_v0_generated']
     character(len=256) :: message
     character(len=256) :: lines(4096)
