@@ -30,6 +30,8 @@ program test_schema_codegen
         '        type(source_ref_t), allocatable :: value', &
         '    public :: schema_consume_source_ref', &
         '        subroutine schema_consume_source_ref_callback(value, ok, message)', &
+        '    public :: schema_consume_items_elements', &
+        '    subroutine schema_consume_items_elements(node, consumer, ok, message)', &
         '    subroutine schema_consume_source_ref(node, consumer, ok, message)', &
         'end module schema_v0_generated']
     character(len=256) :: message
@@ -64,6 +66,7 @@ program test_schema_codegen
         'cyclic schema diagnostic differs')
 
     call check_stable_forward_dependency_order()
+    call check_checked_in_generated_source()
 
     print '(a)', 'schema codegen test passed'
 
@@ -147,6 +150,38 @@ contains
             end if
         end do
     end function line_number
+
+    subroutine check_checked_in_generated_source()
+        character(len=4096) :: schema_text
+        character(len=256) :: fresh_lines(4096), checked_in_lines(4096)
+        character(len=256) :: fresh_message
+        type(schema_t) :: checked_in_schema
+        integer :: fresh_count, checked_in_count, local_ios, local_unit
+        logical :: fresh_ok
+
+        open (newunit=local_unit, file='specs/schema-v0.sxs', action='read', &
+            iostat=local_ios)
+        call require(local_ios == 0, 'could not open schema-v0 source')
+        read (local_unit, '(a)', iostat=local_ios) schema_text
+        close (local_unit)
+        call require(local_ios == 0, 'could not read schema-v0 source')
+        call schema_parse_text(trim(schema_text), checked_in_schema, fresh_ok, fresh_message)
+        call require(fresh_ok, fresh_message)
+
+        open (newunit=local_unit, file='build/schema_v0_fresh.f90', status='replace', &
+            action='write', iostat=local_ios)
+        call require(local_ios == 0, 'could not open fresh schema-v0 output')
+        call schema_generate_types(checked_in_schema, local_unit, 'schema_v0_generated', &
+            fresh_ok, fresh_message)
+        close (local_unit)
+        call require(fresh_ok, fresh_message)
+        call read_lines('build/schema_v0_fresh.f90', fresh_lines, fresh_count)
+        call read_lines('generated/schema_v0_generated.f90', checked_in_lines, checked_in_count)
+        call require(fresh_count == checked_in_count, &
+            'checked-in generated schema has stale line count')
+        call require(all(fresh_lines(:fresh_count) == checked_in_lines(:checked_in_count)), &
+            'checked-in generated schema is stale')
+    end subroutine check_checked_in_generated_source
 
     subroutine require(condition, failure_message)
         logical, intent(in) :: condition

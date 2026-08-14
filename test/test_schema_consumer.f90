@@ -4,13 +4,14 @@ program test_schema_consumer
     use fortsx, only: sx_node_t, sx_parse
     use schema_v0_generated, only: ITEM_CONSTRAINT, ITEM_SYNTAX, item_t, &
         schema_consume_item, schema_consume_item_kind, schema_consume_source_ref, &
-        source_ref_t
+        schema_consume_items_elements, source_ref_t
     implicit none
 
     type(sx_node_t) :: node
     character(len=256) :: message
     logical :: ok
     integer :: source_calls, item_calls, enum_calls
+    integer :: item_kinds(2)
 
     source_calls = 0
     call sx_parse('(source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
@@ -40,6 +41,30 @@ program test_schema_consumer
     call require(.not. ok, 'unknown enum state reached the consumer')
     call require(enum_calls == 0, 'invalid enum state invoked the consumer')
 
+    item_calls = 0
+    item_kinds = 0
+    call sx_parse('(items (syntax "first") (constraint))', node, ok, message)
+    call require(ok, message)
+    call schema_consume_items_elements(node, consume_item, ok, message)
+    call require(ok, message)
+    call require(item_calls == 2, 'list elements were not consumed in full')
+    call require(item_kinds(1) == ITEM_SYNTAX, 'first list element changed order')
+    call require(item_kinds(2) == ITEM_CONSTRAINT, 'second list element changed order')
+
+    item_calls = 0
+    call sx_parse('(items (syntax "first") (syntax))', node, ok, message)
+    call require(ok, message)
+    call schema_consume_items_elements(node, consume_item, ok, message)
+    call require(.not. ok, 'malformed list element was accepted')
+    call require(item_calls == 1, 'consumer continued after malformed list element')
+
+    item_calls = 0
+    call sx_parse('(wrong-items constraint)', node, ok, message)
+    call require(ok, message)
+    call schema_consume_items_elements(node, consume_item, ok, message)
+    call require(.not. ok, 'wrong list declaration reached the consumer')
+    call require(item_calls == 0, 'wrong list declaration invoked the consumer')
+
     print '(a)', 'schema consumer test passed'
 
 contains
@@ -62,11 +87,21 @@ contains
         logical, intent(out) :: callback_ok
         character(len=*), intent(out) :: callback_message
 
-        callback_ok = value%kind == ITEM_SYNTAX .and. allocated(value%syntax)
-        if (callback_ok) callback_ok = trim(value%syntax%value) == 'program'
+        callback_ok = .false.
+        if (value%kind == ITEM_SYNTAX) then
+            if (allocated(value%syntax)) then
+                callback_ok = trim(value%syntax%value) == 'program' .or. &
+                    trim(value%syntax%value) == 'first'
+            end if
+        else if (value%kind == ITEM_CONSTRAINT) then
+            callback_ok = .true.
+        end if
         callback_message = ''
         if (.not. callback_ok) callback_message = 'consumer lost sum payload'
-        if (callback_ok) item_calls = item_calls + 1
+        if (callback_ok) then
+            item_calls = item_calls + 1
+            if (item_calls <= size(item_kinds)) item_kinds(item_calls) = value%kind
+        end if
     end subroutine consume_item
 
     subroutine consume_enum(value, callback_ok, callback_message)

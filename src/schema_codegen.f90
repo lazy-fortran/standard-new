@@ -344,6 +344,11 @@ contains
             call emit_public_consumer(unit, schema%declarations(i)%name, ok, message)
             if (.not. ok) return
         end do
+        do i = 1, schema%declaration_count
+            if (schema%declarations(i)%kind /= schema_list) cycle
+            call emit_public_list_consumer(unit, schema%declarations(i)%name, ok, message)
+            if (.not. ok) return
+        end do
         call emit_line(unit, '', ok, message)
     end subroutine emit_api_publics
 
@@ -390,6 +395,19 @@ contains
         line = '    public :: schema_consume_'//trim(identifier)
         call emit_line(unit, trim(line), ok, message)
     end subroutine emit_public_consumer
+
+    subroutine emit_public_list_consumer(unit, name, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: name
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=1024) :: line
+        character(len=128) :: identifier
+
+        identifier = fortran_identifier(name)
+        line = '    public :: schema_consume_'//trim(identifier)//'_elements'
+        call emit_line(unit, trim(line), ok, message)
+    end subroutine emit_public_list_consumer
 
     subroutine emit_consumer_interfaces(unit, schema, ok, message)
         integer, intent(in) :: unit
@@ -522,6 +540,11 @@ contains
                 schema%declarations(i)%name, ok, message)
             if (.not. ok) return
         end do
+        do i = 1, schema%declaration_count
+            if (schema%declarations(i)%kind /= schema_list) cycle
+            call emit_list_consumer_api(unit, schema, schema%declarations(i), ok, message)
+            if (.not. ok) return
+        end do
     end subroutine emit_consumer_apis
 
     subroutine emit_consumer_api(unit, schema, name, ok, message)
@@ -571,6 +594,70 @@ contains
             trim(identifier), ok, message)
         call emit_line(unit, '', ok, message)
     end subroutine emit_consumer_api
+
+    subroutine emit_list_consumer_api(unit, schema, declaration, ok, message)
+        integer, intent(in) :: unit
+        type(schema_t), intent(in) :: schema
+        type(schema_declaration_t), intent(in) :: declaration
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: identifier, target_id
+        character(len=1024) :: line
+
+        identifier = fortran_identifier(declaration%name)
+        target_id = fortran_identifier(declaration%target_type)
+        ok = .true.
+        message = ''
+        call emit_line(unit, '    subroutine schema_consume_'//trim(identifier)// &
+            '_elements(node, consumer, ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t), intent(in) :: node', ok, message)
+        if (.not. ok) return
+        line = '        procedure(schema_consume_'//trim(target_id)// &
+            '_callback) :: consumer'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        logical, intent(out) :: ok', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        character(len=*), intent(out) :: message', ok, &
+            message)
+        if (.not. ok) return
+        call emit_line(unit, '        type(sx_node_t) :: element', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        integer :: i', ok, message)
+        if (.not. ok) return
+        line = '        call schema_runtime_expect_list(node, '// &
+            trim(fortran_literal(declaration%name))//', -1, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        do i = 1, node%child_count - 1', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            call schema_runtime_list_element(node, i, element, &', &
+            ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '                ok, message)', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        line = '            call schema_consume_'//trim(target_id)// &
+            '(element, consumer, ok, message)'
+        call emit_line(unit, trim(line), ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '            if (.not. ok) return', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        end do', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '        ok = .true.', ok, message)
+        if (.not. ok) return
+        call emit_line(unit, "        message = ''", ok, message)
+        if (.not. ok) return
+        call emit_line(unit, '    end subroutine schema_consume_'//trim(identifier)// &
+            '_elements', ok, message)
+        call emit_line(unit, '', ok, message)
+    end subroutine emit_list_consumer_api
 
     subroutine emit_api(unit, schema, name, ok, message)
         integer, intent(in) :: unit

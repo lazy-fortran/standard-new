@@ -1,13 +1,13 @@
 module standardir_semantic_consumer
     !! Consume the generated source-linked semantic sequence into its table.
 
-    use schema_v0_generated, only: semantic_item_t, semantic_items_t, &
-        schema_consume_semantic_items
+    use schema_v0_generated, only: semantic_item_t, &
+        schema_consume_semantic_items_elements
     use standardir_export, only: standardir_semantic_item_t, &
         standardir_resolution_disputed, standardir_resolution_resolved, &
         standardir_resolution_unresolved
-    use standardir_semantic_table, only: semantic_table_add, semantic_table_max_items, &
-        semantic_table_t, semantic_table_validate
+    use standardir_semantic_table, only: semantic_table_add, semantic_table_t, &
+        semantic_table_validate
     use fortsx, only: sx_node_t
     implicit none
     private
@@ -22,39 +22,29 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call schema_consume_semantic_items(node, consume_sequence, ok, message)
+        type(semantic_table_t) :: candidate
+
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) return
+        candidate = table
+        call schema_consume_semantic_items_elements(node, consume_item, ok, message)
+        if (.not. ok) return
+        table = candidate
+        ok = .true.
+        message = ''
 
     contains
 
-        subroutine consume_sequence(value, callback_ok, callback_message)
-            type(semantic_items_t), intent(in) :: value
+        subroutine consume_item(value, callback_ok, callback_message)
+            type(semantic_item_t), intent(in) :: value
             logical, intent(out) :: callback_ok
             character(len=*), intent(out) :: callback_message
 
-            type(semantic_table_t) :: candidate
             type(standardir_semantic_item_t) :: item
-            integer :: i, value_count
 
-            call semantic_table_validate(table, callback_ok, callback_message)
-            if (.not. callback_ok) return
-            value_count = 0
-            if (allocated(value%values)) value_count = size(value%values)
-            if (table%item_count + value_count > semantic_table_max_items) then
-                callback_ok = .false.
-                callback_message = 'semantic-item sequence exceeds table capacity'
-                return
-            end if
-
-            candidate = table
-            do i = 1, value_count
-                call convert_item(value%values(i), item)
-                call semantic_table_add(candidate, item, callback_ok, callback_message)
-                if (.not. callback_ok) return
-            end do
-            table = candidate
-            callback_ok = .true.
-            callback_message = ''
-        end subroutine consume_sequence
+            call convert_item(value, item)
+            call semantic_table_add(candidate, item, callback_ok, callback_message)
+        end subroutine consume_item
 
         subroutine convert_item(value, item)
             type(semantic_item_t), intent(in) :: value

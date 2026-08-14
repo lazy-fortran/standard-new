@@ -243,6 +243,8 @@ module schema_v0_generated
     public :: schema_consume_semantic_items
     public :: schema_consume_items
     public :: schema_consume_source_ref_option
+    public :: schema_consume_semantic_items_elements
+    public :: schema_consume_items_elements
 
 contains
     subroutine schema_emit_bool(value, unit, ok, message)
@@ -2515,5 +2517,45 @@ contains
         if (.not. ok) return
         call consumer(value, ok, message)
     end subroutine schema_consume_source_ref_option
+
+    subroutine schema_consume_semantic_items_elements(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_semantic_item_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: element
+        integer :: i
+        call schema_runtime_expect_list(node, 'semantic-items', -1, ok, message)
+        if (.not. ok) return
+        do i = 1, node%child_count - 1
+            call schema_runtime_list_element(node, i, element, &
+                ok, message)
+            if (.not. ok) return
+            call schema_consume_semantic_item(element, consumer, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine schema_consume_semantic_items_elements
+
+    subroutine schema_consume_items_elements(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_item_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: element
+        integer :: i
+        call schema_runtime_expect_list(node, 'items', -1, ok, message)
+        if (.not. ok) return
+        do i = 1, node%child_count - 1
+            call schema_runtime_list_element(node, i, element, &
+                ok, message)
+            if (.not. ok) return
+            call schema_consume_item(element, consumer, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine schema_consume_items_elements
 
 end module schema_v0_generated
