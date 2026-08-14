@@ -8,7 +8,7 @@ module standardir_semantic_table
     implicit none
     private
 
-    integer, parameter, public :: semantic_table_max_items = 256
+    integer, parameter, public :: semantic_table_max_items = 512
 
     type, public :: semantic_table_t
         integer :: item_count = 0
@@ -20,6 +20,7 @@ module standardir_semantic_table
     public :: semantic_table_validate
     public :: semantic_table_iterate
     public :: semantic_table_find_id
+    public :: semantic_table_find_occurrence
     public :: semantic_table_find_source
     public :: semantic_table_count_resolution
     public :: semantic_table_iterate_resolution
@@ -143,6 +144,45 @@ contains
         ok = .true.
         message = ''
     end subroutine semantic_table_find_id
+
+    subroutine semantic_table_find_occurrence(table, id, occurrence, item, found, ok, message)
+        type(semantic_table_t), intent(in) :: table
+        character(len=*), intent(in) :: id
+        integer, intent(in) :: occurrence
+        type(standardir_semantic_item_t), intent(out) :: item
+        logical, intent(out) :: found, ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, match_count
+
+        item = standardir_semantic_item_t()
+        found = .false.
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) return
+        if (len_trim(id) == 0) then
+            ok = .false.
+            message = 'semantic-item occurrence query id is empty'
+            return
+        end if
+        if (occurrence <= 0) then
+            ok = .false.
+            message = 'semantic-item occurrence query index is invalid'
+            return
+        end if
+        match_count = 0
+        do i = 1, table%item_count
+            if (trim(table%items(i)%id) == trim(id)) then
+                match_count = match_count + 1
+                if (match_count == occurrence) then
+                    item = table%items(i)
+                    found = .true.
+                    exit
+                end if
+            end if
+        end do
+        ok = .true.
+        message = ''
+    end subroutine semantic_table_find_occurrence
 
     subroutine semantic_table_find_source(table, source, item, found, ok, message)
         type(semantic_table_t), intent(in) :: table

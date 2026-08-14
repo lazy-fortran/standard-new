@@ -7,7 +7,7 @@ program test_standardir_semantic_table
         standardir_resolution_unresolved, standardir_read_semantic_item, &
         standardir_semantic_item_t
     use standardir_semantic_table, only: semantic_table_add, semantic_table_find_id, &
-        semantic_table_find_source, semantic_table_iterate, &
+        semantic_table_find_occurrence, semantic_table_find_source, semantic_table_iterate, &
         semantic_table_count_resolution, semantic_table_iterate_resolution, &
         semantic_table_max_items, semantic_table_reset, semantic_table_t, semantic_table_validate
     implicit none
@@ -68,6 +68,39 @@ program test_standardir_semantic_table
     call require(.not. ok .and. .not. found, 'duplicate typed id query was accepted')
     call semantic_table_find_source(table, expected%source, actual, found, ok, message)
     call require(.not. ok .and. .not. found, 'ambiguous source query was accepted')
+    call semantic_table_reset(table)
+
+    call make_item(expected, 'C704', 'declaration-type-spec', standardir_resolution_unresolved)
+    expected%source%page = 76
+    call semantic_table_add(table, expected, ok, message)
+    call require(ok, message)
+    call make_item(expected, 'C704', 'length-type-parameter', standardir_resolution_resolved)
+    expected%source%page = 184
+    call semantic_table_add(table, expected, ok, message)
+    call require(ok, message)
+    call semantic_table_find_occurrence(table, 'C704', 1, actual, found, ok, message)
+    call require(ok .and. found .and. actual%subject == 'declaration-type-spec' .and. &
+        actual%source%page == 76 .and. &
+        actual%resolution == standardir_resolution_unresolved, &
+        'first duplicate occurrence lost source or resolution')
+    call semantic_table_find_occurrence(table, 'C704', 2, actual, found, ok, message)
+    call require(ok .and. found .and. actual%subject == 'length-type-parameter' .and. &
+        actual%source%page == 184 .and. actual%resolution == standardir_resolution_resolved, &
+        'second duplicate occurrence lost source or resolution')
+    call semantic_table_find_occurrence(table, 'C704', 3, actual, found, ok, message)
+    call require(ok .and. .not. found, 'missing duplicate occurrence was reported')
+    call semantic_table_find_occurrence(table, '', 1, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'empty occurrence id was accepted')
+    call semantic_table_find_occurrence(table, 'C704', 0, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'invalid occurrence index was accepted')
+    table%items(1)%source%source_hash = ''
+    call semantic_table_find_occurrence(table, 'C704', 1, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'invalid occurrence provenance was accepted')
+    table%items(1)%source%source_hash = 'fixture-hash'
+    table%items(2)%resolution = 0
+    call semantic_table_find_occurrence(table, 'C704', 1, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'invalid occurrence resolution was accepted')
+    table%items(2)%resolution = standardir_resolution_resolved
     call semantic_table_reset(table)
 
     call make_item(expected, 'S-valid', 'assignment', standardir_resolution_resolved)
