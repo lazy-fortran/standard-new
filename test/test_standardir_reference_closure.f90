@@ -264,7 +264,9 @@ contains
 
     subroutine large_dynamic_capacity_control
         integer, parameter :: large_count = closure_max_records + 1
+        integer, parameter :: reference_count = closure_max_references * 2
         type(closure_input_record_t), allocatable :: large(:)
+        type(closure_input_record_t) :: many_references
         type(closure_classification_t) :: no_facts(1)
         type(closure_result_t) :: output
         type(standardir_source_ref_t) :: value_source
@@ -274,9 +276,22 @@ contains
         logical :: local_ok
         integer :: i
 
+        call make_source(value_source, 'fixture', 'large-closure', 'N-large', 13)
+        call make_record(many_references, 'many-references', 'many-references', value_source, &
+            local_ok, local_message)
+        call require(local_ok, local_message)
+        do i = 1, reference_count
+            write (current_name, '(a,i0)') 'reference-', i
+            call closure_add_reference(many_references, trim(current_name), value_source, &
+                local_ok, local_message)
+            call require(local_ok, local_message)
+        end do
+        call require(many_references%reference_count == reference_count .and. &
+            size(many_references%references) >= reference_count, &
+            'dynamic reference storage did not grow beyond the compatibility hint')
+
         allocate (large(large_count))
         no_facts = closure_classification_t()
-        call make_source(value_source, 'fixture', 'large-closure', 'N-large', 13)
         do i = 1, large_count
             write (current_name, '(a,i0)') 'node-', i
             call make_record(large(i), 'record-'//trim(current_name), trim(current_name), &

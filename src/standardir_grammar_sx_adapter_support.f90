@@ -9,7 +9,7 @@ module standardir_grammar_sx_adapter_support
     implicit none
     private
 
-    public :: validate_metadata, read_syntax, trim_expression
+    public :: validate_metadata, read_syntax, read_source_record, trim_expression
 
 contains
 
@@ -94,7 +94,7 @@ contains
                 return
             end if
             select case (trim(label))
-            case ('document', 'clause', 'rule', 'source-sha256')
+            case ('document', 'clause', 'rule', 'source-sha256', 'source-hash')
                 call pair_text(node%children(i), text, ok, message)
                 if (.not. ok) return
                 select case (trim(label))
@@ -107,7 +107,7 @@ contains
                 case ('rule')
                     source%rule = text
                     have_rule = .true.
-                case ('source-sha256')
+                case ('source-sha256', 'source-hash')
                     source%source_hash = text
                     have_hash = .true.
                 end select
@@ -272,4 +272,3 @@ contains
     end subroutine clear_source
 
 end module standardir_grammar_sx_adapter_support
-

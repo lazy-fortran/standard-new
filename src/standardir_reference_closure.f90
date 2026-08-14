@@ -39,6 +39,8 @@ contains
         character(len=*), intent(out) :: message
 
         integer :: i
+        type(closure_reference_t), allocatable :: expanded(:)
+        integer :: capacity
 
         ok = .false.
         message = ''
@@ -52,11 +54,17 @@ contains
         end if
         call standardir_validate_source_ref(source, ok, message)
         if (.not. ok) return
-        if (record%reference_count < 0 .or. record%reference_count >= &
-            closure_max_references) then
+        if (record%reference_count < 0) then
             ok = .false.
-            message = 'closure record reference table is full'
+            message = 'closure record reference count is negative'
             return
+        end if
+        if (record%reference_count > 0) then
+            if (.not. allocated(record%references)) then
+                ok = .false.
+                message = 'closure record reference storage is missing'
+                return
+            end if
         end if
         do i = 1, record%reference_count
             if (trim(record%references(i)%name) == trim(name)) then
@@ -64,6 +72,16 @@ contains
                 return
             end if
         end do
+        if (.not. allocated(record%references)) then
+            allocate (record%references(1))
+        else if (record%reference_count >= size(record%references)) then
+            capacity = max(1, 2 * size(record%references))
+            allocate (expanded(capacity))
+            if (record%reference_count > 0) then
+                expanded(:record%reference_count) = record%references(:record%reference_count)
+            end if
+            call move_alloc(expanded, record%references)
+        end if
         record%reference_count = record%reference_count + 1
         record%references(record%reference_count)%name = trim(name)
         record%references(record%reference_count)%source = source

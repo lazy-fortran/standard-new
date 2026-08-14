@@ -11,7 +11,7 @@ module standardir_grammar_export
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
         standardir_target_expression_t, standardir_target_rule_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
-        standardir_max_syntax_groups, standardir_max_syntax_records
+        standardir_max_syntax_groups
     use standardir_treesitter, only: standardir_emit_treesitter_group
     implicit none
     private
@@ -37,7 +37,7 @@ contains
 
         type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
         type(sx_node_t), allocatable :: nodes(:), suppressed_nodes(:)
-        type(standardir_group_t) :: groups(standardir_max_syntax_groups)
+        type(standardir_group_t), allocatable :: groups(:)
         integer :: group_count, i, j, ios, scratch
 
         ok = .false.
@@ -49,10 +49,6 @@ contains
         end if
         if (size(rules) < 1) then
             message = 'grammar export batch is empty'
-            return
-        end if
-        if (size(rules) > standardir_max_syntax_records) then
-            message = 'grammar export batch exceeds the syntax record limit'
             return
         end if
         do i = 2, size(rules)
@@ -78,6 +74,7 @@ contains
             call target_rule_to_syntax(suppressed(i), suppressed_nodes(i), ok, message)
             if (.not. ok) return
         end do
+        allocate (groups(max(standardir_max_syntax_groups, size(nodes))))
         call standardir_group_syntax(nodes, size(nodes), groups, group_count, ok, message)
         if (.not. ok) return
 
@@ -199,7 +196,7 @@ contains
             call target_expression_to_syntax(expression%children(1), node%children(2), ok, message)
             if (.not. ok) return
         case default
-            message = 'normalized target expression has an unsupported kind'
+            write (message, '(a,i0)') 'normalized target expression has unsupported kind ', expression%kind
             return
         end select
         ok = .true.

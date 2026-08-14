@@ -9,6 +9,7 @@ module standardir_lexical_export
 
     public :: standardir_lexical_emit_antlr
     public :: standardir_lexical_emit_bison
+    public :: standardir_lexical_emit_bison_aliases
     public :: standardir_lexical_emit_ebnf
     public :: standardir_lexical_emit_treesitter
 
@@ -85,6 +86,24 @@ contains
         end do
         write (unit, '(a)')
     end subroutine standardir_lexical_emit_bison
+
+    subroutine standardir_lexical_emit_bison_aliases(unit, facts, ok, message)
+        !! Emit parser-side aliases for source terms used as references.
+        integer, intent(in) :: unit
+        type(standardir_lexical_facts_t), intent(in) :: facts
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        call standardir_lexical_validate(facts, ok, message)
+        if (.not. ok) return
+        do i = 1, facts%count
+            write (unit, '(a)', advance='no') trim(lexical_reference_name( &
+                facts%facts(i)%source_term))
+            write (unit, '(a)', advance='no') ' : '
+            write (unit, '(a)') trim(facts%facts(i)%target_name)//' ;'
+        end do
+    end subroutine standardir_lexical_emit_bison_aliases
 
     subroutine standardir_lexical_emit_treesitter(unit, facts, ok, message)
         integer, intent(in) :: unit

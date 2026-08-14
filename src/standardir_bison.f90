@@ -18,8 +18,36 @@ module standardir_bison
 
     public :: standardir_emit_bison
     public :: standardir_emit_bison_group
+    public :: standardir_emit_bison_start
 
 contains
+
+    subroutine standardir_emit_bison_start(unit, names, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: names(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .false.
+        message = ''
+        if (size(names) < 1) then
+            message = 'Bison start set is empty'
+            return
+        end if
+        write (unit, '(a)') 'standardir_start:'
+        do i = 1, size(names)
+            if (i == 1) then
+                write (unit, '(a)', advance='no') '    '
+            else
+                write (unit, '(a)', advance='no') '  | '
+            end if
+            write (unit, '(a)') trim(bison_name(names(i)))
+        end do
+        write (unit, '(a)') '  ;'
+        ok = .true.
+    end subroutine standardir_emit_bison_start
 
     subroutine standardir_emit_bison(unit, node, ok, message)
         integer, intent(in) :: unit
@@ -193,6 +221,7 @@ contains
             return
         case ('token')
             call read_value(node, 'token', symbol, ok, message)
+            if (ok) symbol = bison_literal_text(symbol)
             return
         case ('rhs')
             if (node%child_count /= 2) then
@@ -217,7 +246,7 @@ contains
             return
         end if
         helper_count = helper_count + 1
-        helpers(helper_count)%name = 'h_'//trim(rule)//'_'//integer_text(helper_count)
+        helpers(helper_count)%name = 'h_'//trim(bison_name(rule))//'_'//integer_text(helper_count)
         helpers(helper_count)%kind = trim(label)
         helpers(helper_count)%node = node
         symbol = helpers(helper_count)%name
@@ -454,6 +483,23 @@ contains
         end do
         write (unit, '(a)', advance='no') achar(34)
     end subroutine emit_bison_literal
+
+    character(len=1024) function bison_literal_text(value)
+        character(len=*), intent(in) :: value
+        integer :: i, position
+
+        bison_literal_text = achar(34)
+        position = 2
+        do i = 1, len_trim(value)
+            if (value(i:i) == achar(34) .or. value(i:i) == achar(92)) then
+                bison_literal_text(position:position) = achar(92)
+                position = position + 1
+            end if
+            bison_literal_text(position:position) = value(i:i)
+            position = position + 1
+        end do
+        bison_literal_text(position:position) = achar(34)
+    end function bison_literal_text
 
     character(len=1024) function bison_name(value)
         character(len=*), intent(in) :: value

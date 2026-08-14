@@ -5,8 +5,9 @@ module standardir_reference_closure_types
     implicit none
     private
 
+    ! Compatibility sizing hint only; input and result reference tables are
+    ! dynamically sized from the source record.
     integer, parameter, public :: closure_max_references = 32
-    ! Compatibility sizing hints only; closure_compute is dynamically sized.
     integer, parameter, public :: closure_max_records = 512
     integer, parameter, public :: closure_max_classifications = 512
     integer, parameter, public :: closure_max_name_length = 128
@@ -29,7 +30,7 @@ module standardir_reference_closure_types
         character(len=closure_max_name_length) :: id = ''
         character(len=closure_max_name_length) :: lhs = ''
         integer :: reference_count = 0
-        type(closure_reference_t) :: references(closure_max_references)
+        type(closure_reference_t), allocatable :: references(:)
         type(standardir_source_ref_t) :: source
     end type closure_input_record_t
 

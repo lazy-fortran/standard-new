@@ -50,10 +50,19 @@ contains
                 message = 'normative closure record has an empty identity'
                 return
             end if
-            if (input(i)%reference_count < 0 .or. input(i)%reference_count > &
-                closure_max_references) then
+            if (input(i)%reference_count < 0) then
                 message = 'normative closure record has an invalid reference count'
                 return
+            end if
+            if (input(i)%reference_count > 0) then
+                if (.not. allocated(input(i)%references)) then
+                    message = 'normative closure record has no reference storage'
+                    return
+                end if
+                if (input(i)%reference_count > size(input(i)%references)) then
+                    message = 'normative closure record reference storage is too small'
+                    return
+                end if
             end if
             call standardir_validate_source_ref(input(i)%source, ok, message)
             if (.not. ok) then
@@ -204,11 +213,14 @@ contains
         type(closure_record_t) :: record
 
         record = closure_record_t()
-        allocate (record%references(closure_max_references))
+        allocate (record%references(max(1, input%reference_count)))
         record%id = input%id
         record%lhs = input%lhs
         record%reference_count = input%reference_count
-        record%references = input%references
+        if (input%reference_count > 0) then
+            record%references(:input%reference_count) = &
+                input%references(:input%reference_count)
+        end if
         record%source = input%source
         record%provenance = input%source
         record%kind = closure_kind_production
@@ -237,7 +249,7 @@ contains
             end if
         end do
         record = closure_record_t()
-        allocate (record%references(closure_max_references))
+        allocate (record%references(1))
         record%id = fact%name
         record%lhs = fact%name
         record%source = occurrence_source
@@ -352,14 +364,17 @@ contains
                 message = 'closure result record lacks derivation provenance'
                 return
             end if
-            if (result%records(i)%reference_count < 0 .or. &
-                result%records(i)%reference_count > closure_max_references) then
+            if (result%records(i)%reference_count < 0) then
                 message = 'closure result record has an invalid reference count'
                 return
             end if
             if (result%records(i)%reference_count > 0) then
                 if (.not. allocated(result%records(i)%references)) then
                     message = 'closure result references are not allocated'
+                    return
+                end if
+                if (result%records(i)%reference_count > size(result%records(i)%references)) then
+                    message = 'closure result reference storage is too small'
                     return
                 end if
             end if

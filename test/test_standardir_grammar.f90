@@ -32,8 +32,8 @@ program test_standardir_grammar
         '/* rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef */'
     character(len=*), parameter :: expected_bison_rule = 'r_program:'
     character(len=*), parameter :: expected_bison_rhs = &
-        '    r_program_x2D_unit h_R501_1'
-    character(len=*), parameter :: expected_bison_helper = 'h_R501_1:'
+        '    r_program_x2D_unit h_r_R501_1'
+    character(len=*), parameter :: expected_bison_helper = 'h_r_R501_1:'
     character(len=*), parameter :: expected_treesitter_comment = &
         '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef'
     character(len=*), parameter :: expected_treesitter_rule = &

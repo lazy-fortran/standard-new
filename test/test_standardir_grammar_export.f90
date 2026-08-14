@@ -90,8 +90,9 @@ program test_standardir_grammar_export
     call require(no_left_corner(normalized), 'mutually recursive family remains left recursive')
 
     call make_unsupported(unsupported(1))
-    call verify_failure(unsupported, standardir_grammar_format_tree_sitter, &
-        'nullable left recursion')
+    call standardir_grammar_normalize(unsupported, normalized, suppressed, ok, message)
+    call require(ok .and. no_left_corner(normalized), &
+        'nullable left recursion was not transformed: '//trim(message))
 
     print '(a)', 'StandardIR grammar export tests passed'
 
@@ -373,7 +374,7 @@ contains
             call require(index(text, 'r_expr') > 0 .and. index(text, "'THEN' )?") > 0 .and. &
                 index(text, '( r_item )+') > 0, 'ANTLR4 structure differs')
         case (standardir_grammar_format_bison)
-            call require(index(text, 'r_expr:') > 0 .and. index(text, 'h_R-A1_') > 0, &
+            call require(index(text, 'r_expr:') > 0 .and. index(text, 'h_r_R_x2D_A1_') > 0, &
                 'Bison structure differs')
         case (standardir_grammar_format_tree_sitter)
             call require(index(text, 'r_expr: $ =>') > 0 .and. index(text, 'optional(') > 0 .and. &

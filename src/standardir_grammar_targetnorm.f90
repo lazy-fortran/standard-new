@@ -460,6 +460,24 @@ contains
         end do
     end subroutine rules_for_lhs
 
+    logical function has_leading_reference(values, lhs, reference)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs, reference
+        type(standardir_target_expression_t) :: tail
+        logical :: found
+        integer :: i
+
+        has_leading_reference = .false.
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            call leading_reference_tail(values(i)%expression, reference, tail, found)
+            if (found) then
+                has_leading_reference = .true.
+                return
+            end if
+        end do
+    end function has_leading_reference
+
     subroutine eliminate_left_recursion(values, suppressed, names, name_count, nullable, ok, message)
         type(standardir_target_rule_t), allocatable, intent(inout) :: values(:)
         type(standardir_target_rule_t), allocatable, intent(inout) :: suppressed(:)
@@ -476,6 +494,7 @@ contains
         message = ''
         do i = 1, name_count
             do j = 1, i - 1
+                if (.not. has_leading_reference(values, names(i), names(j))) cycle
                 call rules_for_lhs(values, names(j), source)
                 call substitute_leading_reference(values, names(i), names(j), source, ok, message)
                 if (.not. ok) return
@@ -518,7 +537,7 @@ contains
                 return
             end if
             do j = 1, size(source)
-                expression = concatenate_expressions(source(j)%expression, tail)
+                expression = concatenate_present(source(j)%expression, tail)
                 values(i)%expression = expression
                 if (j > 1) values(i)%id = derived_id(values(i)%id, j)
                 call append_target(replaced, values(i))
@@ -541,7 +560,7 @@ contains
 
         type(standardir_target_rule_t), allocatable :: recursive_rules(:), beta_rules(:), replacement(:)
         type(standardir_target_expression_t), allocatable :: alphas(:)
-        type(standardir_target_expression_t) :: tail, helper_expression
+        type(standardir_target_expression_t) :: tail, helper_expression, nullable_beta, nullable_alpha
         type(standardir_target_rule_t) :: helper, item
         character(len=128) :: helper_lhs
         integer :: i
@@ -554,16 +573,31 @@ contains
             call leading_reference_tail(group(i)%expression, lhs, tail, found)
             call has_left_corner(group(i)%expression, lhs, names, nullable, left_corner)
             if (left_corner .and. .not. found) then
-                message = 'nullable or nested left recursion cannot preserve source mapping'
-                return
+                call split_nullable_left_recursion(group(i)%expression, lhs, nullable_beta, &
+                    nullable_alpha, found)
+                if (.not. found) then
+                    message = 'nullable or nested left recursion cannot preserve source mapping for '//trim(lhs)
+                    return
+                end if
+                if (nullable_beta%kind == 0 .or. nullable_alpha%kind == 0) then
+                    message = 'nullable or nested left recursion has no finite base for '//trim(lhs)
+                    return
+                end if
+                item = group(i)
+                item%expression = nullable_beta
+                call append_target(beta_rules, item)
+                item%expression = nullable_alpha
+                call append_target(recursive_rules, item)
+                call append_expression(alphas, nullable_alpha)
+                cycle
             end if
             if (found) then
                 if (tail%kind == 0) then
-                    message = 'unit left recursion is unsupported'
+                    message = 'unit left recursion is unsupported for '//trim(lhs)
                     return
                 end if
                 if (expression_nullable(tail, names, nullable)) then
-                    message = 'left-recursion suffix is nullable and unsupported'
+                    message = 'left-recursion suffix is nullable and unsupported for '//trim(lhs)
                     return
                 end if
                 call append_target(recursive_rules, group(i))
@@ -578,7 +612,7 @@ contains
             return
         end if
         if (size(beta_rules) == 0) then
-            message = 'left-recursive grammar family has no base alternative'
+            message = 'left-recursive grammar family has no base alternative for '//trim(lhs)
             return
         end if
         helper_lhs = make_helper_lhs(values, lhs, ok, message)
@@ -730,6 +764,14 @@ contains
         type(standardir_target_expression_t), allocatable :: parts(:)
         integer :: i
 
+        if (left%kind == 0) then
+            value = right
+            return
+        end if
+        if (right%kind == 0) then
+            value = left
+            return
+        end if
         allocate (parts(0))
         if (left%kind == standardir_grammar_sequence) then
             do i = 1, size(left%children)
@@ -785,6 +827,125 @@ contains
             call move_alloc(rest, tail%children)
         end if
     end subroutine leading_reference_tail
+
+    subroutine split_nullable_left_recursion(expression, name, beta, alpha, found)
+        type(standardir_target_expression_t), intent(in) :: expression
+        character(len=*), intent(in) :: name
+        type(standardir_target_expression_t), intent(out) :: beta, alpha
+        logical, intent(out) :: found
+
+        type(standardir_target_expression_t), allocatable :: expanded(:), betas(:), alphas(:)
+        type(standardir_target_expression_t) :: tail
+        logical :: local_found
+        integer :: i
+
+        beta = standardir_target_expression_t()
+        alpha = standardir_target_expression_t()
+        found = .false.
+        allocate (expanded(0), betas(0), alphas(0))
+        call expand_nullable_prefix(expression, expanded)
+        do i = 1, size(expanded)
+            call leading_reference_tail(expanded(i), name, tail, local_found)
+            if (local_found) then
+                if (tail%kind == 0) return
+                call append_expression(alphas, tail)
+            else
+                if (expanded(i)%kind == 0) return
+                call append_expression(betas, expanded(i))
+            end if
+        end do
+        if (size(alphas) < 1 .or. size(betas) < 1) return
+        if (size(betas) == 1) then
+            beta = betas(1)
+        else
+            beta = make_choice(betas)
+        end if
+        if (size(alphas) == 1) then
+            alpha = alphas(1)
+        else
+            alpha = make_choice(alphas)
+        end if
+        found = .true.
+    end subroutine split_nullable_left_recursion
+
+    recursive subroutine expand_nullable_prefix(expression, values)
+        type(standardir_target_expression_t), intent(in) :: expression
+        type(standardir_target_expression_t), allocatable, intent(inout) :: values(:)
+
+        type(standardir_target_expression_t), allocatable :: prefixes(:)
+        type(standardir_target_expression_t) :: suffix, value
+        integer :: i, j
+
+        if (expression%kind == standardir_grammar_optional) then
+            if (.not. allocated(expression%children)) then
+                call append_expression(values, expression)
+                return
+            end if
+            if (size(expression%children) /= 1) then
+                call append_expression(values, expression)
+                return
+            end if
+            call append_expression(values, standardir_target_expression_t())
+            call expand_nullable_prefix(expression%children(1), values)
+            return
+        end if
+        if (expression%kind /= standardir_grammar_sequence) then
+            call append_expression(values, expression)
+            return
+        end if
+        if (.not. allocated(expression%children)) then
+            call append_expression(values, expression)
+            return
+        end if
+        if (size(expression%children) < 1) then
+            call append_expression(values, expression)
+            return
+        end if
+        if (expression%children(1)%kind /= standardir_grammar_optional) then
+            call append_expression(values, expression)
+            return
+        end if
+        if (.not. allocated(expression%children(1)%children)) then
+            call append_expression(values, expression)
+            return
+        end if
+        if (size(expression%children(1)%children) /= 1) then
+            call append_expression(values, expression)
+            return
+        end if
+
+        allocate (prefixes(0))
+        call expand_nullable_prefix(expression%children(1)%children(1), prefixes)
+        if (size(expression%children) == 1) then
+            do i = 1, size(prefixes)
+                call append_expression(values, prefixes(i))
+            end do
+            call append_expression(values, standardir_target_expression_t())
+            return
+        end if
+        suffix = expression%children(2)
+        do j = 3, size(expression%children)
+            suffix = concatenate_present(suffix, expression%children(j))
+        end do
+        call append_expression(values, suffix)
+        do i = 1, size(prefixes)
+            value = concatenate_present(prefixes(i), suffix)
+            call append_expression(values, value)
+        end do
+    end subroutine expand_nullable_prefix
+
+    function concatenate_present(left, right) result(value)
+        type(standardir_target_expression_t), intent(in) :: left, right
+        type(standardir_target_expression_t) :: value
+
+        if (left%kind == 0) then
+            value = right
+        else if (right%kind == 0) then
+            value = left
+        else
+            value = concatenate_expressions(left, right)
+        end if
+    end function concatenate_present
 
     recursive subroutine has_left_corner(expression, name, names, nullable, found)
         type(standardir_target_expression_t), intent(in) :: expression

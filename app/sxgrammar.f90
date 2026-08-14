@@ -1,0 +1,456 @@
+program sxgrammar
+    !! Close source-backed StandardIR and emit one target grammar.
+
+    use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse
+    use standardir_bison, only: standardir_emit_bison_start
+    use standardir_grammar_closure, only: standardir_grammar_close_sx
+    use standardir_grammar_export, only: standardir_grammar_export_batch, &
+        standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
+        standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+    use standardir_grammar_producer, only: standardir_grammar_rule_t
+    use standardir_lexical, only: standardir_lexical_add, standardir_lexical_facts_t, &
+        standardir_lexical_reset
+    use standardir_lexical_export, only: standardir_lexical_emit_antlr, &
+        standardir_lexical_emit_bison, standardir_lexical_emit_bison_aliases, &
+        standardir_lexical_emit_ebnf, &
+        standardir_lexical_emit_treesitter
+    use standardir_reference_closure, only: closure_classification_t
+    use standardir_reference_closure_io, only: closure_read_classification, closure_read_root
+    implicit none
+
+    character(len=4096) :: syntax_path, classifications_path, roots_path, lexical_path
+    character(len=4096) :: format_text, output_path, message, line
+    type(sx_node_t), allocatable :: nodes(:)
+    type(closure_classification_t), allocatable :: classifications(:)
+    character(len=128), allocatable :: roots(:)
+    type(standardir_grammar_rule_t), allocatable :: rules(:)
+    type(standardir_lexical_facts_t) :: lexical
+    type(sx_node_t) :: node
+    character(len=256), allocatable :: start_names(:)
+    integer :: argc, format, input_unit, output_unit, ios, records
+    integer :: classification_count, root_count, semantic_skipped, lexical_closed
+    logical :: ok
+
+    argc = command_argument_count()
+    if (argc /= 6) then
+        call get_command_argument(0, syntax_path)
+        print '(a)', 'usage: '//trim(syntax_path)// &
+            ' <source.sx> <classifications.sx> <roots.sx> <lexical.sx|-> '// &
+            '<ebnf|antlr|bison|treesitter> <output>'
+        stop 2
+    end if
+    call get_command_argument(1, syntax_path)
+    call get_command_argument(2, classifications_path)
+    call get_command_argument(3, roots_path)
+    call get_command_argument(4, lexical_path)
+    call get_command_argument(5, format_text)
+    call get_command_argument(6, output_path)
+    call parse_format(format_text, format, ok, message)
+    if (.not. ok) call fail(trim(message))
+
+    call read_syntax_file(syntax_path, nodes, records, ok, message)
+    if (.not. ok) call fail(trim(message))
+    call read_classification_file(classifications_path, classifications, classification_count, &
+        ok, message)
+    if (.not. ok) call fail(trim(message))
+    call read_root_file(roots_path, roots, root_count, ok, message)
+    if (.not. ok) call fail(trim(message))
+    call read_lexical_file(lexical_path, lexical, ok, message)
+    if (.not. ok) call fail(trim(message))
+
+    call standardir_grammar_close_sx(nodes, records, classifications, classification_count, &
+        roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message)
+    if (.not. ok) call fail(trim(message))
+    if (.not. allocated(rules)) call fail('closure returned no grammar rule array')
+    if (size(rules) < 1) call fail('closure returned no exportable grammar rules')
+
+    open (newunit=output_unit, file=trim(output_path), status='replace', action='write', &
+        iostat=ios)
+    if (ios /= 0) call fail('cannot open grammar output')
+    call emit_header(output_unit, format)
+    if (.not. ok) call fail_output(output_unit, message)
+    if (format == standardir_grammar_format_bison) then
+        call standardir_lexical_emit_bison(output_unit, lexical, ok, message)
+        if (.not. ok) call fail_output(output_unit, message)
+        write (output_unit, '(a)') '%start standardir_start'
+        write (output_unit, '(a)') '%%'
+        call collect_start_names(rules, roots, root_count, start_names)
+        call standardir_emit_bison_start(output_unit, start_names, ok, message)
+        if (.not. ok) call fail_output(output_unit, message)
+        call standardir_lexical_emit_bison_aliases(output_unit, lexical, ok, message)
+        if (.not. ok) call fail_output(output_unit, message)
+    end if
+    call standardir_grammar_export_batch(output_unit, rules, format, ok, message)
+    if (.not. ok) call fail_output(output_unit, message)
+    select case (format)
+    case (standardir_grammar_format_ebnf)
+        call standardir_lexical_emit_ebnf(output_unit, lexical, ok, message)
+    case (standardir_grammar_format_antlr4)
+        call standardir_lexical_emit_antlr(output_unit, lexical, ok, message)
+    case (standardir_grammar_format_tree_sitter)
+        call standardir_lexical_emit_treesitter(output_unit, lexical, ok, message)
+    case (standardir_grammar_format_bison)
+        write (output_unit, '(a)') '%%'
+        ok = .true.
+        message = ''
+    end select
+    if (.not. ok) call fail_output(output_unit, message)
+    call emit_footer(output_unit, format)
+    close (output_unit)
+    print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
+        semantic_skipped, ' semantic-only records; closed ', lexical_closed, ' lexical facts'
+
+contains
+
+    subroutine read_syntax_file(path, values, count, ok, message)
+        character(len=*), intent(in) :: path
+        type(sx_node_t), allocatable, intent(out) :: values(:)
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: unit, ios
+
+        allocate (values(0))
+        count = 0
+        ok = .false.
+        message = ''
+        open (newunit=unit, file=trim(path), action='read', iostat=ios)
+        if (ios /= 0) then
+            message = 'cannot open source StandardIR SX'
+            return
+        end if
+        do
+            read (unit, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            if (len_trim(line) == 0) cycle
+            call sx_parse(line, node, ok, message)
+            if (.not. ok) then
+                close (unit)
+                return
+            end if
+            if (is_label(node, 'standardir')) cycle
+            if (.not. is_label(node, 'syntax')) then
+                close (unit)
+                message = 'source SX contains a non-syntax record'
+                ok = .false.
+                return
+            end if
+            call append_node(values, node)
+            count = count + 1
+        end do
+        close (unit)
+        ok = count > 0
+        if (.not. ok) message = 'source SX contains no syntax records'
+    end subroutine read_syntax_file
+
+    subroutine collect_start_names(values, roots, root_count, names)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: roots(:)
+        integer, intent(in) :: root_count
+        character(len=256), allocatable, intent(out) :: names(:)
+
+        integer :: i, j, k
+        logical :: found
+
+        allocate (names(0))
+        do i = 1, root_count
+            found = .false.
+            do j = 1, size(values)
+                if (trim(roots(i)) == trim(values(j)%lhs)) then
+                    found = .false.
+                    do k = 1, size(names)
+                        if (trim(names(k)) == trim(roots(i))) then
+                            found = .true.
+                            exit
+                        end if
+                    end do
+                    if (.not. found) call append_start_name(names, roots(i))
+                    exit
+                end if
+            end do
+        end do
+    end subroutine collect_start_names
+
+    subroutine append_start_name(values, value)
+        character(len=256), allocatable, intent(inout) :: values(:)
+        character(len=*), intent(in) :: value
+
+        character(len=256), allocatable :: grown(:)
+        integer :: old_size
+
+        old_size = size(values)
+        allocate (grown(old_size + 1))
+        if (old_size > 0) grown(:old_size) = values
+        grown(old_size + 1) = trim(value)
+        call move_alloc(grown, values)
+    end subroutine append_start_name
+
+    subroutine read_classification_file(path, values, count, ok, message)
+        character(len=*), intent(in) :: path
+        type(closure_classification_t), allocatable, intent(out) :: values(:)
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(closure_classification_t) :: value
+        integer :: unit, ios, line_number
+
+        allocate (values(0))
+        count = 0
+        line_number = 0
+        ok = .false.
+        message = ''
+        open (newunit=unit, file=trim(path), action='read', iostat=ios)
+        if (ios /= 0) then
+            message = 'cannot open closure classification SX'
+            return
+        end if
+        do
+            read (unit, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            line_number = line_number + 1
+            if (len_trim(line) == 0) cycle
+            call sx_parse(line, node, ok, message)
+            if (.not. ok) then
+                close (unit)
+                return
+            end if
+            if (.not. is_label(node, 'classification')) cycle
+            call closure_read_classification(node, value, ok, message)
+            if (.not. ok) then
+                close (unit)
+                message = 'classification line '//integer_text(line_number)//': '//trim(message)
+                return
+            end if
+            call append_classification(values, value)
+            count = count + 1
+            if (len_trim(value%source%document) == 0 .or. &
+                len_trim(value%source%clause) == 0 .or. &
+                len_trim(value%source%rule) == 0 .or. value%source%page <= 0 .or. &
+                len_trim(value%source%source_hash) == 0) then
+                close (unit)
+                ok = .false.
+                message = 'classification line '//integer_text(line_number)// &
+                    ' has incomplete source after parsing'
+                return
+            end if
+        end do
+        close (unit)
+        ok = .true.
+    end subroutine read_classification_file
+
+    subroutine read_root_file(path, values, count, ok, message)
+        character(len=*), intent(in) :: path
+        character(len=128), allocatable, intent(out) :: values(:)
+        integer, intent(out) :: count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: value
+        integer :: unit, ios, i
+
+        allocate (values(0))
+        count = 0
+        ok = .false.
+        message = ''
+        open (newunit=unit, file=trim(path), action='read', iostat=ios)
+        if (ios /= 0) then
+            message = 'cannot open closure roots SX'
+            return
+        end if
+        do
+            read (unit, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            if (len_trim(line) == 0) cycle
+            call sx_parse(line, node, ok, message)
+            if (.not. ok) then
+                close (unit)
+                return
+            end if
+            if (is_label(node, 'root')) then
+                call closure_read_root(node, value, ok, message)
+                if (.not. ok) then
+                    close (unit)
+                    return
+                end if
+                call append_root(values, value)
+                count = count + 1
+            else if (is_label(node, 'roots')) then
+                do i = 2, node%child_count
+                    call closure_read_root(node%children(i), value, ok, message)
+                    if (.not. ok) then
+                        close (unit)
+                        return
+                    end if
+                    call append_root(values, value)
+                    count = count + 1
+                end do
+            end if
+        end do
+        close (unit)
+        ok = count > 0
+        if (.not. ok) message = 'closure roots contain no roots'
+    end subroutine read_root_file
+
+    subroutine read_lexical_file(path, facts, ok, message)
+        character(len=*), intent(in) :: path
+        type(standardir_lexical_facts_t), intent(out) :: facts
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: unit, ios
+
+        call standardir_lexical_reset(facts)
+        ok = .true.
+        message = ''
+        if (trim(path) == '-') return
+        open (newunit=unit, file=trim(path), action='read', iostat=ios)
+        if (ios /= 0) then
+            ok = .false.
+            message = 'cannot open lexical fact SX'
+            return
+        end if
+        do
+            read (unit, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            if (len_trim(line) == 0) cycle
+            call sx_parse(line, node, ok, message)
+            if (.not. ok) then
+                close (unit)
+                return
+            end if
+            if (is_label(node, 'lexical-fact')) then
+                call standardir_lexical_add(node, facts, ok, message)
+                if (.not. ok) then
+                    close (unit)
+                    return
+                end if
+            end if
+        end do
+        close (unit)
+    end subroutine read_lexical_file
+
+    subroutine emit_header(unit, format)
+        integer, intent(in) :: unit, format
+
+        select case (format)
+        case (standardir_grammar_format_ebnf)
+            write (unit, '(a)') '(* Generated from closed source-backed StandardIR *)'
+        case (standardir_grammar_format_antlr4)
+            write (unit, '(a)') 'grammar Fortran2023;'
+        case (standardir_grammar_format_bison)
+            write (unit, '(a)') '/* Generated from closed source-backed StandardIR */'
+        case (standardir_grammar_format_tree_sitter)
+            write (unit, '(a)') '// Generated from closed source-backed StandardIR'
+            write (unit, '(a)') 'module.exports = grammar({'
+            write (unit, '(a)') '  name: ''fortran2023'','
+            write (unit, '(a)') '  rules: {'
+        end select
+    end subroutine emit_header
+
+    subroutine emit_footer(unit, format)
+        integer, intent(in) :: unit, format
+
+        if (format == standardir_grammar_format_tree_sitter) then
+            write (unit, '(a)') '  }'
+            write (unit, '(a)') '});'
+        end if
+    end subroutine emit_footer
+
+    subroutine parse_format(text, format, ok, message)
+        character(len=*), intent(in) :: text
+        integer, intent(out) :: format
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        format = 0
+        ok = .true.
+        message = ''
+        select case (trim(text))
+        case ('ebnf')
+            format = standardir_grammar_format_ebnf
+        case ('antlr')
+            format = standardir_grammar_format_antlr4
+        case ('bison')
+            format = standardir_grammar_format_bison
+        case ('treesitter')
+            format = standardir_grammar_format_tree_sitter
+        case default
+            ok = .false.
+            message = 'unknown grammar format: '//trim(text)
+        end select
+    end subroutine parse_format
+
+    subroutine append_node(values, value)
+        type(sx_node_t), allocatable, intent(inout) :: values(:)
+        type(sx_node_t), intent(in) :: value
+        type(sx_node_t), allocatable :: expanded(:)
+        integer :: n
+
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_node
+
+    subroutine append_classification(values, value)
+        type(closure_classification_t), allocatable, intent(inout) :: values(:)
+        type(closure_classification_t), intent(in) :: value
+        type(closure_classification_t), allocatable :: expanded(:)
+        integer :: n
+
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_classification
+
+    subroutine append_root(values, value)
+        character(len=128), allocatable, intent(inout) :: values(:)
+        character(len=*), intent(in) :: value
+        character(len=128), allocatable :: expanded(:)
+        integer :: n
+
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = trim(value)
+        call move_alloc(expanded, values)
+    end subroutine append_root
+
+    logical function is_label(value, label)
+        type(sx_node_t), intent(in) :: value
+        character(len=*), intent(in) :: label
+
+        is_label = .false.
+        if (value%kind /= sx_list) return
+        if (value%child_count < 1) return
+        if (value%children(1)%kind /= sx_atom) return
+        is_label = trim(value%children(1)%atom) == trim(label)
+    end function is_label
+
+    character(len=32) function integer_text(value)
+        integer, intent(in) :: value
+
+        write (integer_text, '(i0)') value
+    end function integer_text
+
+    subroutine fail(text)
+        character(len=*), intent(in) :: text
+
+        print '(a)', 'error: '//trim(text)
+        stop 1
+    end subroutine fail
+
+    subroutine fail_output(unit, text)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: text
+
+        close (unit, status='delete')
+        call fail(trim(text))
+    end subroutine fail_output
+
+end program sxgrammar

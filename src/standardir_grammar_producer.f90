@@ -548,13 +548,17 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call require_name(value%name, 'grammar node name', ok, message)
-        if (.not. ok) return
         if (value%kind < standardir_grammar_reference .or. &
             value%kind > standardir_grammar_repeat) then
             message = 'grammar node kind is invalid'
             return
         end if
+        if (value%kind == standardir_grammar_token) then
+            call require_token_name(value%name, ok, message)
+        else
+            call require_name(value%name, 'grammar node name', ok, message)
+        end if
+        if (.not. ok) return
         if (value%minimum < 0) then
             message = 'grammar node minimum is negative'
             return
@@ -1094,5 +1098,26 @@ contains
             end if
         end do
     end subroutine require_name
+
+    subroutine require_token_name(value, ok, message)
+        character(len=*), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = len_trim(value) > 0
+        message = ''
+        if (.not. ok) then
+            message = 'grammar token name is empty'
+            return
+        end if
+        do i = 1, len_trim(value)
+            if (value(i:i) == ' ' .or. value(i:i) == char(9)) then
+                ok = .false.
+                message = 'grammar token name contains whitespace'
+                return
+            end if
+        end do
+    end subroutine require_token_name
 
 end module standardir_grammar_producer
