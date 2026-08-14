@@ -31,6 +31,7 @@ fo exec pdfstandardir <productions.jsonl> <standardir.sx> <source-sha256> <claus
 fo exec pdfstandardir <productions.jsonl> <syntax-items.sx> <source-sha256> <clause> \
     --syntax-items <document> <origin> <resolution>
 fo exec sxroundtrip <standardir.sx> <roundtripped.sx>
+fo exec sxsemantic <semantic-items.sx> <canonical-semantic-items.sx>
 fo exec sxnormalize <standardir.sx> <normalized.jsonl>
 fo exec sxebnf <standardir.sx> <grammar.ebnf>
 fo exec sxantlr <standardir.sx> <grammar.g4>
