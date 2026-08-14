@@ -11,7 +11,7 @@ module standardir_grammar_producer
         schema_runtime_read_int, schema_runtime_write_atom, schema_runtime_write_bool, &
         schema_runtime_write_int, schema_runtime_write_name, schema_runtime_write_space
     use standardir_export, only: standardir_source_ref_t
-    use standardir, only: standardir_emit, standardir_syntax_t
+    use standardir, only: standardir_emit, standardir_max_alternatives, standardir_syntax_t
     implicit none
     private
 
@@ -63,6 +63,7 @@ module standardir_grammar_producer
     public :: standardir_grammar_validate
     public :: standardir_grammar_write
     public :: standardir_grammar_produce
+    public :: standardir_grammar_produce_batch
 
     integer, parameter :: standardir_grammar_max_nodes = 256
 
@@ -146,6 +147,68 @@ contains
         ok = .true.
         message = ''
     end subroutine standardir_grammar_produce
+
+    subroutine standardir_grammar_produce_batch(productions, sources, origins, resolutions, &
+            output_capacity, values, ok, message)
+        !! Produce an ordered batch transactionally.
+        !!
+        !! Each metadata array is aligned with productions.  The output capacity
+        !! counts normalized grammar rules, including alternatives.  No output is
+        !! retained when validation, production, or capacity checking fails.
+        type(standardir_syntax_t), intent(in) :: productions(:)
+        type(standardir_source_ref_t), intent(in) :: sources(:)
+        integer, intent(in) :: origins(:), resolutions(:), output_capacity
+        type(standardir_grammar_rule_t), allocatable, intent(out) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_grammar_rule_t), allocatable :: staged(:), one(:)
+        integer :: i, total, cursor, count
+
+        if (allocated(values)) deallocate (values)
+        ok = .false.
+        message = ''
+        if (size(sources) /= size(productions) .or. size(origins) /= size(productions) .or. &
+            size(resolutions) /= size(productions)) then
+            message = 'batch metadata arrays are not aligned with productions'
+            return
+        end if
+        if (output_capacity < 0) then
+            message = 'batch output capacity is negative'
+            return
+        end if
+        total = 0
+        do i = 1, size(productions)
+            if (productions(i)%alternative_count < 1 .or. &
+                productions(i)%alternative_count > standardir_max_alternatives) then
+                message = 'production has an invalid alternative count'
+                return
+            end if
+            if (productions(i)%alternative_count > output_capacity - total) then
+                message = 'batch output capacity is insufficient'
+                return
+            end if
+            total = total + productions(i)%alternative_count
+        end do
+        allocate (staged(total))
+        cursor = 0
+        do i = 1, size(productions)
+            call standardir_grammar_produce(productions(i), sources(i)%document, &
+                sources(i)%clause, sources(i)%rule, sources(i)%page, sources(i)%source_hash, &
+                origins(i), resolutions(i), one, ok, message)
+            if (.not. ok) then
+                deallocate (staged)
+                return
+            end if
+            count = size(one)
+            staged(cursor + 1:cursor + count) = one
+            cursor = cursor + count
+            deallocate (one)
+        end do
+        call move_alloc(staged, values)
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_produce_batch
 
     subroutine syntax_expression_count(syntax, count, ok, message)
         type(sx_node_t), intent(in) :: syntax
