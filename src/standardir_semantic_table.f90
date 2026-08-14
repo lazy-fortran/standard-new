@@ -1,9 +1,10 @@
 module standardir_semantic_table
     !! Bounded, insertion-ordered storage for source-backed semantic items.
 
-    use standardir_export, only: standardir_semantic_item_t, &
+    use standardir_export, only: standardir_semantic_item_t, standardir_source_ref_t, &
         standardir_resolution_disputed, standardir_resolution_resolved, &
-        standardir_resolution_unresolved, standardir_validate_semantic_item
+        standardir_resolution_unresolved, standardir_validate_semantic_item, &
+        standardir_validate_source_ref
     implicit none
     private
 
@@ -19,6 +20,7 @@ module standardir_semantic_table
     public :: semantic_table_validate
     public :: semantic_table_iterate
     public :: semantic_table_find_id
+    public :: semantic_table_find_source
     public :: semantic_table_count_resolution
     public :: semantic_table_iterate_resolution
 
@@ -142,6 +144,39 @@ contains
         message = ''
     end subroutine semantic_table_find_id
 
+    subroutine semantic_table_find_source(table, source, item, found, ok, message)
+        type(semantic_table_t), intent(in) :: table
+        type(standardir_source_ref_t), intent(in) :: source
+        type(standardir_semantic_item_t), intent(out) :: item
+        logical, intent(out) :: found, ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, match_count
+
+        item = standardir_semantic_item_t()
+        found = .false.
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) return
+        call standardir_validate_source_ref(source, ok, message)
+        if (.not. ok) return
+        match_count = 0
+        do i = 1, table%item_count
+            if (same_source(table%items(i)%source, source)) then
+                match_count = match_count + 1
+                if (match_count == 1) item = table%items(i)
+            end if
+        end do
+        if (match_count > 1) then
+            ok = .false.
+            message = 'semantic-item source query is ambiguous'
+            item = standardir_semantic_item_t()
+            return
+        end if
+        found = match_count == 1
+        ok = .true.
+        message = ''
+    end subroutine semantic_table_find_source
+
     subroutine semantic_table_count_resolution(table, resolution, count, ok, message)
         type(semantic_table_t), intent(in) :: table
         integer, intent(in) :: resolution
@@ -215,5 +250,14 @@ contains
             resolution == standardir_resolution_unresolved .or. &
             resolution == standardir_resolution_disputed
     end function valid_resolution
+
+    logical function same_source(left, right)
+        type(standardir_source_ref_t), intent(in) :: left, right
+
+        same_source = trim(left%document) == trim(right%document) .and. &
+            trim(left%clause) == trim(right%clause) .and. &
+            trim(left%rule) == trim(right%rule) .and. left%page == right%page .and. &
+            trim(left%source_hash) == trim(right%source_hash)
+    end function same_source
 
 end module standardir_semantic_table

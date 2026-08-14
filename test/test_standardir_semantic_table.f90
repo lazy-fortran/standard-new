@@ -7,7 +7,7 @@ program test_standardir_semantic_table
         standardir_resolution_unresolved, standardir_read_semantic_item, &
         standardir_semantic_item_t
     use standardir_semantic_table, only: semantic_table_add, semantic_table_find_id, &
-        semantic_table_iterate, &
+        semantic_table_find_source, semantic_table_iterate, &
         semantic_table_count_resolution, semantic_table_iterate_resolution, &
         semantic_table_max_items, semantic_table_reset, semantic_table_t, semantic_table_validate
     implicit none
@@ -44,6 +44,20 @@ program test_standardir_semantic_table
         actual%origin == standardir_origin_human .and. &
         actual%resolution == standardir_resolution_disputed, &
         'typed id query lost oracle provenance')
+    call semantic_table_find_source(table, expected%source, actual, found, ok, message)
+    call require(ok .and. found .and. actual%id == 'S501', &
+        'source query did not find oracle record')
+    call require(actual%source%document == expected%source%document .and. &
+        actual%source%clause == expected%source%clause .and. &
+        actual%source%rule == expected%source%rule .and. &
+        actual%source%page == expected%source%page .and. &
+        actual%source%source_hash == expected%source%source_hash .and. &
+        actual%origin == expected%origin .and. actual%resolution == expected%resolution, &
+        'source query lost semantic provenance')
+    invalid = expected
+    invalid%source%page = 89
+    call semantic_table_find_source(table, invalid%source, actual, found, ok, message)
+    call require(ok .and. .not. found, 'missing source query was reported as found')
     call semantic_table_find_id(table, 'missing', actual, found, ok, message)
     call require(ok .and. .not. found, 'missing typed id query was reported as found')
     call semantic_table_find_id(table, '', actual, found, ok, message)
@@ -52,6 +66,8 @@ program test_standardir_semantic_table
     call require(ok, message)
     call semantic_table_find_id(table, 'S501', actual, found, ok, message)
     call require(.not. ok .and. .not. found, 'duplicate typed id query was accepted')
+    call semantic_table_find_source(table, expected%source, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'ambiguous source query was accepted')
     call semantic_table_reset(table)
 
     call make_item(expected, 'S-valid', 'assignment', standardir_resolution_resolved)
@@ -140,6 +156,9 @@ program test_standardir_semantic_table
     invalid%subject = ''
     call semantic_table_add(table, invalid, ok, message)
     call require(.not. ok, 'invalid mutation was accepted')
+    invalid%source%source_hash = ''
+    call semantic_table_find_source(table, invalid%source, actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'invalid source query was accepted')
     table%items(2)%resolution = 0
     call semantic_table_validate(table, ok, message)
     call require(.not. ok, 'invalid resolution mutation was accepted')
