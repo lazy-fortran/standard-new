@@ -1,17 +1,25 @@
 program test_standardir_semantic_table
     !! Fixed records are the independent oracle for table preservation.
 
+    use fortsx, only: sx_node_t, sx_parse
     use standardir_export, only: standardir_origin_human, &
         standardir_resolution_disputed, standardir_resolution_resolved, &
-        standardir_resolution_unresolved, standardir_semantic_item_t
-    use standardir_semantic_table, only: semantic_table_add, semantic_table_iterate, &
+        standardir_resolution_unresolved, standardir_read_semantic_item, &
+        standardir_semantic_item_t
+    use standardir_semantic_table, only: semantic_table_add, semantic_table_find_id, &
+        semantic_table_iterate, &
         semantic_table_count_resolution, semantic_table_iterate_resolution, &
         semantic_table_max_items, semantic_table_reset, semantic_table_t, semantic_table_validate
     implicit none
 
     type(semantic_table_t) :: table, empty_table
     type(standardir_semantic_item_t) :: expected, actual, invalid
+    type(sx_node_t) :: oracle_node
     character(len=256) :: message
+    character(len=*), parameter :: oracle = &
+        '(semantic-item (id S501) (subject assignment) (source (source-ref '// &
+        '(document J3-24-007) (clause 10.1) (rule C1102) (page 88) '// &
+        '(source-hash fixture-hash))) (origin human) (resolution disputed))'
     character(len=12), parameter :: expected_ids(3) = [character(len=12) :: &
         'S-valid', 'S-unresolved', 'S-disputed']
     character(len=12), parameter :: expected_subjects(3) = [character(len=12) :: &
@@ -19,7 +27,32 @@ program test_standardir_semantic_table
     integer, parameter :: expected_resolutions(3) = [standardir_resolution_resolved, &
         standardir_resolution_unresolved, standardir_resolution_disputed]
     integer :: cursor, i, count
-    logical :: ok, done
+    logical :: found, ok, done
+
+    call sx_parse(oracle, oracle_node, ok, message)
+    call require(ok, message)
+    call standardir_read_semantic_item(oracle_node, expected, ok, message)
+    call require(ok, message)
+    call semantic_table_add(table, expected, ok, message)
+    call require(ok, message)
+    call semantic_table_find_id(table, 'S501', actual, found, ok, message)
+    call require(ok .and. found, 'typed id query did not find oracle record')
+    call require(trim(actual%id) == 'S501' .and. trim(actual%subject) == 'assignment' .and. &
+        trim(actual%source%document) == 'J3-24-007' .and. &
+        trim(actual%source%clause) == '10.1' .and. trim(actual%source%rule) == 'C1102' .and. &
+        actual%source%page == 88 .and. trim(actual%source%source_hash) == 'fixture-hash' .and. &
+        actual%origin == standardir_origin_human .and. &
+        actual%resolution == standardir_resolution_disputed, &
+        'typed id query lost oracle provenance')
+    call semantic_table_find_id(table, 'missing', actual, found, ok, message)
+    call require(ok .and. .not. found, 'missing typed id query was reported as found')
+    call semantic_table_find_id(table, '', actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'empty typed id query was accepted')
+    call semantic_table_add(table, expected, ok, message)
+    call require(ok, message)
+    call semantic_table_find_id(table, 'S501', actual, found, ok, message)
+    call require(.not. ok .and. .not. found, 'duplicate typed id query was accepted')
+    call semantic_table_reset(table)
 
     call make_item(expected, 'S-valid', 'assignment', standardir_resolution_resolved)
     call semantic_table_add(table, expected, ok, message)

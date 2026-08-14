@@ -18,6 +18,7 @@ module standardir_semantic_table
     public :: semantic_table_reset
     public :: semantic_table_validate
     public :: semantic_table_iterate
+    public :: semantic_table_find_id
     public :: semantic_table_count_resolution
     public :: semantic_table_iterate_resolution
 
@@ -104,6 +105,42 @@ contains
         done = .false.
         message = ''
     end subroutine semantic_table_iterate
+
+    subroutine semantic_table_find_id(table, id, item, found, ok, message)
+        type(semantic_table_t), intent(in) :: table
+        character(len=*), intent(in) :: id
+        type(standardir_semantic_item_t), intent(out) :: item
+        logical, intent(out) :: found, ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, match_count
+
+        item = standardir_semantic_item_t()
+        found = .false.
+        call semantic_table_validate(table, ok, message)
+        if (.not. ok) return
+        if (len_trim(id) == 0) then
+            ok = .false.
+            message = 'semantic-item query id is empty'
+            return
+        end if
+        match_count = 0
+        do i = 1, table%item_count
+            if (trim(table%items(i)%id) == trim(id)) then
+                match_count = match_count + 1
+                if (match_count == 1) item = table%items(i)
+            end if
+        end do
+        if (match_count > 1) then
+            ok = .false.
+            message = 'semantic-item query id is ambiguous'
+            item = standardir_semantic_item_t()
+            return
+        end if
+        found = match_count == 1
+        ok = .true.
+        message = ''
+    end subroutine semantic_table_find_id
 
     subroutine semantic_table_count_resolution(table, resolution, count, ok, message)
         type(semantic_table_t), intent(in) :: table
