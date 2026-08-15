@@ -255,13 +255,16 @@ contains
         select case (format)
         case (standardir_grammar_format_ebnf)
             write (unit, '(a)', advance='no') '(* rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)//' source-sha256='//trim(source_hash)//' *)'
+                ' clause='//trim(clause)//' page='//trim(page)// &
+                ' source-canonical-text-sha256='//trim(source_hash)//' *)'
         case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
             write (unit, '(a)') '// rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)//' source-sha256='//trim(source_hash)
+                ' clause='//trim(clause)//' page='//trim(page)// &
+                ' source-canonical-text-sha256='//trim(source_hash)
         case (standardir_grammar_format_bison)
             write (unit, '(a)') '/* rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)//' source-sha256='//trim(source_hash)//' */'
+                ' clause='//trim(clause)//' page='//trim(page)// &
+                ' source-canonical-text-sha256='//trim(source_hash)//' */'
         end select
         ok = .true.
         message = ''

@@ -29,7 +29,7 @@ contains
 
     subroutine standardir_grammar_close_sx(nodes, node_count, classifications, &
             classification_count, roots, root_count, lexical, rules, semantic_skipped, &
-            lexical_closed, ok, message)
+            lexical_closed, ok, message, semantic_skipped_names)
         type(sx_node_t), intent(in) :: nodes(:)
         integer, intent(in) :: node_count
         type(closure_classification_t), intent(in) :: classifications(:)
@@ -41,19 +41,25 @@ contains
         integer, intent(out) :: semantic_skipped, lexical_closed
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=128), allocatable, intent(out), optional :: semantic_skipped_names(:)
 
         type(closure_input_record_t), allocatable :: input(:)
+        type(closure_classification_t), allocatable :: effective_classifications(:)
         type(closure_result_t) :: result
         type(standardir_grammar_rule_t), allocatable :: staged(:), one(:)
         type(standardir_source_ref_t) :: source
+        type(sx_node_t), allocatable :: lexicalized_nodes(:)
         type(sx_node_t) :: expression
         character(len=128) :: rule, lhs, id
-        integer :: i, j, input_index, count
+        integer :: i, j, input_index, count, effective_count
         logical :: local_ok, skip
 
         if (allocated(rules)) deallocate (rules)
         semantic_skipped = 0
         lexical_closed = 0
+        if (present(semantic_skipped_names)) then
+            allocate (semantic_skipped_names(0))
+        end if
         ok = .false.
         message = ''
         if (node_count < 1 .or. node_count > size(nodes)) then
@@ -63,9 +69,18 @@ contains
         call standardir_lexical_validate(lexical, ok, message)
         if (.not. ok) return
 
+        call make_effective_classifications(classifications, classification_count, lexical, &
+            effective_classifications, effective_count, ok, message)
+        if (.not. ok) return
         allocate (input(node_count))
+        allocate (lexicalized_nodes(node_count))
         do i = 1, node_count
-            call read_syntax(nodes(i), rule, lhs, expression, source, ok, message)
+            call lexicalize_tokens(nodes(i), lexical, lexicalized_nodes(i), ok, message)
+            if (.not. ok) then
+                message = 'source record '//integer_text(i)//': '//trim(message)
+                return
+            end if
+            call read_syntax(lexicalized_nodes(i), rule, lhs, expression, source, ok, message)
             if (.not. ok) then
                 message = 'source record '//integer_text(i)//': '//trim(message)
                 return
@@ -83,7 +98,7 @@ contains
             end if
         end do
 
-        call closure_compute(input, node_count, classifications, classification_count, roots, &
+        call closure_compute(input, node_count, effective_classifications, effective_count, roots, &
             root_count, result, ok, message)
         if (.not. ok) return
 
@@ -96,13 +111,16 @@ contains
                     message = 'closure result lost normative occurrence identity'
                     return
                 end if
-                skip = contains_semantic_reference(nodes(input_index), classifications, &
-                    classification_count)
+                skip = contains_semantic_reference(lexicalized_nodes(input_index), &
+                    effective_classifications, effective_count)
                 if (skip) then
                     semantic_skipped = semantic_skipped + 1
+                    if (present(semantic_skipped_names)) then
+                        call append_skipped_name(semantic_skipped_names, input(input_index)%lhs)
+                    end if
                     cycle
                 end if
-                call standardir_grammar_adapt_sx(nodes(input_index), &
+                call standardir_grammar_adapt_sx(lexicalized_nodes(input_index), &
                     standardir_grammar_origin_mechanical, &
                     standardir_grammar_resolution_resolved, one, local_ok, message)
                 if (.not. local_ok) return
@@ -114,6 +132,9 @@ contains
                 select case (result%records(i)%kind)
                 case (closure_kind_semantic_only)
                     semantic_skipped = semantic_skipped + 1
+                    if (present(semantic_skipped_names)) then
+                        call append_skipped_name(semantic_skipped_names, result%records(i)%lhs)
+                    end if
                 case (closure_kind_lexical)
                     if (.not. lexical_contains(lexical, result%records(i)%lhs)) then
                         message = 'closure lexical fact has no lexical export: '// &
@@ -147,6 +168,113 @@ contains
         ok = .true.
         message = ''
     end subroutine standardir_grammar_close_sx
+
+    subroutine make_effective_classifications(classifications, classification_count, lexical, &
+            values, value_count, ok, message)
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        type(standardir_lexical_facts_t), intent(in) :: lexical
+        type(closure_classification_t), allocatable, intent(out) :: values(:)
+        integer, intent(out) :: value_count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(closure_classification_t) :: candidate
+        integer :: i, ios, page
+        character(len=128) :: page_text
+
+        ok = .false.
+        message = ''
+        value_count = classification_count
+        allocate (values(max(1, classification_count + lexical%count)))
+        values = closure_classification_t()
+        if (classification_count > 0) values(:classification_count) = classifications(:classification_count)
+        do i = 1, lexical%count
+            if (find_classification(values, value_count, lexical%facts(i)%source_term) > 0) cycle
+            candidate = closure_classification_t()
+            candidate%name = trim(lexical%facts(i)%source_term)
+            candidate%kind = closure_kind_lexical
+            candidate%target = trim(lexical%facts(i)%target_name)
+            candidate%source%document = trim(lexical%facts(i)%document)
+            candidate%source%clause = trim(lexical%facts(i)%clause)
+            candidate%source%rule = trim(lexical%facts(i)%source_rule)
+            candidate%source%source_hash = trim(lexical%facts(i)%source_hash)
+            page_text = trim(lexical%facts(i)%source_page)
+            read (page_text, *, iostat=ios) page
+            if (ios /= 0) then
+                message = 'lexical fact source page is not an integer: '// &
+                    trim(lexical%facts(i)%source_page)
+                return
+            end if
+            if (page <= 0) then
+                message = 'lexical fact source page is not positive'
+                return
+            end if
+            candidate%source%page = page
+            value_count = value_count + 1
+            values(value_count) = candidate
+        end do
+        ok = .true.
+    end subroutine make_effective_classifications
+
+    recursive subroutine lexicalize_tokens(node, lexical, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(standardir_lexical_facts_t), intent(in) :: lexical
+        type(sx_node_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+        logical :: is_token, is_atom
+
+        value = node
+        ok = .false.
+        message = ''
+        if (node%kind == sx_atom) then
+            ok = .true.
+            return
+        end if
+        if (node%kind /= sx_list) then
+            message = 'source SX contains an invalid node kind'
+            return
+        end if
+        do i = 1, node%child_count
+            call lexicalize_tokens(node%children(i), lexical, value%children(i), ok, message)
+            if (.not. ok) return
+        end do
+        is_token = .false.
+        if (node%child_count >= 1) then
+            if (node%children(1)%kind == sx_atom) then
+                is_token = trim(node%children(1)%atom) == 'token'
+            end if
+        end if
+        is_atom = .false.
+        if (node%child_count >= 2) then
+            is_atom = node%children(2)%kind == sx_atom
+        end if
+        if (is_token .and. is_atom) then
+            if (lexical_contains(lexical, node%children(2)%atom)) then
+                value%children(1)%atom = 'ref'
+            end if
+        end if
+        ok = .true.
+    end subroutine lexicalize_tokens
+
+    subroutine append_skipped_name(names, name)
+        character(len=128), allocatable, intent(inout) :: names(:)
+        character(len=*), intent(in) :: name
+        character(len=128), allocatable :: expanded(:)
+        integer :: i, count
+
+        do i = 1, size(names)
+            if (trim(names(i)) == trim(name)) return
+        end do
+        count = size(names)
+        allocate (expanded(count + 1))
+        if (count > 0) expanded(:count) = names
+        expanded(count + 1) = trim(name)
+        call move_alloc(expanded, names)
+    end subroutine append_skipped_name
 
     recursive subroutine collect_references(node, record, source, ok, message)
         type(sx_node_t), intent(in) :: node

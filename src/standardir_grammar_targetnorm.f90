@@ -579,6 +579,7 @@ contains
         character(len=*), intent(out) :: message
 
         type(standardir_target_rule_t), allocatable :: replaced(:)
+        type(standardir_target_rule_t) :: candidate
         type(standardir_target_expression_t) :: tail, expression
         integer :: i, j
         logical :: found
@@ -601,10 +602,15 @@ contains
                 return
             end if
             do j = 1, size(source)
+                candidate = values(i)
                 expression = concatenate_present(source(j)%expression, tail)
-                values(i)%expression = expression
-                if (j > 1) values(i)%id = derived_id(values(i)%id, j)
-                call append_target(replaced, values(i))
+                candidate%expression = expression
+                candidate%source = source(j)%source
+                candidate%alternative = source(j)%alternative
+                candidate%origin = source(j)%origin
+                candidate%resolution = source(j)%resolution
+                if (j > 1) candidate%id = derived_id(candidate%id, j)
+                call append_target(replaced, candidate)
             end do
         end do
         call move_alloc(replaced, values)
@@ -623,14 +629,15 @@ contains
         character(len=*), intent(out) :: message
 
         type(standardir_target_rule_t), allocatable :: recursive_rules(:), beta_rules(:), replacement(:)
+        type(standardir_target_rule_t), allocatable :: helper_rules(:)
         type(standardir_target_expression_t), allocatable :: alphas(:)
-        type(standardir_target_expression_t) :: tail, helper_expression, nullable_beta, nullable_alpha
-        type(standardir_target_rule_t) :: helper, item
+        type(standardir_target_expression_t) :: tail, nullable_beta, nullable_alpha
+        type(standardir_target_rule_t) :: item
         character(len=128) :: helper_lhs
         integer :: i
         logical :: found, left_corner
 
-        allocate (recursive_rules(0), beta_rules(0), alphas(0))
+        allocate (recursive_rules(0), beta_rules(0), alphas(0), helper_rules(0))
         ok = .false.
         message = ''
         do i = 1, size(group)
@@ -681,27 +688,28 @@ contains
         end if
         helper_lhs = make_helper_lhs(values, lhs, ok, message)
         if (.not. ok) return
-        if (size(alphas) == 1) then
-            helper_expression = alphas(1)
-        else
-            helper_expression = make_choice(alphas)
-        end if
-        helper = recursive_rules(1)
-        helper%id = derived_id(recursive_rules(1)%id, -1)
-        helper%lhs = helper_lhs
-        helper%alternative = recursive_rules(1)%alternative
-        helper%expression = make_repeat(helper_expression)
+        do i = 1, size(recursive_rules)
+            item = recursive_rules(i)
+            item%id = derived_id(item%id, -1)
+            if (i > 1) item%id = derived_id(item%id, i)
+            item%lhs = helper_lhs
+            item%expression = alphas(i)
+            call append_target(helper_rules, item)
+        end do
         do i = 1, size(recursive_rules)
             call append_target(suppressed, recursive_rules(i))
         end do
         allocate (replacement(0))
         do i = 1, size(beta_rules)
             item = beta_rules(i)
-            item%expression = concatenate_expressions(item%expression, make_reference(helper_lhs))
+            item%expression = concatenate_expressions(item%expression, &
+                make_repeat(make_reference(helper_lhs)))
             if (i > 1) item%id = derived_id(item%id, i)
             call append_target(replacement, item)
         end do
-        call append_target(replacement, helper)
+        do i = 1, size(helper_rules)
+            call append_target(replacement, helper_rules(i))
+        end do
         call replace_lhs(values, lhs, replacement)
         ok = .true.
         message = ''

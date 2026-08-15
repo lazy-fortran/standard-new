@@ -35,7 +35,7 @@ contains
         write (unit, '(a)', advance='no') trim(clause)
         write (unit, '(a)', advance='no') ' page='
         write (unit, '(a)', advance='no') trim(page)
-        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
         write (unit, '(a)')
         write (unit, '(a)', advance='no') trim(treesitter_name(lhs))
@@ -94,7 +94,7 @@ contains
         write (unit, '(a)', advance='no') trim(clause)
         write (unit, '(a)', advance='no') ' page='
         write (unit, '(a)', advance='no') trim(page)
-        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
         write (unit, '(a)')
     end subroutine emit_provenance

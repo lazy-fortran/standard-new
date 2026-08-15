@@ -20,22 +20,22 @@ program test_standardir_grammar
         '(source-sha256 abcdef)))'
     character(len=*), parameter :: expected_comment = &
         '(* rule=R501 document=J3-24-007 clause=5-15 page=53 '// &
-        'source-sha256=abcdef *)'
+        'source-canonical-text-sha256=abcdef *)'
     character(len=*), parameter :: expected_rule = &
         'program ::= program-unit { program-unit } ;'
     character(len=*), parameter :: expected_antlr_comment = &
-        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef'
+        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-canonical-text-sha256=abcdef'
     character(len=*), parameter :: expected_antlr_name = 'r_program'
     character(len=*), parameter :: expected_antlr_rule = &
         '    : r_program_x2D_unit ( r_program_x2D_unit )*'
     character(len=*), parameter :: expected_bison_comment = &
-        '/* rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef */'
+        '/* rule=R501 document=J3-24-007 clause=5-15 page=53 source-canonical-text-sha256=abcdef */'
     character(len=*), parameter :: expected_bison_rule = 'r_program:'
     character(len=*), parameter :: expected_bison_rhs = &
         '    r_program_x2D_unit h_r_R501_1'
     character(len=*), parameter :: expected_bison_helper = 'h_r_R501_1:'
     character(len=*), parameter :: expected_treesitter_comment = &
-        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-sha256=abcdef'
+        '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-canonical-text-sha256=abcdef'
     character(len=*), parameter :: expected_treesitter_rule = &
         'r_program: $ => seq($.r_program_x2D_unit, repeat($.r_program_x2D_unit)),'
     character(len=256) :: line, message

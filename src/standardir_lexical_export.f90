@@ -37,7 +37,7 @@ contains
             write (unit, '(a)', advance='no') trim(facts%facts(i)%source_rule)
             write (unit, '(a)', advance='no') ' page='
             write (unit, '(a)', advance='no') trim(facts%facts(i)%source_page)
-            write (unit, '(a)', advance='no') ' source-sha256='
+            write (unit, '(a)', advance='no') ' source-document-sha256='
             write (unit, '(a)', advance='no') trim(facts%facts(i)%source_hash)
             write (unit, '(a)', advance='no') ' codepoint='
             write (unit, '(a)', advance='no') trim(facts%facts(i)%codepoint)
@@ -166,7 +166,7 @@ contains
         write (unit, '(a)', advance='no') trim(fact%document)
         write (unit, '(a)', advance='no') ' clause='
         write (unit, '(a)', advance='no') trim(fact%clause)
-        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
         write (unit, '(a)') trim(fact%codepoint)
@@ -188,7 +188,7 @@ contains
         write (unit, '(a)', advance='no') trim(fact%source_rule)
         write (unit, '(a)', advance='no') ' page='
         write (unit, '(a)', advance='no') trim(fact%source_page)
-        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
         write (unit, '(a)') trim(fact%codepoint)
@@ -210,7 +210,7 @@ contains
         write (unit, '(a)', advance='no') trim(fact%source_rule)
         write (unit, '(a)', advance='no') ' page='
         write (unit, '(a)', advance='no') trim(fact%source_page)
-        write (unit, '(a)', advance='no') ' source-sha256='
+        write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
         write (unit, '(a)') trim(fact%codepoint)//' */'

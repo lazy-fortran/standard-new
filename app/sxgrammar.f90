@@ -27,6 +27,7 @@ program sxgrammar
     type(standardir_lexical_facts_t) :: lexical
     type(sx_node_t) :: node
     character(len=256), allocatable :: start_names(:)
+    character(len=128), allocatable :: semantic_skipped_names(:)
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     logical :: ok
@@ -59,10 +60,15 @@ program sxgrammar
     if (.not. ok) call fail(trim(message))
 
     call standardir_grammar_close_sx(nodes, records, classifications, classification_count, &
-        roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message)
+        roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message, &
+        semantic_skipped_names)
     if (.not. ok) call fail(trim(message))
     if (.not. allocated(rules)) call fail('closure returned no grammar rule array')
     if (size(rules) < 1) call fail('closure returned no exportable grammar rules')
+    call collect_start_names(rules, roots, root_count, start_names)
+    call validate_root_dispositions(roots, root_count, start_names, semantic_skipped_names, &
+        ok, message)
+    if (.not. ok) call fail(trim(message))
 
     open (newunit=output_unit, file=trim(output_path), status='replace', action='write', &
         iostat=ios)
@@ -74,7 +80,6 @@ program sxgrammar
         if (.not. ok) call fail_output(output_unit, message)
         write (output_unit, '(a)') '%start standardir_start'
         write (output_unit, '(a)') '%%'
-        call collect_start_names(rules, roots, root_count, start_names)
         call standardir_emit_bison_start(output_unit, start_names, ok, message)
         if (.not. ok) call fail_output(output_unit, message)
         call standardir_lexical_emit_bison_aliases(output_unit, lexical, ok, message)
@@ -99,6 +104,7 @@ program sxgrammar
     close (output_unit)
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
         semantic_skipped, ' semantic-only records; closed ', lexical_closed, ' lexical facts'
+    call print_skipped_names(semantic_skipped_names)
 
 contains
 
@@ -185,6 +191,41 @@ contains
         grown(old_size + 1) = trim(value)
         call move_alloc(grown, values)
     end subroutine append_start_name
+
+    subroutine validate_root_dispositions(roots, root_count, start_names, skipped_names, ok, message)
+        character(len=*), intent(in) :: roots(:), start_names(:), skipped_names(:)
+        integer, intent(in) :: root_count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i, j
+        logical :: found
+
+        ok = .false.
+        message = ''
+        do i = 1, root_count
+            found = .false.
+            do j = 1, size(start_names)
+                if (trim(roots(i)) == trim(start_names(j))) found = .true.
+            end do
+            do j = 1, size(skipped_names)
+                if (trim(roots(i)) == trim(skipped_names(j))) found = .true.
+            end do
+            if (.not. found) then
+                message = 'declared root has no export or explicit skip: '//trim(roots(i))
+                return
+            end if
+        end do
+        ok = .true.
+    end subroutine validate_root_dispositions
+
+    subroutine print_skipped_names(names)
+        character(len=*), intent(in) :: names(:)
+        integer :: i
+
+        do i = 1, size(names)
+            print '(a)', 'root-disposition skipped-semantic-only '//trim(names(i))
+        end do
+    end subroutine print_skipped_names
 
     subroutine read_classification_file(path, values, count, ok, message)
         character(len=*), intent(in) :: path
@@ -336,13 +377,14 @@ contains
 
         select case (format)
         case (standardir_grammar_format_ebnf)
-            write (unit, '(a)') '(* Generated from closed source-backed StandardIR *)'
+            write (unit, '(a)') '(* origin=MECHANICAL; generated from closed source-backed StandardIR *)'
         case (standardir_grammar_format_antlr4)
             write (unit, '(a)') 'grammar Fortran2023;'
+            write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
         case (standardir_grammar_format_bison)
-            write (unit, '(a)') '/* Generated from closed source-backed StandardIR */'
+            write (unit, '(a)') '/* origin=MECHANICAL; generated from closed source-backed StandardIR */'
         case (standardir_grammar_format_tree_sitter)
-            write (unit, '(a)') '// Generated from closed source-backed StandardIR'
+            write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
             write (unit, '(a)') 'module.exports = grammar({'
             write (unit, '(a)') '  name: ''fortran2023'','
             write (unit, '(a)') '  rules: {'

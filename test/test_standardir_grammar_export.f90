@@ -11,7 +11,8 @@ program test_standardir_grammar_export
     implicit none
 
     type(standardir_grammar_rule_t) :: rules(3), bad(3), cyclic(3), unresolved(3), interleaved(3)
-    type(standardir_grammar_rule_t) :: duplicate(2), direct(2), mutual(4), wrapped(1), unsupported(1)
+    type(standardir_grammar_rule_t) :: duplicate(2), direct(2), multiple_direct(3), mutual(4), &
+        wrapped(1), unsupported(1)
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     integer :: format, unit, ios
     logical :: ok
@@ -83,6 +84,18 @@ program test_standardir_grammar_export
         call verify_transform_output(direct, format, 'expr__left_recursion')
     end do
 
+    call make_multiple_direct(multiple_direct)
+    call standardir_grammar_normalize(multiple_direct, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 3 .and. size(suppressed) == 2, &
+        'multiple direct recursion did not preserve helper alternatives: '//trim(message))
+    call require(trim(normalized(2)%lhs) == 'expr__left_recursion' .and. &
+        trim(normalized(2)%source%rule) == 'MREC-1' .and. normalized(2)%alternative == 1 .and. &
+        trim(normalized(3)%source%rule) == 'MREC-2' .and. normalized(3)%alternative == 2, &
+        'helper alternatives lost their source provenance')
+    call require(normalized(1)%expression%kind == standardir_grammar_sequence .and. &
+        normalized(1)%expression%children(2)%kind == standardir_grammar_repeat, &
+        'base alternative does not repeat the generated helper')
+
     call standardir_grammar_normalize(rules, normalized, suppressed, ok, message)
     call require(ok .and. size(normalized) == 3 .and. size(suppressed) == 0, &
         'non-recursive references were incorrectly expanded: '//trim(message))
@@ -127,6 +140,16 @@ contains
         call make_sequence_rule(values(1), 'REC-1', 1, 'expr', 'expr', 'X', 'DOC-R', '1', 1, 'HASH-R1')
         call make_simple(values(2), 'REC-2', 2, 'expr', 'Y', 'DOC-R', '2', 2, 'HASH-R2')
     end subroutine make_direct
+
+    subroutine make_multiple_direct(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'MREC-1', 1, 'expr', 'expr', 'X', 'DOC-MR', '1', 1, &
+            'HASH-MR1')
+        call make_sequence_rule(values(2), 'MREC-2', 2, 'expr', 'expr', 'Z', 'DOC-MR', '2', 2, &
+            'HASH-MR2')
+        call make_simple(values(3), 'MREC-3', 3, 'expr', 'Y', 'DOC-MR', '3', 3, 'HASH-MR3')
+    end subroutine make_multiple_direct
 
     subroutine make_mutual(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -260,10 +283,6 @@ contains
 
     logical function direct_witnesses_preserved(values)
         type(standardir_target_rule_t), intent(in) :: values(:)
-        character(len=4), parameter :: witnesses(5) = ['Y   ', 'YX  ', 'YXX ', 'X   ', 'YXY ']
-        logical, parameter :: expected(5) = [.true., .true., .true., .false., .false.]
-        integer :: i, j
-        logical :: actual
 
         direct_witnesses_preserved = .true.
         if (size(values) /= 2) then
@@ -272,19 +291,12 @@ contains
         end if
         if (values(1)%expression%kind /= standardir_grammar_sequence .or. &
             size(values(1)%expression%children) /= 2 .or. &
-            values(2)%expression%kind /= standardir_grammar_repeat) then
+            values(1)%expression%children(2)%kind /= standardir_grammar_repeat .or. &
+            values(2)%expression%kind /= standardir_grammar_token .or. &
+            trim(values(2)%expression%name) /= 'X') then
             direct_witnesses_preserved = .false.
             return
         end if
-        do i = 1, size(witnesses)
-            actual = len_trim(witnesses(i)) >= 1 .and. witnesses(i)(1:1) == 'Y'
-            if (actual) then
-                do j = 2, len_trim(witnesses(i))
-                    if (witnesses(i)(j:j) /= 'X') actual = .false.
-                end do
-            end if
-            if (actual .neqv. expected(i)) direct_witnesses_preserved = .false.
-        end do
     end function direct_witnesses_preserved
 
     logical function no_left_corner(values)
@@ -369,7 +381,8 @@ contains
         call require(index(text, 'source-rule=SRC-A1') > 0, 'source rule annotation is missing')
         call require(index(text, 'document=DOC-A') > 0 .and. index(text, 'clause=5.1') > 0, &
             'first source provenance is missing')
-        call require(index(text, 'source-sha256=HASH-A1') > 0, 'source hash is missing')
+        call require(index(text, 'source-canonical-text-sha256=HASH-A1') > 0, &
+            'source hash is missing')
         call require(index(text, 'rule=R-A1 document') < index(text, 'rule=R-A2 document') .and. &
             index(text, 'rule=R-A2 document') < index(text, 'rule=R-B1 document'), &
             'rule or alternative order was changed')
