@@ -52,6 +52,7 @@ module standardir_grammar_export
     public :: standardir_grammar_select_reachable
     public :: standardir_grammar_validate_reachability
     public :: standardir_grammar_source_expression_sha256
+    public :: standardir_grammar_collect_source_dispositions
     public :: standardir_grammar_emit_source_disposition
 
 contains
@@ -304,32 +305,58 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        type(standardir_grammar_rule_t), allocatable :: values(:)
-        type(standardir_target_source_witness_t) :: witness
+        type(standardir_target_source_witness_t), allocatable :: witnesses(:)
         integer :: i
 
         ok = .false.
         message = ''
-        call standardir_grammar_adapt_sx(source_node, standardir_grammar_origin_mechanical, &
-            standardir_grammar_resolution_resolved, values, ok, message)
+        call standardir_grammar_collect_source_dispositions(source_node, target_rule, target_lhs, reason, &
+            witnesses, ok, message)
         if (.not. ok) return
-        do i = 1, size(values)
-            witness = standardir_target_source_witness_t()
-            witness%source%source = values(i)%source
-            witness%source%alternative = values(i)%alternative
-            witness%source%source_expression_present = .true.
-            witness%source%source_expression_sha256 = values(i)%source_expression_sha256
-            witness%target_rule_id = trim(target_rule)
-            witness%target_lhs = trim(target_lhs)
-            witness%target_alternative = values(i)%alternative
-            witness%reason = trim(reason)
-            witness%target_expression_sha256 = values(i)%source_expression_sha256
-            call emit_source_witness_line(unit, format, witness, ok, message)
+        do i = 1, size(witnesses)
+            call emit_source_witness_line(unit, format, witnesses(i), ok, message)
             if (.not. ok) return
         end do
         ok = .true.
         message = ''
     end subroutine standardir_grammar_emit_source_disposition
+
+    subroutine standardir_grammar_collect_source_dispositions(source_node, target_rule, target_lhs, reason, &
+            witnesses, ok, message)
+        type(sx_node_t), intent(in) :: source_node
+        character(len=*), intent(in) :: target_rule, target_lhs, reason
+        type(standardir_target_source_witness_t), allocatable, intent(out) :: witnesses(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_grammar_rule_t), allocatable :: values(:)
+        integer :: i
+
+        if (allocated(witnesses)) deallocate (witnesses)
+        ok = .false.
+        message = ''
+        call standardir_grammar_adapt_sx(source_node, standardir_grammar_origin_mechanical, &
+            standardir_grammar_resolution_resolved, values, ok, message)
+        if (.not. ok) then
+            allocate (witnesses(0))
+            return
+        end if
+        allocate (witnesses(size(values)))
+        do i = 1, size(values)
+            witnesses(i) = standardir_target_source_witness_t()
+            witnesses(i)%source%source = values(i)%source
+            witnesses(i)%source%alternative = values(i)%alternative
+            witnesses(i)%source%source_expression_present = .true.
+            witnesses(i)%source%source_expression_sha256 = values(i)%source_expression_sha256
+            witnesses(i)%target_rule_id = trim(target_rule)
+            witnesses(i)%target_lhs = trim(target_lhs)
+            witnesses(i)%target_alternative = values(i)%alternative
+            witnesses(i)%reason = trim(reason)
+            witnesses(i)%target_expression_sha256 = values(i)%source_expression_sha256
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_collect_source_dispositions
 
     subroutine emit_source_witness_line(unit, format, value, ok, message)
         integer, intent(in) :: unit, format

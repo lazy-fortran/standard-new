@@ -8,10 +8,11 @@ program sxgrammar
         standardir_grammar_disposition_omitted_root, standardir_grammar_disposition_selected, &
         standardir_grammar_disposition_t
     use standardir_grammar_export, only: standardir_grammar_export_batch, &
+        standardir_grammar_collect_source_dispositions, &
         standardir_grammar_emit_source_disposition, &
         standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
         standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter, &
-        standardir_target_role_family_config_t
+        standardir_target_role_family_config_t, standardir_target_source_witness_t
     use standardir_grammar_transformation_witness, only: &
         standardir_grammar_emit_transformation_witness
     use standardir_grammar_producer, only: standardir_grammar_rule_t
@@ -39,6 +40,7 @@ program sxgrammar
     character(len=128), allocatable :: semantic_skipped_names(:)
     character(len=512), allocatable :: semantic_skipped_details(:)
     type(standardir_grammar_disposition_t), allocatable :: dispositions(:)
+    type(standardir_target_source_witness_t), allocatable :: pre_lowering_witnesses(:), one_witnesses(:)
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     integer :: i, j
@@ -50,6 +52,7 @@ program sxgrammar
     transformation_witness_mode = .false.
     selected_root = ''
     role_family = standardir_target_role_family_config_t()
+    allocate (pre_lowering_witnesses(0))
     if (argc < 6) then
         call get_command_argument(0, syntax_path)
         print '(a)', 'usage: '//trim(syntax_path)// &
@@ -143,6 +146,11 @@ program sxgrammar
             source_node_found = .false.
             do j = 1, records
                 if (.not. source_node_matches(nodes(j), dispositions(i)%source%rule, dispositions(i)%name)) cycle
+                call standardir_grammar_collect_source_dispositions(nodes(j), &
+                    'omitted-'//trim(dispositions(i)%name), dispositions(i)%name, &
+                    'omitted-before-target-lowering', one_witnesses, ok, message)
+                if (.not. ok) call fail_output(output_unit, message)
+                call append_source_witnesses(pre_lowering_witnesses, one_witnesses)
                 call standardir_grammar_emit_source_disposition(output_unit, format, nodes(j), &
                     'omitted-'//trim(dispositions(i)%name), dispositions(i)%name, &
                     'omitted-before-target-lowering', ok, message)
@@ -173,7 +181,7 @@ program sxgrammar
     close (output_unit)
     if (transformation_witness_mode) then
         call emit_transformation_witness_file(transformation_witness_path, rules, selected_mode, &
-            selected_root, start_names, role_family_mode, role_family, ok, message)
+            selected_root, start_names, role_family_mode, role_family, pre_lowering_witnesses, ok, message)
         if (.not. ok) call fail(trim(message))
     end if
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
@@ -525,13 +533,14 @@ contains
     end subroutine emit_footer
 
     subroutine emit_transformation_witness_file(path, rules, selected_mode, selected_root, roots, &
-            role_family_mode, role_family, ok, message)
+            role_family_mode, role_family, pre_lowering_witnesses, ok, message)
         character(len=*), intent(in) :: path
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(in) :: selected_mode, role_family_mode
         character(len=*), intent(in) :: selected_root
         character(len=*), intent(in) :: roots(:)
         type(standardir_target_role_family_config_t), intent(in) :: role_family
+        type(standardir_target_source_witness_t), intent(in) :: pre_lowering_witnesses(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -547,18 +556,19 @@ contains
         if (selected_mode) then
             if (role_family_mode) then
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    selected_root=selected_root, role_family=role_family)
+                    selected_root=selected_root, role_family=role_family, &
+                    pre_lowering_witnesses=pre_lowering_witnesses)
             else
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    selected_root=selected_root)
+                    selected_root=selected_root, pre_lowering_witnesses=pre_lowering_witnesses)
             end if
         else
             if (role_family_mode) then
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    roots=roots, role_family=role_family)
+                    roots=roots, role_family=role_family, pre_lowering_witnesses=pre_lowering_witnesses)
             else
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    roots=roots)
+                    roots=roots, pre_lowering_witnesses=pre_lowering_witnesses)
             end if
         end if
         if (.not. ok) then
@@ -705,6 +715,20 @@ contains
         expanded(n + 1) = value
         call move_alloc(expanded, values)
     end subroutine append_node
+
+    subroutine append_source_witnesses(values, incoming)
+        type(standardir_target_source_witness_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_source_witness_t), intent(in) :: incoming(:)
+        type(standardir_target_source_witness_t), allocatable :: expanded(:)
+        integer :: old_size, added
+
+        old_size = size(values)
+        added = size(incoming)
+        allocate (expanded(old_size + added))
+        if (old_size > 0) expanded(:old_size) = values
+        if (added > 0) expanded(old_size + 1:old_size + added) = incoming
+        call move_alloc(expanded, values)
+    end subroutine append_source_witnesses
 
     subroutine append_classification(values, value)
         type(closure_classification_t), allocatable, intent(inout) :: values(:)

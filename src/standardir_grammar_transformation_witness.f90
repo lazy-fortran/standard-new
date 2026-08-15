@@ -14,17 +14,19 @@ module standardir_grammar_transformation_witness
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
         standardir_target_provenance_t, standardir_target_role_family_config_t, &
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
-        standardir_target_role_family_witness_t, standardir_target_rule_t
+        standardir_target_role_family_witness_t, standardir_target_rule_t, &
+        standardir_target_source_witness_t
     implicit none
     private
 
     public :: standardir_grammar_emit_transformation_witness
     public :: standardir_grammar_validate_transformation_witness
+    public :: standardir_grammar_validate_source_disposition_witnesses
 
 contains
 
     subroutine standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-            selected_root, roots, role_family)
+            selected_root, roots, role_family, pre_lowering_witnesses)
         integer, intent(in) :: unit
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(out) :: ok
@@ -32,6 +34,7 @@ contains
         character(len=*), intent(in), optional :: selected_root
         character(len=*), intent(in), optional :: roots(:)
         type(standardir_target_role_family_config_t), intent(in), optional :: role_family
+        type(standardir_target_source_witness_t), intent(in), optional :: pre_lowering_witnesses(:)
 
         type(standardir_target_rule_t), allocatable :: normalized(:), pruned(:), before_role(:)
         type(standardir_target_rule_t), allocatable :: retained(:)
@@ -105,6 +108,14 @@ contains
         if (role_mode .and. present(role_family)) then
             do i = 1, size(role_witness)
                 call emit_role_row(unit, role_witness(i), before_role, retained, profile, ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        if (present(pre_lowering_witnesses)) then
+            call validate_source_witnesses(pre_lowering_witnesses, ok, message)
+            if (.not. ok) return
+            do i = 1, size(pre_lowering_witnesses)
+                call emit_pre_lowering_row(unit, pre_lowering_witnesses(i), profile, ok, message)
                 if (.not. ok) return
             end do
         end if
@@ -197,6 +208,89 @@ contains
         ok = .true.
         message = ''
     end subroutine standardir_grammar_validate_transformation_witness
+
+    subroutine standardir_grammar_validate_source_disposition_witnesses(expected, actual, ok, message)
+        type(standardir_target_source_witness_t), intent(in) :: expected(:), actual(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i, j
+        logical :: found
+
+        ok = .false.
+        message = ''
+        call validate_source_witnesses(actual, ok, message)
+        if (.not. ok) return
+        do i = 1, size(expected)
+            found = .false.
+            do j = 1, size(actual)
+                if (same_source_witness(expected(i), actual(j))) found = .true.
+            end do
+            if (.not. found) then
+                ok = .false.
+                message = 'source disposition witness coverage is incomplete'
+                return
+            end if
+        end do
+        ok = size(expected) == size(actual)
+        if (.not. ok) message = 'source disposition witness coverage is ambiguous'
+    end subroutine standardir_grammar_validate_source_disposition_witnesses
+
+    subroutine validate_source_witnesses(values, ok, message)
+        type(standardir_target_source_witness_t), intent(in) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i, j
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            if (len_trim(values(i)%target_rule_id) == 0 .or. &
+                len_trim(values(i)%target_lhs) == 0) then
+                message = 'source disposition witness target is incomplete'
+                return
+            end if
+            if (values(i)%target_alternative < 1 .or. values(i)%source%alternative < 1) then
+                message = 'source disposition witness alternative is invalid'
+                return
+            end if
+            if (len_trim(values(i)%reason) == 0 .or. &
+                len_trim(values(i)%target_expression_sha256) == 0) then
+                message = 'source disposition witness reason or target hash is incomplete'
+                return
+            end if
+            if (.not. values(i)%source%source_expression_present .or. &
+                len_trim(values(i)%source%source_expression_sha256) == 0) then
+                message = 'source disposition witness lacks a source hash'
+                return
+            end if
+            call standardir_validate_source_ref(values(i)%source%source, ok, message)
+            if (.not. ok) return
+            do j = 1, i - 1
+                if (same_source_witness(values(i), values(j))) then
+                    message = 'source disposition witness is duplicated'
+                    return
+                end if
+            end do
+        end do
+        ok = .true.
+        message = ''
+    end subroutine validate_source_witnesses
+
+    logical function same_source_witness(left, right)
+        type(standardir_target_source_witness_t), intent(in) :: left, right
+
+        same_source_witness = .false.
+        if (.not. same_source_location(left%source, right%source)) return
+        if (left%source%source_expression_present .neqv. right%source%source_expression_present) return
+        if (trim(left%source%source_expression_sha256) /= &
+            trim(right%source%source_expression_sha256)) return
+        if (trim(left%target_rule_id) /= trim(right%target_rule_id)) return
+        if (trim(left%target_lhs) /= trim(right%target_lhs)) return
+        if (left%target_alternative /= right%target_alternative) return
+        if (trim(left%reason) /= trim(right%reason)) return
+        if (trim(left%target_expression_sha256) /= trim(right%target_expression_sha256)) return
+        same_source_witness = .true.
+    end function same_source_witness
 
     subroutine validate_provenance(value, ok, message)
         type(standardir_target_rule_t), intent(in) :: value
@@ -328,6 +422,33 @@ contains
         ok = .true.
         message = ''
     end subroutine emit_reachability_row
+
+    subroutine emit_pre_lowering_row(unit, value, profile, ok, message)
+        integer, intent(in) :: unit
+        type(standardir_target_source_witness_t), intent(in) :: value
+        character(len=*), intent(in) :: profile
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(standardir_target_provenance_t), allocatable :: provenance(:)
+        character(len=:), allocatable :: alternatives, lineage, hashes
+
+        allocate (provenance(1))
+        provenance(1) = value%source
+        call provenance_text(provenance, alternatives, lineage, hashes)
+        call write_row_start(unit, 'omitted', 'omitted-before-target-lowering', profile)
+        call write_json_field(unit, 'source_alternative', alternatives)
+        call write_json_field(unit, 'source_lineage', lineage)
+        call write_json_field(unit, 'source_expression_sha256', hashes)
+        call write_json_field(unit, 'target_rule', trim(value%target_rule_id))
+        call write_json_field(unit, 'target_lhs', trim(value%target_lhs))
+        call write_json_field(unit, 'target_expression_sha256', &
+            trim(value%target_expression_sha256))
+        call write_json_field(unit, 'reason', trim(value%reason))
+        call write_json_field(unit, 'origin', origin_text(standardir_grammar_origin_mechanical))
+        call write_json_end(unit)
+        ok = .true.
+        message = ''
+    end subroutine emit_pre_lowering_row
 
     subroutine emit_role_row(unit, value, before, after, profile, ok, message)
         integer, intent(in) :: unit
