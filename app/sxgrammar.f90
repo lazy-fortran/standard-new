@@ -109,7 +109,7 @@ program sxgrammar
     open (newunit=output_unit, file=trim(output_path), status='replace', action='write', &
         iostat=ios)
     if (ios /= 0) call fail('cannot open grammar output')
-    call emit_header(output_unit, format, selected_root, selected_mode)
+    call emit_header(output_unit, format)
     if (.not. ok) call fail_output(output_unit, message)
     if (format == standardir_grammar_format_bison) then
         call standardir_lexical_emit_bison(output_unit, lexical, ok, message)
@@ -117,8 +117,10 @@ program sxgrammar
         write (output_unit, '(a)') '%glr-parser'
         write (output_unit, '(a)') '%start standardir_start'
         write (output_unit, '(a)') '%%'
-        call standardir_emit_bison_start(output_unit, start_names, ok, message)
-        if (.not. ok) call fail_output(output_unit, message)
+        if (.not. selected_mode) then
+            call standardir_emit_bison_start(output_unit, start_names, ok, message)
+            if (.not. ok) call fail_output(output_unit, message)
+        end if
         call standardir_lexical_emit_bison_aliases(output_unit, lexical, ok, message)
         if (.not. ok) call fail_output(output_unit, message)
     end if
@@ -480,25 +482,19 @@ contains
         close (unit)
     end subroutine read_lexical_file
 
-    subroutine emit_header(unit, format, selected_root, selected_mode)
+    subroutine emit_header(unit, format)
         integer, intent(in) :: unit, format
-        character(len=*), intent(in) :: selected_root
-        logical, intent(in) :: selected_mode
 
         select case (format)
         case (standardir_grammar_format_ebnf)
             write (unit, '(a)') '(* origin=MECHANICAL; generated from closed source-backed StandardIR *)'
-            if (selected_mode) write (unit, '(a)') '(* target=selected-root root='//trim(selected_root)//' *)'
         case (standardir_grammar_format_antlr4)
             write (unit, '(a)') 'grammar Fortran2023;'
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
-            if (selected_mode) write (unit, '(a)') '// target=selected-root root='//trim(selected_root)
         case (standardir_grammar_format_bison)
             write (unit, '(a)') '/* origin=MECHANICAL; generated from closed source-backed StandardIR */'
-            if (selected_mode) write (unit, '(a)') '/* target=selected-root root='//trim(selected_root)//' */'
         case (standardir_grammar_format_tree_sitter)
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
-            if (selected_mode) write (unit, '(a)') '// target=selected-root root='//trim(selected_root)
             write (unit, '(a)') 'module.exports = grammar({'
             write (unit, '(a)') '  name: ''fortran2023'','
             write (unit, '(a)') '  rules: {'

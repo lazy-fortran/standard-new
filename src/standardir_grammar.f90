@@ -9,11 +9,28 @@ module standardir_grammar
     private
 
     public :: standardir_emit_antlr
+    public :: standardir_emit_antlr_entry
     public :: standardir_emit_ebnf
     public :: standardir_emit_antlr_group
     public :: standardir_emit_ebnf_group
 
 contains
+
+    subroutine standardir_emit_antlr_entry(unit, source_root, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: source_root
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        if (len_trim(source_root) == 0) then
+            message = 'ANTLR entry source root is empty'
+            return
+        end if
+        write (unit, '(a)') 'standardir_start : '//trim(antlr_name(source_root))//' EOF ;'
+        ok = .true.
+    end subroutine standardir_emit_antlr_entry
 
     subroutine standardir_emit_ebnf(unit, node, ok, message, lexical)
         integer, intent(in) :: unit

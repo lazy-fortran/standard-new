@@ -9,9 +9,26 @@ module standardir_treesitter
     private
 
     public :: standardir_emit_treesitter
+    public :: standardir_emit_treesitter_entry
     public :: standardir_emit_treesitter_group
 
 contains
+
+    subroutine standardir_emit_treesitter_entry(unit, source_root, ok, message)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: source_root
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        if (len_trim(source_root) == 0) then
+            message = 'tree-sitter entry source root is empty'
+            return
+        end if
+        write (unit, '(a)') 'standardir_start: $ => $.'//trim(treesitter_name(source_root))//','
+        ok = .true.
+    end subroutine standardir_emit_treesitter_entry
 
     subroutine standardir_emit_treesitter(unit, node, ok, message)
         integer, intent(in) :: unit

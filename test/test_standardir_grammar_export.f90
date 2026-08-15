@@ -1394,7 +1394,8 @@ contains
         call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
         call require(exit_status == 0, 'sxgrammar selected-root invocation failed')
         call read_file_text(selected_path, selected_text)
-        call require(index(selected_text, 'target=selected-root root=start') > 0 .and. &
+        call require(index(selected_text, 'profile format=ebnf entry=standardir_start source-root=start '// &
+            'eof=explicit-wrapper;') > 0 .and. index(selected_text, 'standardir_start ::= start ;') > 0 .and. &
             index(selected_text, 'alias_a ::=') > 0 .and. index(selected_text, 'target-role-family') == 0, &
             'sxgrammar selected-root default behavior changed')
 
@@ -1431,7 +1432,82 @@ contains
         call read_file_text(failure_log, failure_text)
         call require(index(failure_text, 'unknown option: --role-family=rep') > 0, &
             'sxgrammar malformed option diagnostic changed')
+        call verify_selected_profiles_cli(syntax_path, classifications_path, roots_path, selected_path, &
+            default_path)
     end subroutine verify_sxgrammar_cli
+
+    subroutine verify_selected_profiles_cli(syntax_path, classifications_path, roots_path, selected_path, &
+            all_path)
+        character(len=*), intent(in) :: syntax_path, classifications_path, roots_path
+        character(len=*), intent(in) :: selected_path, all_path
+
+        character(len=10), parameter :: formats(4) = [character(len=10) :: &
+            'ebnf', 'antlr', 'bison', 'treesitter']
+        character(len=11), parameter :: metadata_formats(4) = [character(len=11) :: &
+            'ebnf', 'antlr4', 'bison', 'tree-sitter']
+        character(len=32), parameter :: policies(4) = [character(len=32) :: &
+            'explicit-wrapper', 'explicit-entry-and-EOF', 'parser-accepts-EOF-after-start', &
+            'implicit-full-input']
+        character(len=4096) :: base, command
+        character(len=65536) :: selected_text, all_text
+        integer :: i, exit_status
+
+        base = 'fo exec --no-build sxgrammar '//trim(syntax_path)//' '//trim(classifications_path)//' '// &
+            trim(roots_path)//' -'
+        do i = 1, size(formats)
+            command = trim(base)//' '//trim(formats(i))//' '//trim(selected_path)//' --selected-root start'
+            call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+            call require(exit_status == 0, 'selected profile invocation failed for '//trim(formats(i)))
+            call read_file_text(selected_path, selected_text)
+            call require(index(selected_text, 'profile format='//trim(metadata_formats(i))// &
+                ' entry=standardir_start source-root=start eof='//trim(policies(i))//';') > 0, &
+                'selected profile metadata is incomplete for '//trim(formats(i)))
+            call require(index(selected_text, 'origin=MECHANICAL') > 0 .and. &
+                index(selected_text, 'source-lineage=ROLE-START:') > 0, &
+                'selected profile lost origin or source lineage for '//trim(formats(i)))
+            select case (i)
+            case (1)
+                call require(index(selected_text, 'standardir_start ::= start ;') > 0, &
+                    'EBNF selected profile wrapper is missing')
+            case (2)
+                call require(index(selected_text, 'standardir_start : r_start EOF ;') > 0 .and. &
+                    index(selected_text, 'standardir_start : r_start EOF ;') < &
+                    index(selected_text, new_line('a')//'r_start'//new_line('a')), &
+                    'ANTLR4 selected profile entry is missing or not first')
+            case (3)
+                call require(index(selected_text, '%start standardir_start') > 0 .and. &
+                    index(selected_text, 'standardir_start:') > 0, &
+                    'Bison selected profile wrapper is missing')
+            case (4)
+                call require(index(selected_text, 'standardir_start: $ => $.r_start,') > 0 .and. &
+                    index(selected_text, 'standardir_start: $ => $.r_start,') < &
+                    index(selected_text, 'r_start: $ =>'), &
+                    'tree-sitter selected profile entry is missing or not first')
+            end select
+
+            command = trim(base)//' '//trim(formats(i))//' '//trim(all_path)
+            call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+            call require(exit_status == 0, 'all-root invocation failed for '//trim(formats(i)))
+            call read_file_text(all_path, all_text)
+            call require(index(all_text, 'profile format=') == 0, &
+                'all-root output unexpectedly has selected profile metadata for '//trim(formats(i)))
+            select case (i)
+            case (1)
+                call require(index(all_text, 'standardir_start ::=') == 0 .and. &
+                    index(all_text, 'start ::=') > 0, 'all-root EBNF wrapper behavior changed')
+            case (2)
+                call require(index(all_text, 'standardir_start :') == 0 .and. &
+                    index(all_text, 'r_start') > 0, 'all-root ANTLR4 entry behavior changed')
+            case (3)
+                call require(index(all_text, 'standardir_start:') > 0, &
+                    'all-root Bison start behavior changed')
+            case (4)
+                call require(index(all_text, 'standardir_start: $ =>') == 0 .and. &
+                    index(all_text, 'r_start: $ =>') > 0, &
+                    'all-root tree-sitter entry behavior changed')
+            end select
+        end do
+    end subroutine verify_selected_profiles_cli
 
     subroutine write_sxgrammar_cli_fixture(syntax_path, classifications_path, roots_path)
         character(len=*), intent(in) :: syntax_path, classifications_path, roots_path

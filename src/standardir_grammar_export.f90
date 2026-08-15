@@ -2,8 +2,9 @@ module standardir_grammar_export
     !! Batch export for normalized, source-backed StandardIR grammar rules.
 
     use fortsx, only: sx_atom, sx_list, sx_max_atom_length, sx_node_t
-    use standardir_bison, only: standardir_emit_bison_group
-    use standardir_grammar, only: standardir_emit_antlr_group, standardir_emit_ebnf_group
+    use standardir_bison, only: standardir_emit_bison_group, standardir_emit_bison_start
+    use standardir_grammar, only: standardir_emit_antlr_entry, standardir_emit_antlr_group, &
+        standardir_emit_ebnf_group
     use standardir_grammar_export_support, only: standardir_grammar_apply_role_family, &
         standardir_grammar_validate_export_input
     use standardir_grammar_producer, only: standardir_grammar_choice, &
@@ -26,7 +27,7 @@ module standardir_grammar_export
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
         standardir_max_syntax_groups
     use standardir_lexical, only: standardir_lexical_facts_t
-    use standardir_treesitter, only: standardir_emit_treesitter_group
+    use standardir_treesitter, only: standardir_emit_treesitter_entry, standardir_emit_treesitter_group
     implicit none
     private
 
@@ -126,6 +127,13 @@ contains
             message = 'could not open grammar export scratch output'
             return
         end if
+        if (present(selected_root)) then
+            call emit_selected_profile(scratch, format, selected_root, ok, message)
+            if (.not. ok) then
+                close (scratch)
+                return
+            end if
+        end if
         if (reachability_mode) then
             call emit_reachability_witness(scratch, format, local_witness, ok, message)
             if (.not. ok) then
@@ -156,6 +164,49 @@ contains
         call copy_output(scratch, unit, ok, message)
         close (scratch)
     end subroutine standardir_grammar_export_batch
+
+    subroutine emit_selected_profile(unit, format, source_root, ok, message)
+        integer, intent(in) :: unit, format
+        character(len=*), intent(in) :: source_root
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: names(1)
+
+        ok = .false.
+        message = ''
+        if (len_trim(source_root) == 0) then
+            message = 'selected profile source root is empty'
+            return
+        end if
+        select case (format)
+        case (standardir_grammar_format_ebnf)
+            write (unit, '(a)') '(* profile format=ebnf entry=standardir_start source-root='// &
+                trim(source_root)//' eof=explicit-wrapper; *)'
+            write (unit, '(a)') 'standardir_start ::= '//trim(source_root)//' ;'
+        case (standardir_grammar_format_antlr4)
+            write (unit, '(a)') '// profile format=antlr4 entry=standardir_start source-root='// &
+                trim(source_root)//' eof=explicit-entry-and-EOF;'
+            call standardir_emit_antlr_entry(unit, source_root, ok, message)
+            if (.not. ok) return
+        case (standardir_grammar_format_bison)
+            write (unit, '(a)') '/* profile format=bison entry=standardir_start source-root='// &
+                trim(source_root)//' eof=parser-accepts-EOF-after-start; */'
+            names(1) = trim(source_root)
+            call standardir_emit_bison_start(unit, names, ok, message)
+            if (.not. ok) return
+        case (standardir_grammar_format_tree_sitter)
+            write (unit, '(a)') '// profile format=tree-sitter entry=standardir_start source-root='// &
+                trim(source_root)//' eof=implicit-full-input;'
+            call standardir_emit_treesitter_entry(unit, source_root, ok, message)
+            if (.not. ok) return
+        case default
+            message = 'selected profile format is unsupported'
+            return
+        end select
+        ok = .true.
+        message = ''
+    end subroutine emit_selected_profile
 
     subroutine apply_reachability(normalized, selected_root, roots, pruned, witness, mode, ok, message)
         type(standardir_target_rule_t), allocatable, intent(inout) :: normalized(:)
