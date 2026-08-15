@@ -121,6 +121,11 @@ name = "sxlexicallayout"
 source-dir = "app"
 main = "sxlexicallayout.f90"
 
+[[executable]]
+name = "sxstatementsequence"
+source-dir = "app"
+main = "sxstatementsequence.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -265,6 +270,11 @@ main = "test_standardir_lexical_layout.f90"
 name = "test_standardir_statement_sequence"
 source-dir = "test"
 main = "test_standardir_statement_sequence.f90"
+
+[[test]]
+name = "test_sxstatementsequence_cli"
+source-dir = "test"
+main = "test_sxstatementsequence_cli.f90"
 
 [[test]]
 name = "test_standardir_export"
