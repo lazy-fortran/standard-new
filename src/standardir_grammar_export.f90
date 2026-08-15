@@ -9,7 +9,11 @@ module standardir_grammar_export
         standardir_grammar_repeat, standardir_grammar_rule_t, &
         standardir_grammar_sequence, standardir_grammar_token
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
-        standardir_target_expression_t, standardir_target_provenance_t, standardir_target_rule_t
+        standardir_grammar_factor_role_family, standardir_grammar_validate_role_family_witness, &
+        standardir_target_expression_t, &
+        standardir_target_provenance_t, standardir_target_role_family_config_t, &
+        standardir_target_role_family_factored, standardir_target_role_family_rejected, &
+        standardir_target_role_family_witness_t, standardir_target_rule_t
     use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
         standardir_grammar_validate_reachability, standardir_target_reachability_witness_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
@@ -25,7 +29,13 @@ module standardir_grammar_export
 
     public :: standardir_grammar_export_batch
     public :: standardir_grammar_normalize
+    public :: standardir_grammar_factor_role_family
+    public :: standardir_grammar_validate_role_family_witness
     public :: standardir_target_expression_t
+    public :: standardir_target_role_family_config_t
+    public :: standardir_target_role_family_factored
+    public :: standardir_target_role_family_rejected
+    public :: standardir_target_role_family_witness_t
     public :: standardir_target_rule_t
     public :: standardir_target_reachability_witness_t
     public :: standardir_grammar_select_reachable
@@ -35,7 +45,7 @@ contains
 
 
     subroutine standardir_grammar_export_batch(unit, rules, format, ok, message, selected_root, &
-            roots, reachability_witness)
+            roots, reachability_witness, role_family, role_family_witness)
         integer, intent(in) :: unit, format
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(out) :: ok
@@ -44,20 +54,31 @@ contains
         character(len=*), intent(in), optional :: roots(:)
         type(standardir_target_reachability_witness_t), allocatable, intent(out), optional :: &
             reachability_witness(:)
+        type(standardir_target_role_family_config_t), intent(in), optional :: role_family
+        type(standardir_target_role_family_witness_t), allocatable, intent(out), optional :: &
+            role_family_witness(:)
 
         type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
         type(standardir_target_rule_t), allocatable :: pruned(:)
+        type(standardir_target_rule_t), allocatable :: factored(:)
         type(standardir_target_reachability_witness_t), allocatable :: local_witness(:)
+        type(standardir_target_role_family_witness_t), allocatable :: local_role_witness(:)
         type(sx_node_t), allocatable :: nodes(:), suppressed_nodes(:)
         type(standardir_group_t), allocatable :: groups(:)
         integer :: group_count, i, j, ios, scratch
         logical :: reachability_mode
+        logical :: role_family_mode
+        character(len=128), allocatable :: protected_roots(:)
 
         ok = .false.
         message = ''
         if (present(reachability_witness)) then
             if (allocated(reachability_witness)) deallocate (reachability_witness)
             allocate (reachability_witness(0))
+        end if
+        if (present(role_family_witness)) then
+            if (allocated(role_family_witness)) deallocate (role_family_witness)
+            allocate (role_family_witness(0))
         end if
         if (format < standardir_grammar_format_ebnf .or. &
             format > standardir_grammar_format_tree_sitter) then
@@ -85,6 +106,28 @@ contains
             reachability_mode, ok, message)
         if (.not. ok) return
         if (present(reachability_witness)) reachability_witness = local_witness
+        role_family_mode = present(role_family)
+        if (role_family_mode) then
+            if (reachability_mode) then
+                if (present(selected_root)) then
+                    allocate (protected_roots(1))
+                    protected_roots(1) = trim(selected_root)
+                else
+                    allocate (protected_roots(size(roots)))
+                    protected_roots = roots
+                end if
+                call standardir_grammar_factor_role_family(normalized, role_family, factored, &
+                    local_role_witness, ok, message, protected_lhs=protected_roots)
+            else
+                call standardir_grammar_factor_role_family(normalized, role_family, factored, &
+                    local_role_witness, ok, message)
+            end if
+            if (.not. ok) return
+            call move_alloc(factored, normalized)
+            if (present(role_family_witness)) role_family_witness = local_role_witness
+        else
+            allocate (local_role_witness(0))
+        end if
         allocate (nodes(size(normalized)))
         do i = 1, size(normalized)
             call target_rule_to_syntax(normalized(i), nodes(i), ok, message)
@@ -109,6 +152,15 @@ contains
             if (.not. ok) then
                 close (scratch)
                 return
+            end if
+        end if
+        if (role_family_mode) then
+            if (role_family%enabled) then
+                call emit_role_family_witness(scratch, format, local_role_witness, ok, message)
+                if (.not. ok) then
+                    close (scratch)
+                    return
+                end if
             end if
         end if
         call emit_groups(scratch, nodes, suppressed_nodes, groups, group_count, format, ok, message)
@@ -216,6 +268,51 @@ contains
         ok = .true.
         message = ''
     end subroutine emit_reachability_witness
+
+    subroutine emit_role_family_witness(unit, format, values, ok, message)
+        integer, intent(in) :: unit, format
+        type(standardir_target_role_family_witness_t), intent(in) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+        character(len=4096) :: roles
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            roles = role_text(values(i)%source_roles)
+            select case (format)
+            case (standardir_grammar_format_ebnf)
+                write (unit, '(a)', advance='no') '(* target-role-family'
+            case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                write (unit, '(a)', advance='no') '// target-role-family'
+            case (standardir_grammar_format_bison)
+                write (unit, '(a)', advance='no') '/* target-role-family'
+            case default
+                message = 'role-family witness format is unsupported'
+                return
+            end select
+            call write_witness_field(unit, 'alias', trim(values(i)%alias_role))
+            call write_witness_field(unit, 'representative', trim(values(i)%representative_role))
+            call write_witness_field(unit, 'disposition', role_family_disposition_text(values(i)%disposition))
+            call write_witness_field(unit, 'reason', trim(values(i)%reason))
+            call write_witness_field(unit, 'source-roles', trim(roles))
+            call write_witness_field(unit, 'alias-lineage', trim(provenance_text(values(i)%alias_provenance)))
+            call write_witness_field(unit, 'representative-lineage', &
+                trim(provenance_text(values(i)%representative_provenance)))
+            select case (format)
+            case (standardir_grammar_format_ebnf)
+                write (unit, '(a)') ' *)'
+            case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                write (unit, '(a)')
+            case (standardir_grammar_format_bison)
+                write (unit, '(a)') ' */'
+            end select
+        end do
+        ok = .true.
+        message = ''
+    end subroutine emit_role_family_witness
 
     subroutine write_witness_field(unit, label, value)
         integer, intent(in) :: unit
@@ -524,6 +621,46 @@ contains
         end do
         if (len_trim(text) == 0) text = 'none'
     end function provenance_text
+
+    function role_text(values) result(text)
+        character(len=128), allocatable, intent(in) :: values(:)
+        character(len=4096) :: text
+        integer :: i, length, position
+
+        text = ''
+        if (.not. allocated(values)) then
+            text = 'none'
+            return
+        end if
+        position = 1
+        do i = 1, size(values)
+            if (i > 1) then
+                text(position:position) = ','
+                position = position + 1
+            end if
+            length = len_trim(values(i))
+            if (length > 0) then
+                text(position:position + length - 1) = trim(values(i))
+                position = position + length
+            end if
+        end do
+        if (len_trim(text) == 0) text = 'none'
+    end function role_text
+
+    function role_family_disposition_text(value) result(text)
+        integer, intent(in) :: value
+        character(len=32) :: text
+
+        select case (value)
+        case (standardir_target_role_family_factored)
+            text = 'factored'
+        case (standardir_target_role_family_rejected)
+            text = 'rejected'
+        case default
+            text = 'invalid'
+        end select
+        text = trim(text)
+    end function role_family_disposition_text
 
     function integer64_text(value) result(text)
         use, intrinsic :: iso_fortran_env, only: int64

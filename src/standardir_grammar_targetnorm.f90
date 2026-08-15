@@ -12,7 +12,11 @@ module standardir_grammar_targetnorm
     private
 
     public :: standardir_grammar_normalize
+    public :: standardir_grammar_factor_role_family
+    public :: standardir_grammar_validate_role_family_witness
     public :: standardir_target_expression_t
+    public :: standardir_target_role_family_config_t
+    public :: standardir_target_role_family_witness_t
     public :: standardir_target_rule_t
 
     type, public :: standardir_target_expression_t
@@ -35,9 +39,28 @@ module standardir_grammar_targetnorm
         type(standardir_target_expression_t) :: expression
         type(standardir_source_ref_t) :: source
         type(standardir_target_provenance_t), allocatable :: provenance(:)
+        character(len=128), allocatable :: source_roles(:)
         integer :: origin = 0
         integer :: resolution = 0
     end type standardir_target_rule_t
+
+    type, public :: standardir_target_role_family_config_t
+        logical :: enabled = .false.
+        character(len=128) :: representative = ''
+    end type standardir_target_role_family_config_t
+
+    integer, parameter, public :: standardir_target_role_family_factored = 1
+    integer, parameter, public :: standardir_target_role_family_rejected = 2
+
+    type, public :: standardir_target_role_family_witness_t
+        character(len=128) :: alias_role = ''
+        character(len=128) :: representative_role = ''
+        integer :: disposition = 0
+        character(len=256) :: reason = ''
+        character(len=128), allocatable :: source_roles(:)
+        type(standardir_target_provenance_t), allocatable :: alias_provenance(:)
+        type(standardir_target_provenance_t), allocatable :: representative_provenance(:)
+    end type standardir_target_role_family_witness_t
 
 contains
 
@@ -94,6 +117,515 @@ contains
         message = ''
     end subroutine standardir_grammar_normalize
 
+    subroutine standardir_grammar_factor_role_family(values, config, factored, witness, ok, message, &
+            protected_lhs)
+        !! Factor one explicitly selected structural role family.
+        !!
+        !! The input is already normalized and, when requested by the caller,
+        !! reachability-selected.  A removable alias has one whole production
+        !! alternative whose complete expression is one reference.  The
+        !! representative is retained; aliases and their lineage are carried
+        !! by both the retained role set and the typed witness.
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        type(standardir_target_role_family_config_t), intent(in) :: config
+        type(standardir_target_rule_t), allocatable, intent(out) :: factored(:)
+        type(standardir_target_role_family_witness_t), allocatable, intent(out) :: witness(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=*), intent(in), optional :: protected_lhs(:)
+
+        character(len=128), allocatable :: family_roles(:), family_names(:)
+        type(standardir_target_provenance_t), allocatable :: family_provenance(:)
+        type(standardir_target_provenance_t), allocatable :: alias_provenance(:)
+        character(len=128), allocatable :: merged_roles(:)
+        type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
+        type(standardir_target_rule_t) :: candidate
+        logical, allocatable :: removed(:)
+        logical :: safe, cycle, protected
+        integer :: i, count, representative_index
+        character(len=128) :: final_target
+
+        if (allocated(factored)) deallocate (factored)
+        if (allocated(witness)) deallocate (witness)
+        allocate (factored(0), witness(0))
+        ok = .false.
+        message = ''
+        if (size(values) < 1) then
+            message = 'role-family factoring input is empty'
+            return
+        end if
+        if (.not. config%enabled) then
+            factored = values
+            ok = .true.
+            return
+        end if
+        if (len_trim(config%representative) == 0) then
+            message = 'role-family factoring representative is empty'
+            return
+        end if
+
+        representative_index = find_first_lhs(values, trim(config%representative))
+        if (representative_index == 0) then
+            message = 'role-family factoring representative is not retained: '// &
+                trim(config%representative)
+            return
+        end if
+        count = count_lhs(values, trim(config%representative))
+        if (count == 1) then
+            if (is_whole_unit_alias(values(representative_index))) then
+                message = 'role-family factoring representative is itself an alias'
+                return
+            end if
+        end if
+
+        allocate (removed(size(values)))
+        removed = .false.
+        allocate (family_roles(0), family_provenance(0), family_names(0))
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) == trim(config%representative)) then
+                call merge_roles(family_roles, values(i)%source_roles, merged_roles)
+                call move_alloc(merged_roles, family_roles)
+                call merge_provenance(family_provenance, values(i)%provenance, merged_provenance)
+                call move_alloc(merged_provenance, family_provenance)
+            end if
+        end do
+
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) == trim(config%representative)) cycle
+            if (find_name(family_names, trim(values(i)%lhs)) > 0) cycle
+            call append_name(family_names, trim(values(i)%lhs))
+            count = count_lhs(values, trim(values(i)%lhs))
+            if (count == 1) then
+                call resolve_alias_target(values, trim(values(i)%lhs), trim(config%representative), &
+                    final_target, safe, cycle)
+                if (safe .and. trim(final_target) == trim(config%representative)) then
+                    protected = is_protected_lhs(trim(values(i)%lhs), protected_lhs)
+                    if (protected) then
+                        call add_role_family_witness(witness, values(i), family_roles, &
+                            family_provenance, trim(config%representative), &
+                            standardir_target_role_family_rejected, 'protected-reachability-root')
+                    else
+                        removed(i) = .true.
+                        call merge_roles(family_roles, values(i)%source_roles, merged_roles)
+                        call move_alloc(merged_roles, family_roles)
+                        call merge_provenance(family_provenance, values(i)%provenance, &
+                            merged_provenance)
+                        call move_alloc(merged_provenance, family_provenance)
+                    end if
+                else if (cycle) then
+                    call add_role_family_witness(witness, values(i), family_roles, family_provenance, &
+                        trim(config%representative), standardir_target_role_family_rejected, &
+                        'cyclic-unit-alias')
+                end if
+            else if (has_multi_alternative_alias(values, trim(values(i)%lhs), &
+                    trim(config%representative))) then
+                call add_role_family_witness(witness, values(i), family_roles, family_provenance, &
+                    trim(config%representative), standardir_target_role_family_rejected, &
+                    'multi-alternative-alias')
+            end if
+        end do
+
+        if (.not. any(removed)) then
+            factored = values
+            ok = .true.
+            return
+        end if
+
+        allocate (alias_provenance(0))
+        do i = 1, size(values)
+            if (removed(i)) then
+                call merge_provenance(alias_provenance, values(i)%provenance, merged_provenance)
+                call move_alloc(merged_provenance, alias_provenance)
+            end if
+        end do
+        do i = 1, size(values)
+            if (removed(i)) cycle
+            candidate = values(i)
+            call replace_aliases(candidate%expression, values, removed, config%representative)
+            if (trim(candidate%lhs) == trim(config%representative)) then
+                call merge_roles(candidate%source_roles, family_roles, merged_roles)
+                call move_alloc(merged_roles, candidate%source_roles)
+                call merge_provenance(candidate%provenance, alias_provenance, merged_provenance)
+                call move_alloc(merged_provenance, candidate%provenance)
+            end if
+            call append_target(factored, candidate)
+        end do
+
+        do i = 1, size(witness)
+            witness(i)%source_roles = family_roles
+            witness(i)%representative_provenance = family_provenance
+        end do
+        do i = 1, size(values)
+            if (.not. removed(i)) cycle
+            call add_role_family_witness(witness, values(i), family_roles, family_provenance, &
+                trim(config%representative), standardir_target_role_family_factored, 'whole-unit-alias')
+        end do
+        do i = 1, size(witness)
+            witness(i)%source_roles = family_roles
+            witness(i)%representative_provenance = family_provenance
+        end do
+        call sort_role_family_witness(witness)
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_factor_role_family
+
+    subroutine standardir_grammar_validate_role_family_witness(before, after, witness, ok, message)
+        type(standardir_target_rule_t), intent(in) :: before(:), after(:)
+        type(standardir_target_role_family_witness_t), intent(in) :: witness(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, j
+        logical :: mapped, retained
+
+        ok = .false.
+        message = ''
+        do i = 1, size(witness)
+            if (witness(i)%disposition /= standardir_target_role_family_factored .and. &
+                witness(i)%disposition /= standardir_target_role_family_rejected) then
+                message = 'role-family witness has an invalid disposition'
+                return
+            end if
+            if (len_trim(witness(i)%alias_role) == 0) then
+                message = 'role-family witness has an incomplete role mapping'
+                return
+            end if
+            if (len_trim(witness(i)%representative_role) == 0) then
+                message = 'role-family witness has an incomplete role mapping'
+                return
+            end if
+            j = find_first_lhs(before, trim(witness(i)%alias_role))
+            if (j == 0) then
+                message = 'role-family witness names an absent source role'
+                return
+            end if
+            if (.not. allocated(witness(i)%source_roles)) then
+                message = 'role-family witness lost its source-role set'
+                return
+            end if
+            if (size(witness(i)%source_roles) < 1) then
+                message = 'role-family witness lost its source-role set'
+                return
+            end if
+            if (.not. allocated(witness(i)%alias_provenance)) then
+                message = 'role-family witness lost alias provenance'
+                return
+            end if
+            if (size(witness(i)%alias_provenance) < 1) then
+                message = 'role-family witness lost alias provenance'
+                return
+            end if
+            if (.not. allocated(witness(i)%representative_provenance)) then
+                message = 'role-family witness lost representative provenance'
+                return
+            end if
+            if (size(witness(i)%representative_provenance) < 1) then
+                message = 'role-family witness lost representative provenance'
+                return
+            end if
+            if (witness(i)%disposition == standardir_target_role_family_factored) then
+                if (find_first_lhs(after, trim(witness(i)%alias_role)) > 0) then
+                    message = 'factored alias remains in target output'
+                    return
+                end if
+                if (find_first_lhs(after, trim(witness(i)%representative_role)) == 0) then
+                    message = 'factored representative is absent from target output'
+                    return
+                end if
+            end if
+        end do
+        do i = 1, size(before)
+            mapped = .false.
+            retained = find_first_lhs(after, trim(before(i)%lhs)) > 0
+            if (retained) mapped = roles_contained(after, trim(before(i)%lhs), before(i)%source_roles)
+            if (.not. mapped) then
+                do j = 1, size(witness)
+                    if (trim(witness(j)%alias_role) == trim(before(i)%lhs)) then
+                        mapped = provenance_contained(witness(j)%alias_provenance, before(i)%provenance)
+                        exit
+                    end if
+                end do
+            end if
+            if (.not. mapped) then
+                message = 'role-family witness does not cover source role '//trim(before(i)%lhs)
+                return
+            end if
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_validate_role_family_witness
+
+    logical function is_whole_unit_alias(value)
+        type(standardir_target_rule_t), intent(in) :: value
+
+        is_whole_unit_alias = .false.
+        if (value%expression%kind /= standardir_grammar_reference) return
+        if (len_trim(value%expression%name) == 0) return
+        if (allocated(value%expression%children)) then
+            if (size(value%expression%children) > 0) return
+        end if
+        is_whole_unit_alias = .true.
+    end function is_whole_unit_alias
+
+    integer function find_first_lhs(values, lhs)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs
+        integer :: i
+
+        find_first_lhs = 0
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) == trim(lhs)) then
+                find_first_lhs = i
+                return
+            end if
+        end do
+    end function find_first_lhs
+
+    integer function count_lhs(values, lhs)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs
+        integer :: i
+
+        count_lhs = 0
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) == trim(lhs)) count_lhs = count_lhs + 1
+        end do
+    end function count_lhs
+
+    integer function find_name(values, value)
+        character(len=128), intent(in) :: values(:)
+        character(len=*), intent(in) :: value
+        integer :: i
+
+        find_name = 0
+        do i = 1, size(values)
+            if (trim(values(i)) == trim(value)) then
+                find_name = i
+                return
+            end if
+        end do
+    end function find_name
+
+    subroutine resolve_alias_target(values, start, representative, final_target, safe, cycle)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: start, representative
+        character(len=128), intent(out) :: final_target
+        logical, intent(out) :: safe, cycle
+
+        logical, allocatable :: visited(:)
+        character(len=128) :: current, next
+        integer :: index
+
+        allocate (visited(size(values)))
+        visited = .false.
+        current = trim(start)
+        final_target = ''
+        safe = .false.
+        cycle = .false.
+        do
+            if (trim(current) == trim(representative)) then
+                final_target = current
+                safe = .true.
+                return
+            end if
+            index = find_first_lhs(values, current)
+            if (index == 0) return
+            if (count_lhs(values, current) /= 1) then
+                final_target = current
+                safe = .true.
+                return
+            end if
+            if (.not. is_whole_unit_alias(values(index))) return
+            if (visited(index)) then
+                cycle = .true.
+                return
+            end if
+            visited(index) = .true.
+            next = trim(values(index)%expression%name)
+            if (next == trim(representative)) then
+                final_target = next
+                safe = .true.
+                return
+            end if
+            current = next
+        end do
+    end subroutine resolve_alias_target
+
+    logical function has_multi_alternative_alias(values, lhs, representative)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs, representative
+        character(len=128) :: final_target
+        logical :: safe, cycle
+        integer :: i
+
+        has_multi_alternative_alias = .false.
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            if (.not. is_whole_unit_alias(values(i))) cycle
+            call resolve_alias_target(values, trim(values(i)%expression%name), trim(representative), &
+                final_target, safe, cycle)
+            if (safe .and. trim(final_target) == trim(representative)) then
+                has_multi_alternative_alias = .true.
+                return
+            end if
+        end do
+    end function has_multi_alternative_alias
+
+    logical function is_protected_lhs(lhs, protected_lhs)
+        character(len=*), intent(in) :: lhs
+        character(len=*), intent(in), optional :: protected_lhs(:)
+        integer :: i
+
+        is_protected_lhs = .false.
+        if (.not. present(protected_lhs)) return
+        do i = 1, size(protected_lhs)
+            if (trim(lhs) == trim(protected_lhs(i))) then
+                is_protected_lhs = .true.
+                return
+            end if
+        end do
+    end function is_protected_lhs
+
+    recursive subroutine replace_aliases(expression, values, removed, representative)
+        type(standardir_target_expression_t), intent(inout) :: expression
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        logical, intent(in) :: removed(:)
+        character(len=*), intent(in) :: representative
+        integer :: i, index
+
+        if (expression%kind == standardir_grammar_reference) then
+            index = find_first_lhs(values, trim(expression%name))
+            if (index > 0) then
+                if (removed(index)) expression%name = trim(representative)
+            end if
+            return
+        end if
+        if (.not. allocated(expression%children)) return
+        do i = 1, size(expression%children)
+            call replace_aliases(expression%children(i), values, removed, representative)
+        end do
+    end subroutine replace_aliases
+
+    subroutine add_role_family_witness(values, alias, family_roles, family_provenance, representative, &
+            disposition, reason)
+        type(standardir_target_role_family_witness_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_rule_t), intent(in) :: alias
+        character(len=128), intent(in) :: family_roles(:)
+        type(standardir_target_provenance_t), intent(in) :: family_provenance(:)
+        character(len=*), intent(in) :: representative, reason
+        integer, intent(in) :: disposition
+        type(standardir_target_role_family_witness_t) :: item
+
+        item = standardir_target_role_family_witness_t()
+        item%alias_role = trim(alias%lhs)
+        item%representative_role = trim(representative)
+        item%disposition = disposition
+        item%reason = trim(reason)
+        item%source_roles = family_roles
+        item%representative_provenance = family_provenance
+        if (allocated(alias%provenance)) item%alias_provenance = alias%provenance
+        call append_role_family_witness(values, item)
+    end subroutine add_role_family_witness
+
+    subroutine append_role_family_witness(values, value)
+        type(standardir_target_role_family_witness_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_role_family_witness_t), intent(in) :: value
+        type(standardir_target_role_family_witness_t), allocatable :: expanded(:)
+        integer :: n
+
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_role_family_witness
+
+    subroutine sort_role_family_witness(values)
+        type(standardir_target_role_family_witness_t), intent(inout) :: values(:)
+        type(standardir_target_role_family_witness_t) :: item
+        integer :: i, j
+
+        do i = 2, size(values)
+            item = values(i)
+            j = i - 1
+            do while (j > 0)
+                if (trim(values(j)%alias_role) <= trim(item%alias_role)) exit
+                values(j + 1) = values(j)
+                j = j - 1
+            end do
+            values(j + 1) = item
+        end do
+    end subroutine sort_role_family_witness
+
+    subroutine merge_roles(left, right, merged)
+        character(len=128), allocatable, intent(in) :: left(:), right(:)
+        character(len=128), allocatable, intent(out) :: merged(:)
+        integer :: i
+
+        allocate (merged(0))
+        if (allocated(left)) then
+            do i = 1, size(left)
+                call append_unique_role(merged, left(i))
+            end do
+        end if
+        if (allocated(right)) then
+            do i = 1, size(right)
+                call append_unique_role(merged, right(i))
+            end do
+        end if
+    end subroutine merge_roles
+
+    subroutine append_unique_role(values, value)
+        character(len=128), allocatable, intent(inout) :: values(:)
+        character(len=*), intent(in) :: value
+        character(len=128), allocatable :: expanded(:)
+        integer :: i, n
+
+        if (len_trim(value) == 0) return
+        do i = 1, size(values)
+            if (trim(values(i)) == trim(value)) return
+        end do
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = trim(value)
+        call move_alloc(expanded, values)
+    end subroutine append_unique_role
+
+    logical function roles_contained(values, lhs, expected)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs
+        character(len=128), allocatable, intent(in) :: expected(:)
+        integer :: i, j
+
+        roles_contained = .false.
+        if (.not. allocated(expected)) return
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            if (.not. allocated(values(i)%source_roles)) return
+            do j = 1, size(expected)
+                if (find_name(values(i)%source_roles, trim(expected(j))) == 0) return
+            end do
+            roles_contained = .true.
+            return
+        end do
+    end function roles_contained
+
+    logical function provenance_contained(values, expected)
+        type(standardir_target_provenance_t), allocatable, intent(in) :: values(:), expected(:)
+        integer :: i, j
+
+        provenance_contained = .false.
+        if (.not. allocated(values) .or. .not. allocated(expected)) return
+        do i = 1, size(expected)
+            do j = 1, size(values)
+                if (same_provenance(values(j), expected(i))) exit
+            end do
+            if (j > size(values)) return
+        end do
+        provenance_contained = .true.
+    end function provenance_contained
+
     subroutine rule_to_target(rule, value, ok, message)
         type(standardir_grammar_rule_t), intent(in) :: rule
         type(standardir_target_rule_t), intent(out) :: value
@@ -114,6 +646,8 @@ contains
         allocate (value%provenance(1))
         value%provenance(1)%source = rule%source
         value%provenance(1)%alternative = rule%alternative
+        allocate (value%source_roles(1))
+        value%source_roles(1) = trim(rule%lhs)
         value%origin = rule%origin
         value%resolution = rule%resolution
         call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
@@ -435,6 +969,7 @@ contains
 
         type(standardir_target_rule_t), allocatable :: unique(:)
         type(standardir_target_provenance_t), allocatable :: merged(:)
+        character(len=128), allocatable :: merged_roles(:)
         integer :: i, j
         logical :: duplicate
 
@@ -447,6 +982,8 @@ contains
                     duplicate = .true.
                     call merge_provenance(unique(j)%provenance, values(i)%provenance, merged)
                     call move_alloc(merged, unique(j)%provenance)
+                    call merge_roles(unique(j)%source_roles, values(i)%source_roles, merged_roles)
+                    call move_alloc(merged_roles, unique(j)%source_roles)
                     exit
                 end if
             end do
@@ -620,6 +1157,8 @@ contains
                 candidate%source = source(j)%source
                 call merge_provenance(source(j)%provenance, values(i)%provenance, &
                     candidate%provenance)
+                call merge_roles(source(j)%source_roles, values(i)%source_roles, &
+                    candidate%source_roles)
                 candidate%alternative = source(j)%alternative
                 candidate%origin = source(j)%origin
                 candidate%resolution = source(j)%resolution

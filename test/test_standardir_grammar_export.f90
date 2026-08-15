@@ -17,8 +17,15 @@ program test_standardir_grammar_export
     type(standardir_target_rule_t), allocatable :: retained(:), pruned(:)
     type(standardir_target_reachability_witness_t), allocatable :: reachability_witness(:)
     type(standardir_grammar_rule_t) :: reachability(4)
+    type(standardir_grammar_rule_t) :: role_fixture(7), no_alias(2)
+    type(standardir_target_rule_t), allocatable :: role_normalized(:), role_retained(:)
+    type(standardir_target_rule_t), allocatable :: role_pruned(:), role_factored(:)
+    type(standardir_target_role_family_witness_t), allocatable :: role_witness(:), broken_witness(:)
+    type(standardir_target_reachability_witness_t), allocatable :: role_reachability(:)
+    type(standardir_target_role_family_config_t) :: role_config
     character(len=128) :: selected_roots(1)
     character(len=128) :: all_roots(2)
+    character(len=128) :: role_roots(1), expected_roles(3)
     integer :: format, unit, ios
     logical :: ok
     character(len=256) :: message, line
@@ -180,6 +187,59 @@ program test_standardir_grammar_export
     all_roots = [character(len=128) :: 'root', 'orphan']
     call verify_all_root_output(reachability, all_roots)
 
+    call make_role_fixture(role_fixture)
+    call standardir_grammar_normalize(role_fixture, role_normalized, role_pruned, ok, message)
+    call require(ok, 'role-family fixture did not normalize: '//trim(message))
+    call require(size(role_pruned) == 0, 'role-family fixture produced suppressed rules')
+    role_roots(1) = 'start'
+    call standardir_grammar_select_reachable(role_normalized, role_roots, role_retained, role_pruned, &
+        role_reachability, ok, message)
+    call require(ok, 'role-family fixture reachability failed: '//trim(message))
+    call require(size(role_retained) == 7 .and. size(role_pruned) == 0, &
+        'role-family fixture did not pass reachability')
+    role_config%enabled = .true.
+    role_config%representative = 'rep'
+    call standardir_grammar_factor_role_family(role_retained, role_config, role_factored, role_witness, &
+        ok, message, protected_lhs=role_roots)
+    call require(ok, 'role-family factoring failed: '//trim(message))
+    call require(size(role_factored) == 5 .and. size(role_witness) == 3, &
+        'role-family fixture changed by an unexpected amount')
+    call require(trim(role_factored(1)%lhs) == 'start' .and. &
+        trim(role_factored(1)%expression%children(1)%name) == 'rep' .and. &
+        trim(role_factored(1)%expression%children(2)%name) == 'rep' .and. &
+        trim(role_factored(1)%expression%children(3)%name) == 'unsafe', &
+        'role-family references were not replaced by the independent fixture expectation')
+    expected_roles = [character(len=128) :: 'rep', 'alias_a', 'alias_b']
+    call require(trim(role_factored(2)%lhs) == 'rep', 'representative output is not deterministic')
+    call require(same_roles(role_factored(2)%source_roles, expected_roles), &
+        'retained representative lost source roles')
+    call require(size(role_factored(2)%provenance) == 3, 'retained representative lost lineage')
+    call require(trim(role_factored(3)%lhs) == 'rep', 'representative alternatives are not retained')
+    call require(trim(role_witness(1)%alias_role) == 'alias_a' .and. &
+        trim(role_witness(2)%alias_role) == 'alias_b' .and. &
+        trim(role_witness(3)%alias_role) == 'unsafe' .and. &
+        role_witness(1)%disposition == standardir_target_role_family_factored .and. &
+        role_witness(2)%disposition == standardir_target_role_family_factored .and. &
+        role_witness(3)%disposition == standardir_target_role_family_rejected .and. &
+        trim(role_witness(3)%reason) == 'multi-alternative-alias', &
+        'role-family witness did not deterministically reject the multi-alternative alias')
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, role_witness, ok, message)
+    call require(ok, 'complete role-family witness failed validation: '//trim(message))
+    broken_witness = role_witness
+    deallocate (broken_witness(1)%alias_provenance)
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'lost role mapping negative control was accepted')
+
+    call verify_role_family_output(role_fixture, role_config)
+
+    call make_no_alias_fixture(no_alias)
+    call standardir_grammar_normalize(no_alias, role_normalized, role_pruned, ok, message)
+    call require(ok, 'no-alias fixture did not normalize: '//trim(message))
+    call standardir_grammar_factor_role_family(role_normalized, role_config, role_factored, role_witness, &
+        ok, message)
+    call require(ok .and. size(role_factored) == size(role_normalized) .and. size(role_witness) == 0, &
+        'no-safe-family path was not unchanged')
+
     print '(a)', 'StandardIR grammar export tests passed'
 
 contains
@@ -205,6 +265,28 @@ contains
         call make_sequence_rule(values(4), 'REACH-DEAD', 1, 'dead', 'missing', 'Q', 'DOC-REACH', '4', 4, &
             'HASH-DEAD')
     end subroutine make_reachability
+
+    subroutine make_role_fixture(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_three_reference_rule(values(1), 'ROLE-START', 1, 'start', 'alias_a', 'alias_b', 'unsafe', &
+            'DOC-ROLE', '1', 1, 'HASH-START')
+        call make_unit_alias_rule(values(2), 'ROLE-A', 1, 'alias_a', 'rep', 'DOC-ROLE', '2', 2, 'HASH-A')
+        call make_unit_alias_rule(values(3), 'ROLE-B', 1, 'alias_b', 'rep', 'DOC-ROLE', '3', 3, 'HASH-B')
+        call make_simple(values(4), 'ROLE-REP-X', 1, 'rep', 'X', 'DOC-ROLE', '4', 4, 'HASH-REP-X')
+        call make_simple(values(5), 'ROLE-REP-Y', 2, 'rep', 'Y', 'DOC-ROLE', '5', 5, 'HASH-REP-Y')
+        call make_unit_alias_rule(values(6), 'ROLE-UNSAFE-ALIAS', 1, 'unsafe', 'rep', 'DOC-ROLE', '6', 6, &
+            'HASH-UNSAFE-1')
+        call make_simple(values(7), 'ROLE-UNSAFE-TOKEN', 2, 'unsafe', 'Z', 'DOC-ROLE', '7', 7, &
+            'HASH-UNSAFE-2')
+    end subroutine make_role_fixture
+
+    subroutine make_no_alias_fixture(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'NO-ALIAS-ROOT', 1, 'root', 'X', 'DOC-NO-ALIAS', '1', 1, 'HASH-NO-ROOT')
+        call make_simple(values(2), 'NO-ALIAS-REP', 1, 'rep', 'Y', 'DOC-NO-ALIAS', '2', 2, 'HASH-NO-REP')
+    end subroutine make_no_alias_fixture
 
     subroutine make_duplicate(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -366,6 +448,42 @@ contains
         call set_source(value, document, clause, id, page, hash)
     end subroutine make_simple
 
+    subroutine make_unit_alias_rule(value, id, alternative, lhs, reference, document, clause, page, hash)
+        type(standardir_grammar_rule_t), intent(out) :: value
+        character(len=*), intent(in) :: id, lhs, reference, document, clause, hash
+        integer, intent(in) :: alternative, page
+
+        value = standardir_grammar_rule_t()
+        value%id = id
+        value%alternative = alternative
+        value%lhs = lhs
+        value%root = 1
+        allocate (value%nodes%values(1))
+        value%nodes%values = standardir_grammar_node_t()
+        call set_node(value%nodes%values(1), standardir_grammar_reference, reference, 1, .false., 0, 0)
+        call set_source(value, document, clause, id, page, hash)
+    end subroutine make_unit_alias_rule
+
+    subroutine make_three_reference_rule(value, id, alternative, lhs, first, second, third, document, clause, &
+            page, hash)
+        type(standardir_grammar_rule_t), intent(out) :: value
+        character(len=*), intent(in) :: id, lhs, first, second, third, document, clause, hash
+        integer, intent(in) :: alternative, page
+
+        value = standardir_grammar_rule_t()
+        value%id = id
+        value%alternative = alternative
+        value%lhs = lhs
+        value%root = 1
+        allocate (value%nodes%values(4))
+        value%nodes%values = standardir_grammar_node_t()
+        call set_node(value%nodes%values(1), standardir_grammar_sequence, '-', 1, .false., 2, 3)
+        call set_node(value%nodes%values(2), standardir_grammar_reference, first, 1, .false., 0, 0)
+        call set_node(value%nodes%values(3), standardir_grammar_reference, second, 1, .false., 0, 0)
+        call set_node(value%nodes%values(4), standardir_grammar_reference, third, 1, .false., 0, 0)
+        call set_source(value, document, clause, id, page, hash)
+    end subroutine make_three_reference_rule
+
     subroutine set_node(node, kind, name, minimum, unbounded, first_child, child_count)
         type(standardir_grammar_node_t), intent(out) :: node
         character(len=*), intent(in) :: name
@@ -431,6 +549,20 @@ contains
         end do
     end function no_left_corner
 
+    logical function same_roles(actual, expected)
+        character(len=128), allocatable, intent(in) :: actual(:)
+        character(len=128), intent(in) :: expected(:)
+        integer :: i
+
+        same_roles = .false.
+        if (.not. allocated(actual)) return
+        if (size(actual) /= size(expected)) return
+        do i = 1, size(expected)
+            if (trim(actual(i)) /= trim(expected(i))) return
+        end do
+        same_roles = .true.
+    end function same_roles
+
     subroutine verify_transform_output(values, format, marker)
         type(standardir_grammar_rule_t), intent(in) :: values(:)
         integer, intent(in) :: format
@@ -495,6 +627,33 @@ contains
             'selected export omitted-rule witness is not source-backed')
         close (unit)
     end subroutine verify_reachability_output
+
+    subroutine verify_role_family_output(values, config)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        type(standardir_target_role_family_config_t), intent(in) :: config
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+        type(standardir_target_role_family_witness_t), allocatable :: witness(:)
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open role-family scratch output')
+        call standardir_grammar_export_batch(unit, values, standardir_grammar_format_ebnf, local_ok, &
+            local_message, selected_root='start', role_family=config, role_family_witness=witness)
+        call require(local_ok, trim(local_message))
+        call require(size(witness) == 3, 'role-family export witness count is incorrect')
+        call read_text(unit, text)
+        call require(index(text, 'start ::= ') > 0 .and. index(text, 'rep ::= ') > 0 .and. &
+            index(text, 'alias_a ::= ') == 0 .and. index(text, 'alias_b ::= ') == 0, &
+            'role-family export did not remove only the safe aliases')
+        call require(index(text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0 .and. &
+            index(text, 'target-role-family alias=unsafe representative=rep disposition=rejected') > 0 .and. &
+            index(text, 'source-roles=rep,alias_a,alias_b') > 0 .and. &
+            index(text, 'alias-lineage=ROLE-A:1@') > 0, &
+            'role-family export did not emit the machine-readable mapping witness')
+        close (unit)
+    end subroutine verify_role_family_output
 
     subroutine verify_all_root_output(values, roots)
         type(standardir_grammar_rule_t), intent(in) :: values(:)
