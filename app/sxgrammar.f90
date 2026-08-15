@@ -3,7 +3,10 @@ program sxgrammar
 
     use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse
     use standardir_bison, only: standardir_emit_bison_start
-    use standardir_grammar_closure, only: standardir_grammar_close_sx
+    use standardir_grammar_closure, only: standardir_grammar_close_selected_sx, &
+        standardir_grammar_close_sx, standardir_grammar_disposition_omitted_helper, &
+        standardir_grammar_disposition_omitted_root, standardir_grammar_disposition_selected, &
+        standardir_grammar_disposition_t
     use standardir_grammar_export, only: standardir_grammar_export_batch, &
         standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
         standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
@@ -20,6 +23,7 @@ program sxgrammar
 
     character(len=4096) :: syntax_path, classifications_path, roots_path, lexical_path
     character(len=4096) :: format_text, output_path, message, line
+    character(len=128) :: selected_root
     type(sx_node_t), allocatable :: nodes(:)
     type(closure_classification_t), allocatable :: classifications(:)
     character(len=128), allocatable :: roots(:)
@@ -29,16 +33,25 @@ program sxgrammar
     character(len=256), allocatable :: start_names(:)
     character(len=128), allocatable :: semantic_skipped_names(:)
     character(len=512), allocatable :: semantic_skipped_details(:)
+    type(standardir_grammar_disposition_t), allocatable :: dispositions(:)
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
-    logical :: ok
+    logical :: ok, selected_mode
 
     argc = command_argument_count()
-    if (argc /= 6) then
+    selected_mode = .false.
+    selected_root = ''
+    if (argc == 8) then
+        call get_command_argument(7, line)
+        if (trim(line) /= '--selected-root') call fail('expected --selected-root')
+        call get_command_argument(8, selected_root)
+        if (len_trim(selected_root) == 0) call fail('selected root is empty')
+        selected_mode = .true.
+    else if (argc /= 6) then
         call get_command_argument(0, syntax_path)
         print '(a)', 'usage: '//trim(syntax_path)// &
             ' <source.sx> <classifications.sx> <roots.sx> <lexical.sx|-> '// &
-            '<ebnf|antlr|bison|treesitter> <output>'
+            '<ebnf|antlr|bison|treesitter> <output> [--selected-root <root>]'
         stop 2
     end if
     call get_command_argument(1, syntax_path)
@@ -60,21 +73,32 @@ program sxgrammar
     call read_lexical_file(lexical_path, lexical, ok, message)
     if (.not. ok) call fail(trim(message))
 
-    call standardir_grammar_close_sx(nodes, records, classifications, classification_count, &
-        roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message, &
-        semantic_skipped_names, semantic_skipped_details)
+    if (selected_mode) then
+        call standardir_grammar_close_selected_sx(nodes, records, classifications, classification_count, &
+            roots, root_count, selected_root, lexical, rules, semantic_skipped, lexical_closed, &
+            dispositions, ok, message, semantic_skipped_names, semantic_skipped_details)
+    else
+        call standardir_grammar_close_sx(nodes, records, classifications, classification_count, &
+            roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message, &
+            semantic_skipped_names, semantic_skipped_details)
+    end if
     if (.not. ok) call fail(trim(message))
     if (.not. allocated(rules)) call fail('closure returned no grammar rule array')
     if (size(rules) < 1) call fail('closure returned no exportable grammar rules')
-    call collect_start_names(rules, roots, root_count, start_names)
-    call validate_root_dispositions(roots, root_count, start_names, semantic_skipped_names, &
-        ok, message)
-    if (.not. ok) call fail(trim(message))
+    if (selected_mode) then
+        allocate (start_names(1))
+        start_names(1) = trim(selected_root)
+    else
+        call collect_start_names(rules, roots, root_count, start_names)
+        call validate_root_dispositions(roots, root_count, start_names, semantic_skipped_names, &
+            ok, message)
+        if (.not. ok) call fail(trim(message))
+    end if
 
     open (newunit=output_unit, file=trim(output_path), status='replace', action='write', &
         iostat=ios)
     if (ios /= 0) call fail('cannot open grammar output')
-    call emit_header(output_unit, format)
+    call emit_header(output_unit, format, selected_root, selected_mode)
     if (.not. ok) call fail_output(output_unit, message)
     if (format == standardir_grammar_format_bison) then
         call standardir_lexical_emit_bison(output_unit, lexical, ok, message)
@@ -108,6 +132,7 @@ program sxgrammar
         semantic_skipped, ' semantic-only records; closed ', lexical_closed, ' lexical facts'
     call print_skipped_names(semantic_skipped_names)
     call print_skipped_details(semantic_skipped_details)
+    if (selected_mode) call print_dispositions(dispositions)
 
 contains
 
@@ -384,24 +409,48 @@ contains
         close (unit)
     end subroutine read_lexical_file
 
-    subroutine emit_header(unit, format)
+    subroutine emit_header(unit, format, selected_root, selected_mode)
         integer, intent(in) :: unit, format
+        character(len=*), intent(in) :: selected_root
+        logical, intent(in) :: selected_mode
 
         select case (format)
         case (standardir_grammar_format_ebnf)
             write (unit, '(a)') '(* origin=MECHANICAL; generated from closed source-backed StandardIR *)'
+            if (selected_mode) write (unit, '(a)') '(* target=selected-root root='//trim(selected_root)//' *)'
         case (standardir_grammar_format_antlr4)
             write (unit, '(a)') 'grammar Fortran2023;'
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
+            if (selected_mode) write (unit, '(a)') '// target=selected-root root='//trim(selected_root)
         case (standardir_grammar_format_bison)
             write (unit, '(a)') '/* origin=MECHANICAL; generated from closed source-backed StandardIR */'
+            if (selected_mode) write (unit, '(a)') '/* target=selected-root root='//trim(selected_root)//' */'
         case (standardir_grammar_format_tree_sitter)
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
+            if (selected_mode) write (unit, '(a)') '// target=selected-root root='//trim(selected_root)
             write (unit, '(a)') 'module.exports = grammar({'
             write (unit, '(a)') '  name: ''fortran2023'','
             write (unit, '(a)') '  rules: {'
         end select
     end subroutine emit_header
+
+    subroutine print_dispositions(values)
+        type(standardir_grammar_disposition_t), intent(in) :: values(:)
+        integer :: i
+
+        do i = 1, size(values)
+            select case (values(i)%disposition)
+            case (standardir_grammar_disposition_selected)
+                print '(a)', 'root-disposition selected '//trim(values(i)%name)//' '//trim(values(i)%reason)
+            case (standardir_grammar_disposition_omitted_root)
+                print '(a)', 'root-disposition omitted-declared-root '//trim(values(i)%name)//' '// &
+                    trim(values(i)%reason)
+            case (standardir_grammar_disposition_omitted_helper)
+                print '(a)', 'root-disposition omitted-helper '//trim(values(i)%name)//' '// &
+                    trim(values(i)%reason)
+            end select
+        end do
+    end subroutine print_dispositions
 
     subroutine emit_footer(unit, format)
         integer, intent(in) :: unit, format

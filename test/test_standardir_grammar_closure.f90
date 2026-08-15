@@ -4,7 +4,10 @@ program test_standardir_grammar_closure
     use, intrinsic :: iso_fortran_env, only: int64
     use fortsx, only: sx_node_t, sx_parse
     use standardir_export, only: standardir_source_ref_t
-    use standardir_grammar_closure, only: standardir_grammar_close_sx
+    use standardir_grammar_closure, only: standardir_grammar_close_selected_sx, &
+        standardir_grammar_close_sx, standardir_grammar_disposition_omitted_helper, &
+        standardir_grammar_disposition_omitted_root, standardir_grammar_disposition_selected, &
+        standardir_grammar_disposition_t
     use standardir_grammar_producer, only: standardir_grammar_reference, standardir_grammar_rule_t
     use standardir_lexical, only: standardir_lexical_facts_t
     use standardir_reference_closure, only: closure_classification_t, closure_kind_list, &
@@ -25,10 +28,15 @@ program test_standardir_grammar_closure
         '(syntax R1 (lhs duplicate) (rhs (seq (token D))) '// &
         '(source (document DOC) (clause 5) (rule R1) (page 3) '// &
         '(source-sha256 '//hash//')))'
-    type(sx_node_t) :: nodes(3), lexical_node, lexical_nodes(1)
+    character(len=*), parameter :: helper_text = &
+        '(syntax R4 (lhs helper) (rhs (seq (token H))) '// &
+        '(source (document DOC) (clause 5) (rule R4) (page 4) '// &
+        '(source-sha256 '//hash//')))'
+    type(sx_node_t) :: nodes(4), lexical_node, lexical_nodes(1)
     type(closure_classification_t) :: facts(2)
     type(standardir_lexical_facts_t) :: lexical
     type(standardir_grammar_rule_t), allocatable :: rules(:)
+    type(standardir_grammar_disposition_t), allocatable :: dispositions(:)
     type(standardir_source_ref_t) :: source
     character(len=128) :: roots(2), lexical_roots(1), message
     character(len=128), allocatable :: semantic_skipped_names(:)
@@ -38,6 +46,7 @@ program test_standardir_grammar_closure
     call parse_node(first_text, nodes(1))
     call parse_node(second_text, nodes(2))
     call parse_node(duplicate_text, nodes(3))
+    call parse_node(helper_text, nodes(4))
     lexical = standardir_lexical_facts_t()
     call make_source(source, 'R401', 10)
     facts = closure_classification_t()
@@ -72,6 +81,29 @@ program test_standardir_grammar_closure
     call require(trim(rules(3)%id) == 'derived-widget-list', &
         'derived rule identity is not occurrence-independent')
     deallocate (rules)
+
+    roots(1) = 'program'
+    roots(2) = 'duplicate'
+    call standardir_grammar_close_selected_sx(nodes, 4, facts, 2, roots, 2, 'program', lexical, &
+        rules, semantic_skipped, lexical_closed, dispositions, ok, message)
+    call require(ok, 'selected-root closure failed: '//trim(message))
+    call require(size(rules) == 2, 'selected-root closure emitted an unreachable rule')
+    call require(trim(rules(1)%lhs) == 'widget' .and. trim(rules(2)%lhs) == 'widget-list', &
+        'selected-root closure did not retain only reachable rules')
+    call require(rules(1)%origin > 0 .and. trim(rules(1)%source%source_hash) == hash, &
+        'selected-root rule lost origin or source provenance')
+    call require(disposition_count(dispositions, standardir_grammar_disposition_selected) == 3, &
+        'selected-root dispositions did not retain reachable source names')
+    call require(has_disposition(dispositions, 'duplicate', standardir_grammar_disposition_omitted_root, &
+        'not reachable from selected root'), 'omitted declared root had no disposition')
+    call require(has_disposition(dispositions, 'helper', standardir_grammar_disposition_omitted_helper, &
+        'not reachable from selected root'), 'omitted helper had no disposition')
+    deallocate (rules, dispositions)
+
+    call standardir_grammar_close_selected_sx(nodes, 4, facts, 2, roots, 2, 'missing', lexical, &
+        rules, semantic_skipped, lexical_closed, dispositions, ok, message)
+    call require(.not. ok, 'selected-root closure accepted a root absent from source records')
+    call require(.not. allocated(rules), 'failed selected-root closure retained a rule array')
 
     facts(1) = closure_classification_t()
     facts(1)%name = 'not-resolved'
@@ -115,6 +147,33 @@ program test_standardir_grammar_closure
     print '(a)', 'StandardIR grammar closure test passed'
 
 contains
+
+    integer function disposition_count(values, kind)
+        type(standardir_grammar_disposition_t), intent(in) :: values(:)
+        integer, intent(in) :: kind
+        integer :: j
+
+        disposition_count = 0
+        do j = 1, size(values)
+            if (values(j)%disposition == kind) disposition_count = disposition_count + 1
+        end do
+    end function disposition_count
+
+    logical function has_disposition(values, name, kind, reason)
+        type(standardir_grammar_disposition_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: name, reason
+        integer, intent(in) :: kind
+        integer :: j
+
+        has_disposition = .false.
+        do j = 1, size(values)
+            if (trim(values(j)%name) == trim(name) .and. values(j)%disposition == kind .and. &
+                trim(values(j)%reason) == trim(reason)) then
+                has_disposition = .true.
+                return
+            end if
+        end do
+    end function has_disposition
 
     subroutine parse_node(text, node)
         character(len=*), intent(in) :: text

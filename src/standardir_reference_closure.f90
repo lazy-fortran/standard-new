@@ -132,6 +132,7 @@ contains
                 count, ok, message)
             if (.not. ok) return
             if (count == 0) then
+                ok = .false.
                 message = 'closure root is not a normative production: '//trim(roots(i))
                 return
             end if

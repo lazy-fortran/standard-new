@@ -23,7 +23,20 @@ module standardir_grammar_closure
     implicit none
     private
 
+    integer, parameter, public :: standardir_grammar_disposition_selected = 1
+    integer, parameter, public :: standardir_grammar_disposition_omitted_root = 2
+    integer, parameter, public :: standardir_grammar_disposition_omitted_helper = 3
+
+    type, public :: standardir_grammar_disposition_t
+        character(len=128) :: name = ''
+        integer :: disposition = 0
+        character(len=128) :: reason = ''
+        type(standardir_source_ref_t) :: source
+        integer :: origin = standardir_grammar_origin_mechanical
+    end type standardir_grammar_disposition_t
+
     public :: standardir_grammar_close_sx
+    public :: standardir_grammar_close_selected_sx
 
 contains
 
@@ -39,6 +52,64 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: lexical
         type(standardir_grammar_rule_t), allocatable, intent(inout) :: rules(:)
         integer, intent(out) :: semantic_skipped, lexical_closed
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128), allocatable, intent(out), optional :: semantic_skipped_names(:)
+        character(len=512), allocatable, intent(out), optional :: semantic_skipped_details(:)
+
+        type(standardir_grammar_disposition_t), allocatable :: dispositions(:)
+
+        call standardir_grammar_close_sx_impl(nodes, node_count, classifications, classification_count, &
+            roots, root_count, roots, root_count, lexical, rules, semantic_skipped, lexical_closed, &
+            dispositions, .false., ok, message, semantic_skipped_names, semantic_skipped_details)
+    end subroutine standardir_grammar_close_sx
+
+    subroutine standardir_grammar_close_selected_sx(nodes, node_count, classifications, &
+            classification_count, declared_roots, declared_root_count, selected_root, lexical, &
+            rules, semantic_skipped, lexical_closed, dispositions, ok, message, &
+            semantic_skipped_names, semantic_skipped_details)
+        type(sx_node_t), intent(in) :: nodes(:)
+        integer, intent(in) :: node_count
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        character(len=*), intent(in) :: declared_roots(:)
+        integer, intent(in) :: declared_root_count
+        character(len=*), intent(in) :: selected_root
+        type(standardir_lexical_facts_t), intent(in) :: lexical
+        type(standardir_grammar_rule_t), allocatable, intent(inout) :: rules(:)
+        integer, intent(out) :: semantic_skipped, lexical_closed
+        type(standardir_grammar_disposition_t), allocatable, intent(out) :: dispositions(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=128), allocatable, intent(out), optional :: semantic_skipped_names(:)
+        character(len=512), allocatable, intent(out), optional :: semantic_skipped_details(:)
+
+        character(len=128) :: selection_roots(1)
+
+        selection_roots(1) = trim(selected_root)
+        call standardir_grammar_close_sx_impl(nodes, node_count, classifications, classification_count, &
+            declared_roots, declared_root_count, selection_roots, 1, lexical, rules, &
+            semantic_skipped, lexical_closed, dispositions, .true., ok, message, &
+            semantic_skipped_names, semantic_skipped_details)
+    end subroutine standardir_grammar_close_selected_sx
+
+    subroutine standardir_grammar_close_sx_impl(nodes, node_count, classifications, &
+            classification_count, declared_roots, declared_root_count, selection_roots, &
+            selection_root_count, lexical, rules, semantic_skipped, lexical_closed, dispositions, &
+            selected_mode, ok, message, semantic_skipped_names, semantic_skipped_details)
+        type(sx_node_t), intent(in) :: nodes(:)
+        integer, intent(in) :: node_count
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        character(len=*), intent(in) :: declared_roots(:)
+        integer, intent(in) :: declared_root_count
+        character(len=*), intent(in) :: selection_roots(:)
+        integer, intent(in) :: selection_root_count
+        type(standardir_lexical_facts_t), intent(in) :: lexical
+        type(standardir_grammar_rule_t), allocatable, intent(inout) :: rules(:)
+        integer, intent(out) :: semantic_skipped, lexical_closed
+        type(standardir_grammar_disposition_t), allocatable, intent(out) :: dispositions(:)
+        logical, intent(in) :: selected_mode
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=128), allocatable, intent(out), optional :: semantic_skipped_names(:)
@@ -65,10 +136,15 @@ contains
         if (present(semantic_skipped_details)) then
             allocate (semantic_skipped_details(0))
         end if
+        allocate (dispositions(0))
         ok = .false.
         message = ''
         if (node_count < 1 .or. node_count > size(nodes)) then
             message = 'grammar closure has no source records'
+            return
+        end if
+        if (declared_root_count < 1 .or. declared_root_count > size(declared_roots)) then
+            message = 'selected grammar export has no declared roots'
             return
         end if
         call standardir_lexical_validate(lexical, ok, message)
@@ -103,9 +179,14 @@ contains
             end if
         end do
 
-        call closure_compute(input, node_count, effective_classifications, effective_count, roots, &
-            root_count, result, ok, message)
+        call closure_compute(input, node_count, effective_classifications, effective_count, &
+            selection_roots, selection_root_count, result, ok, message)
         if (.not. ok) return
+
+        if (selected_mode) then
+            call make_selected_dispositions(input, node_count, declared_roots, declared_root_count, &
+                selection_roots(1), effective_classifications, effective_count, result, dispositions)
+        end if
 
         ok = .false.
         allocate (staged(0))
@@ -183,7 +264,147 @@ contains
         end if
         ok = .true.
         message = ''
-    end subroutine standardir_grammar_close_sx
+    end subroutine standardir_grammar_close_sx_impl
+
+    subroutine make_selected_dispositions(input, input_count, declared_roots, declared_root_count, &
+            selected_root, classifications, classification_count, result, dispositions)
+        type(closure_input_record_t), intent(in) :: input(:)
+        integer, intent(in) :: input_count
+        character(len=*), intent(in) :: declared_roots(:)
+        integer, intent(in) :: declared_root_count
+        character(len=*), intent(in) :: selected_root
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        type(closure_result_t), intent(in) :: result
+        type(standardir_grammar_disposition_t), allocatable, intent(out) :: dispositions(:)
+
+        integer :: i
+        logical :: declared, reachable
+        type(standardir_grammar_disposition_t) :: disposition
+
+        allocate (dispositions(0))
+        do i = 1, input_count
+            if (disposition_exists(dispositions, trim(input(i)%lhs))) cycle
+            declared = root_exists(declared_roots, declared_root_count, input(i)%lhs)
+            reachable = result_name_exists(result, input(i)%lhs)
+            disposition = standardir_grammar_disposition_t()
+            disposition%name = trim(input(i)%lhs)
+            disposition%source = input(i)%source
+            disposition%origin = standardir_grammar_origin_mechanical
+            if (reachable) then
+                disposition%disposition = standardir_grammar_disposition_selected
+                disposition%reason = 'reachable from selected root'
+            else if (declared) then
+                disposition%disposition = standardir_grammar_disposition_omitted_root
+                disposition%reason = 'not reachable from selected root'
+            else
+                disposition%disposition = standardir_grammar_disposition_omitted_helper
+                disposition%reason = 'not reachable from selected root'
+            end if
+            call append_disposition(dispositions, disposition)
+        end do
+        do i = 1, result%record_count
+            if (.not. result%records(i)%derived) cycle
+            if (result%records(i)%kind == closure_kind_semantic_only .or. &
+                result%records(i)%kind == closure_kind_lexical) cycle
+            if (disposition_exists(dispositions, trim(result%records(i)%lhs))) cycle
+            disposition = standardir_grammar_disposition_t()
+            disposition%name = trim(result%records(i)%lhs)
+            disposition%disposition = standardir_grammar_disposition_selected
+            disposition%reason = 'reachable from selected root'
+            disposition%source = result%records(i)%provenance
+            disposition%origin = standardir_grammar_origin_mechanical
+            call append_disposition(dispositions, disposition)
+        end do
+        do i = 1, declared_root_count
+            if (disposition_exists(dispositions, trim(declared_roots(i)))) cycle
+            disposition = standardir_grammar_disposition_t()
+            disposition%name = trim(declared_roots(i))
+            disposition%source = disposition_source(classifications, classification_count, &
+                declared_roots(i))
+            disposition%origin = standardir_grammar_origin_mechanical
+            if (trim(declared_roots(i)) == trim(selected_root)) then
+                disposition%disposition = standardir_grammar_disposition_selected
+                disposition%reason = 'selected root has no source record'
+            else
+                disposition%disposition = standardir_grammar_disposition_omitted_root
+                disposition%reason = 'not reachable from selected root'
+            end if
+            call append_disposition(dispositions, disposition)
+        end do
+    end subroutine make_selected_dispositions
+
+    function disposition_source(classifications, classification_count, name) result(source)
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        character(len=*), intent(in) :: name
+        type(standardir_source_ref_t) :: source
+        integer :: i
+
+        source = standardir_source_ref_t()
+        do i = 1, classification_count
+            if (trim(classifications(i)%name) == trim(name)) then
+                source = classifications(i)%source
+                return
+            end if
+        end do
+    end function disposition_source
+
+    logical function root_exists(roots, root_count, name)
+        character(len=*), intent(in) :: roots(:)
+        integer, intent(in) :: root_count
+        character(len=*), intent(in) :: name
+        integer :: i
+
+        root_exists = .false.
+        do i = 1, root_count
+            if (trim(roots(i)) == trim(name)) then
+                root_exists = .true.
+                return
+            end if
+        end do
+    end function root_exists
+
+    logical function result_name_exists(result, name)
+        type(closure_result_t), intent(in) :: result
+        character(len=*), intent(in) :: name
+        integer :: i
+
+        result_name_exists = .false.
+        do i = 1, result%record_count
+            if (trim(result%records(i)%lhs) == trim(name)) then
+                result_name_exists = .true.
+                return
+            end if
+        end do
+    end function result_name_exists
+
+    logical function disposition_exists(dispositions, name)
+        type(standardir_grammar_disposition_t), intent(in) :: dispositions(:)
+        character(len=*), intent(in) :: name
+        integer :: i
+
+        disposition_exists = .false.
+        do i = 1, size(dispositions)
+            if (trim(dispositions(i)%name) == trim(name)) then
+                disposition_exists = .true.
+                return
+            end if
+        end do
+    end function disposition_exists
+
+    subroutine append_disposition(values, value)
+        type(standardir_grammar_disposition_t), allocatable, intent(inout) :: values(:)
+        type(standardir_grammar_disposition_t), intent(in) :: value
+        type(standardir_grammar_disposition_t), allocatable :: expanded(:)
+        integer :: count
+
+        count = size(values)
+        allocate (expanded(count + 1))
+        if (count > 0) expanded(:count) = values
+        expanded(count + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_disposition
 
     subroutine make_effective_classifications(classifications, classification_count, lexical, &
             values, value_count, ok, message)
