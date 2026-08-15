@@ -18,6 +18,7 @@ program test_standardir_grammar_export
     type(standardir_target_reachability_witness_t), allocatable :: reachability_witness(:)
     type(standardir_grammar_rule_t) :: reachability(4)
     type(standardir_grammar_rule_t) :: role_fixture(7), no_alias(2)
+    type(standardir_grammar_rule_t) :: role_reordered(7), alias_chain(4)
     type(standardir_target_rule_t), allocatable :: role_normalized(:), role_retained(:)
     type(standardir_target_rule_t), allocatable :: role_pruned(:), role_factored(:)
     type(standardir_target_role_family_witness_t), allocatable :: role_witness(:), broken_witness(:)
@@ -105,9 +106,11 @@ program test_standardir_grammar_export
 
     call make_different(different)
     call standardir_grammar_normalize(different, normalized, suppressed, ok, message)
-    call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 0 .and. &
-        size(normalized(1)%provenance) == 1 .and. size(normalized(2)%provenance) == 1, &
-        'different normalized bodies were incorrectly merged: '//trim(message))
+    call require(ok, 'different normalized bodies were not accepted: '//trim(message))
+    call require(size(normalized) == 2 .and. size(suppressed) == 0, &
+        'different normalized bodies were incorrectly merged')
+    call require(size(normalized(1)%provenance) == 1, 'first different body lost provenance')
+    call require(size(normalized(2)%provenance) == 1, 'second different body lost provenance')
 
     call make_invalid_provenance(invalid_provenance)
     call verify_failure(invalid_provenance, standardir_grammar_format_ebnf, 'invalid source provenance')
@@ -230,6 +233,72 @@ program test_standardir_grammar_export
     call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
     call require(.not. ok, 'lost role mapping negative control was accepted')
 
+    broken_witness = role_witness
+    broken_witness(1)%alias_role = 'mutated'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated alias identity was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%representative_role = 'start'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated representative identity was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%disposition = standardir_target_role_family_rejected
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated witness disposition was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%reason = 'mutated-reason'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated witness reason was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%source_roles(1) = 'mutated-role'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated witness source roles were accepted')
+    broken_witness = role_witness
+    broken_witness(1)%representative_provenance(1)%source%rule = 'MUTATED-REP'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated representative lineage was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%alias_provenance(1)%source%rule = 'MUTATED-ALIAS'
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated alias lineage was accepted')
+
+    role_reordered = role_fixture
+    role_reordered(6) = role_fixture(7)
+    role_reordered(7) = role_fixture(6)
+    call standardir_grammar_normalize(role_reordered, role_normalized, role_pruned, ok, message)
+    call require(ok, 'alternative-order fixture did not normalize: '//trim(message))
+    call standardir_grammar_factor_role_family(role_normalized, role_config, role_factored, role_witness, ok, message)
+    call require(ok, 'alternative-order factoring failed: '//trim(message))
+    call require(trim(role_witness(3)%alias_role) == 'unsafe' .and. &
+        trim(role_witness(3)%alias_provenance(1)%source%rule) == 'ROLE-UNSAFE-ALIAS', &
+        'reordered alternatives selected the rejected alternative lineage')
+    call standardir_grammar_validate_role_family_witness(role_normalized, role_factored, role_witness, ok, message)
+    call require(ok, 'alternative-order witness failed validation: '//trim(message))
+
+    call make_alias_chain(alias_chain)
+    call standardir_grammar_normalize(alias_chain, role_normalized, role_pruned, ok, message)
+    call require(ok, 'alias-chain fixture did not normalize: '//trim(message))
+    call standardir_grammar_factor_role_family(role_normalized, role_config, role_factored, role_witness, ok, message)
+    call require(ok .and. size(role_factored) == 2 .and. size(role_witness) == 2, &
+        'alias chain was not factored with exact unit-alias lineage')
+    call require(trim(role_factored(1)%expression%children(1)%name) == 'rep' .and. &
+        trim(role_witness(1)%alias_provenance(1)%source%rule) == 'CHAIN-A' .and. &
+        trim(role_witness(2)%alias_provenance(1)%source%rule) == 'CHAIN-B', &
+        'alias-chain replacement or lineage is not source-backed')
+    call standardir_grammar_validate_role_family_witness(role_normalized, role_factored, role_witness, ok, message)
+    call require(ok, 'alias-chain witness failed validation: '//trim(message))
+
+    call make_alias_chain(alias_chain)
+    call standardir_grammar_normalize(alias_chain, role_normalized, role_pruned, ok, message)
+    call require(ok, 'alias-cycle base fixture did not normalize: '//trim(message))
+    role_normalized(2)%expression%name = 'alias_b'
+    role_normalized(3)%expression%name = 'alias_a'
+    call standardir_grammar_factor_role_family(role_normalized, role_config, role_factored, role_witness, ok, message)
+    call require(ok .and. size(role_factored) == 4 .and. size(role_witness) == 2, &
+        'alias cycle was not retained with two rejection witnesses')
+    call standardir_grammar_validate_role_family_witness(role_normalized, role_factored, role_witness, ok, message)
+    call require(ok, 'alias-cycle witness failed validation: '//trim(message))
+
     call verify_role_family_output(role_fixture, role_config)
 
     call make_no_alias_fixture(no_alias)
@@ -287,6 +356,18 @@ contains
         call make_simple(values(1), 'NO-ALIAS-ROOT', 1, 'root', 'X', 'DOC-NO-ALIAS', '1', 1, 'HASH-NO-ROOT')
         call make_simple(values(2), 'NO-ALIAS-REP', 1, 'rep', 'Y', 'DOC-NO-ALIAS', '2', 2, 'HASH-NO-REP')
     end subroutine make_no_alias_fixture
+
+    subroutine make_alias_chain(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'CHAIN-START', 1, 'start', 'alias_a', 'X', 'DOC-CHAIN', '1', 1, &
+            'HASH-CHAIN-START')
+        call make_unit_alias_rule(values(2), 'CHAIN-A', 1, 'alias_a', 'alias_b', 'DOC-CHAIN', '2', 2, &
+            'HASH-CHAIN-A')
+        call make_unit_alias_rule(values(3), 'CHAIN-B', 1, 'alias_b', 'rep', 'DOC-CHAIN', '3', 3, &
+            'HASH-CHAIN-B')
+        call make_simple(values(4), 'CHAIN-REP', 1, 'rep', 'X', 'DOC-CHAIN', '4', 4, 'HASH-CHAIN-REP')
+    end subroutine make_alias_chain
 
     subroutine make_duplicate(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -521,9 +602,19 @@ contains
             direct_witnesses_preserved = .false.
             return
         end if
-        if (values(1)%expression%kind /= standardir_grammar_sequence .or. &
-            size(values(1)%expression%children) /= 2 .or. &
-            values(1)%expression%children(2)%kind /= standardir_grammar_repeat .or. &
+        if (values(1)%expression%kind /= standardir_grammar_sequence) then
+            direct_witnesses_preserved = .false.
+            return
+        end if
+        if (.not. allocated(values(1)%expression%children)) then
+            direct_witnesses_preserved = .false.
+            return
+        end if
+        if (size(values(1)%expression%children) /= 2) then
+            direct_witnesses_preserved = .false.
+            return
+        end if
+        if (values(1)%expression%children(2)%kind /= standardir_grammar_repeat .or. &
             values(2)%expression%kind /= standardir_grammar_token .or. &
             trim(values(2)%expression%name) /= 'X') then
             direct_witnesses_preserved = .false.
@@ -633,26 +724,43 @@ contains
         type(standardir_target_role_family_config_t), intent(in) :: config
         character(len=65536) :: text
         character(len=256) :: local_message
-        integer :: unit, ios
+        integer :: format, unit, ios
         logical :: local_ok
         type(standardir_target_role_family_witness_t), allocatable :: witness(:)
 
-        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
-        call require(ios == 0, 'could not open role-family scratch output')
-        call standardir_grammar_export_batch(unit, values, standardir_grammar_format_ebnf, local_ok, &
-            local_message, selected_root='start', role_family=config, role_family_witness=witness)
-        call require(local_ok, trim(local_message))
-        call require(size(witness) == 3, 'role-family export witness count is incorrect')
-        call read_text(unit, text)
-        call require(index(text, 'start ::= ') > 0 .and. index(text, 'rep ::= ') > 0 .and. &
-            index(text, 'alias_a ::= ') == 0 .and. index(text, 'alias_b ::= ') == 0, &
-            'role-family export did not remove only the safe aliases')
-        call require(index(text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0 .and. &
-            index(text, 'target-role-family alias=unsafe representative=rep disposition=rejected') > 0 .and. &
-            index(text, 'source-roles=rep,alias_a,alias_b') > 0 .and. &
-            index(text, 'alias-lineage=ROLE-A:1@') > 0, &
-            'role-family export did not emit the machine-readable mapping witness')
-        close (unit)
+        do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+            open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+            call require(ios == 0, 'could not open role-family scratch output')
+            call standardir_grammar_export_batch(unit, values, format, local_ok, local_message, &
+                selected_root='start', role_family=config, role_family_witness=witness)
+            call require(local_ok, trim(local_message))
+            call require(size(witness) == 3, 'role-family export witness count is incorrect')
+            call read_text(unit, text)
+            select case (format)
+            case (standardir_grammar_format_ebnf)
+                call require(index(text, 'start ::= ') > 0 .and. index(text, 'rep ::= ') > 0 .and. &
+                    index(text, 'alias_a ::= ') == 0 .and. index(text, 'alias_b ::= ') == 0, &
+                    'role-family EBNF export did not remove only the safe aliases')
+            case (standardir_grammar_format_antlr4)
+                call require(index(text, 'r_start') > 0 .and. index(text, 'r_rep') > 0 .and. &
+                    index(text, 'r_alias_a') == 0 .and. index(text, 'r_alias_b') == 0, &
+                    'role-family ANTLR4 export did not remove only the safe aliases')
+            case (standardir_grammar_format_bison)
+                call require(index(text, 'r_start:') > 0 .and. index(text, 'r_rep:') > 0 .and. &
+                    index(text, 'r_alias_a:') == 0 .and. index(text, 'r_alias_b:') == 0, &
+                    'role-family Bison export did not remove only the safe aliases')
+            case (standardir_grammar_format_tree_sitter)
+                call require(index(text, 'r_start: $ =>') > 0 .and. index(text, 'r_rep: $ =>') > 0 .and. &
+                    index(text, 'r_alias_a: $ =>') == 0 .and. index(text, 'r_alias_b: $ =>') == 0, &
+                    'role-family tree-sitter export did not remove only the safe aliases')
+            end select
+            call require(index(text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0 .and. &
+                index(text, 'target-role-family alias=unsafe representative=rep disposition=rejected') > 0 .and. &
+                index(text, 'source-roles=rep,alias_a,alias_b') > 0 .and. &
+                index(text, 'alias-lineage=ROLE-A:1@') > 0, &
+                'role-family export did not emit the machine-readable mapping witness')
+            close (unit)
+        end do
     end subroutine verify_role_family_output
 
     subroutine verify_all_root_output(values, roots)

@@ -123,6 +123,9 @@ contains
                     local_role_witness, ok, message)
             end if
             if (.not. ok) return
+            call standardir_grammar_validate_role_family_witness(normalized, factored, local_role_witness, &
+                ok, message)
+            if (.not. ok) return
             call move_alloc(factored, normalized)
             if (present(role_family_witness)) role_family_witness = local_role_witness
         else
@@ -163,7 +166,7 @@ contains
                 end if
             end if
         end if
-        call emit_groups(scratch, nodes, suppressed_nodes, groups, group_count, format, ok, message)
+        call emit_groups(scratch, nodes, groups, group_count, format, ok, message)
         if (.not. ok) then
             close (scratch)
             return
@@ -324,9 +327,9 @@ contains
         write (unit, '(a)', advance='no') trim(value)
     end subroutine write_witness_field
 
-    subroutine emit_groups(unit, nodes, suppressed, groups, group_count, format, ok, message)
+    subroutine emit_groups(unit, nodes, groups, group_count, format, ok, message)
         integer, intent(in) :: unit, group_count, format
-        type(sx_node_t), intent(in) :: nodes(:), suppressed(:)
+        type(sx_node_t), intent(in) :: nodes(:)
         type(standardir_group_t), intent(in) :: groups(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
@@ -476,17 +479,29 @@ contains
         if (.not. ok) return
         select case (format)
         case (standardir_grammar_format_ebnf)
-            write (unit, '(a)', advance='no') '(* rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)// &
-                ' source-canonical-text-sha256='//trim(source_hash)//' *)'
+            write (unit, '(a)', advance='no') '(*'
+            call write_witness_field(unit, 'rule', trim(rule_id))
+            call write_witness_field(unit, 'document', trim(document))
+            call write_witness_field(unit, 'clause', trim(clause))
+            call write_witness_field(unit, 'page', trim(page))
+            call write_witness_field(unit, 'source-canonical-text-sha256', trim(source_hash))
+            write (unit, '(a)') ' *)'
         case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
-            write (unit, '(a)') '// rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)// &
-                ' source-canonical-text-sha256='//trim(source_hash)
+            write (unit, '(a)', advance='no') '//'
+            call write_witness_field(unit, 'rule', trim(rule_id))
+            call write_witness_field(unit, 'document', trim(document))
+            call write_witness_field(unit, 'clause', trim(clause))
+            call write_witness_field(unit, 'page', trim(page))
+            call write_witness_field(unit, 'source-canonical-text-sha256', trim(source_hash))
+            write (unit, '(a)') ''
         case (standardir_grammar_format_bison)
-            write (unit, '(a)') '/* rule='//trim(rule_id)//' document='//trim(document)// &
-                ' clause='//trim(clause)//' page='//trim(page)// &
-                ' source-canonical-text-sha256='//trim(source_hash)//' */'
+            write (unit, '(a)', advance='no') '/*'
+            call write_witness_field(unit, 'rule', trim(rule_id))
+            call write_witness_field(unit, 'document', trim(document))
+            call write_witness_field(unit, 'clause', trim(clause))
+            call write_witness_field(unit, 'page', trim(page))
+            call write_witness_field(unit, 'source-canonical-text-sha256', trim(source_hash))
+            write (unit, '(a)') ' */'
         end select
         ok = .true.
         message = ''
@@ -606,18 +621,24 @@ contains
         type(standardir_target_provenance_t), allocatable, intent(in) :: values(:)
         character(len=4096) :: text
         character(len=256) :: item
-        integer :: i
+        integer :: i, length, position
 
         text = ''
         if (.not. allocated(values)) then
             text = 'none'
             return
         end if
+        position = 1
         do i = 1, size(values)
             write (item, '(a,":",i0,"@",i0,"+",i0)') trim(values(i)%source%rule), &
                 values(i)%alternative, values(i)%source%byte_start, values(i)%source%byte_length
-            if (len_trim(text) > 0) text = trim(text)//','
-            text = trim(text)//trim(item)
+            if (i > 1) then
+                text(position:position) = ','
+                position = position + 1
+            end if
+            length = len_trim(item)
+            text(position:position + length - 1) = trim(item)
+            position = position + length
         end do
         if (len_trim(text) == 0) text = 'none'
     end function provenance_text
