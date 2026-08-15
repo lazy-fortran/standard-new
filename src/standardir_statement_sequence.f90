@@ -10,7 +10,8 @@ module standardir_statement_sequence
     character(len=16), parameter, public :: standardir_sequence_repeat_item = 'repeat-item'
     character(len=20), parameter, public :: standardir_sequence_first_plus_repeat = 'first-plus-repeat'
     character(len=25), parameter, public :: standardir_sequence_compound_repeat_item = 'compound-repeat-item'
-    character(len=18), parameter, public :: standardir_sequence_compound_internal = 'compound-internal'
+    character(len=17), parameter, public :: standardir_sequence_internal = 'sequence-internal'
+    character(len=17), parameter, public :: standardir_sequence_compound_internal = 'sequence-internal'
 
     type, public :: standardir_statement_sequence_candidate_t
         character(len=128) :: source_rule = ''
@@ -24,6 +25,7 @@ module standardir_statement_sequence
         character(len=128) :: derivation = ''
         character(len=64) :: source_page = ''
         character(len=64) :: source_byte_start = ''
+        character(len=32) :: status = ''
     end type standardir_statement_sequence_candidate_t
 
     public :: standardir_statement_sequence_analyze
@@ -52,7 +54,7 @@ contains
         character(len=128), allocatable :: reachable(:), nullable(:), statement_classes(:)
         character(len=32) :: suffix
         integer :: i, rule_count, suffix_count
-        logical :: local_ok
+        logical :: local_ok, unsupported_found
 
         if (allocated(values)) deallocate (values)
         ok = .false.
@@ -69,6 +71,10 @@ contains
             if (trim(layout%records(i)%kind) == 'statement-class-suffix') then
                 suffix_count = suffix_count + 1
                 suffix = trim(layout%records(i)%suffix)
+                if (trim(layout%records(i)%source_form) /= 'all') then
+                    message = 'statement-class-suffix fact must have source-form all'
+                    return
+                end if
             end if
         end do
         if (suffix_count /= 1) then
@@ -96,14 +102,6 @@ contains
             end if
         end do
 
-        do i = 1, size(rules)
-            call validate_expression(rules(i)%rhs, local_ok, message)
-            if (.not. local_ok) then
-                deallocate (rules)
-                return
-            end if
-        end do
-
         allocate (reachable(0), nullable(0), statement_classes(0))
         do i = 1, size(rules)
             if (ends_with(rules(i)%lhs, suffix)) then
@@ -114,9 +112,10 @@ contains
         call fixed_point_reachable(rules, reachable)
         call fixed_point_nullable(rules, nullable)
 
+        unsupported_found = .false.
         do i = 1, size(rules)
             call visit_expression(rules(i)%rhs, 'rhs', rules(i), statement_classes, reachable, &
-                nullable, values, local_ok, message)
+                nullable, values, unsupported_found, local_ok, message)
             if (.not. local_ok) then
                 deallocate (rules, reachable, nullable, statement_classes)
                 if (allocated(values)) deallocate (values)
@@ -126,7 +125,8 @@ contains
         if (.not. allocated(values)) allocate (values(0))
         call sort_candidates(values)
         deallocate (rules, reachable, nullable, statement_classes)
-        ok = .true.
+        ok = .not. unsupported_found
+        if (.not. ok) message = 'unsupported repeated statement-bearing shape at repeat item'
     end subroutine standardir_statement_sequence_analyze
 
     logical function is_syntax_record(node)
@@ -148,6 +148,8 @@ contains
         character(len=64) :: page, byte_length
 
         rule = sequence_rule_t()
+        call validate_syntax_record(node, ok, message)
+        if (.not. ok) return
         call standardir_read_syntax_header(node, rule%id, rule%lhs, document, clause, page, source_hash, &
             ok, message, source_byte_start=rule%byte_start, source_byte_length=byte_length)
         if (.not. ok) return
@@ -157,6 +159,44 @@ contains
         rule%page = trim(page)
         rule%rhs = node%children(4)%children(2)
     end subroutine read_rule
+
+    subroutine validate_syntax_record(node, ok, message)
+        type(sx_node_t), intent(in) :: node
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        if (node%kind /= sx_list) then
+            message = 'syntax object has the wrong shape'
+            return
+        end if
+        if (node%child_count /= 5) then
+            message = 'syntax object has the wrong shape'
+            return
+        end if
+        if (node%children(4)%kind /= sx_list) then
+            message = 'syntax rhs field is malformed'
+            return
+        end if
+        if (node%children(4)%child_count /= 2) then
+            message = 'syntax rhs field is malformed'
+            return
+        end if
+        if (node%children(4)%children(1)%kind /= sx_atom) then
+            message = 'syntax rhs field is malformed'
+            return
+        end if
+        if (trim(node%children(4)%children(1)%atom) /= 'rhs') then
+            message = 'syntax rhs field is malformed'
+            return
+        end if
+        if (node%children(4)%children(2)%kind /= sx_list) then
+            message = 'syntax rhs expression is malformed'
+            return
+        end if
+        call validate_expression(node%children(4)%children(2), ok, message)
+    end subroutine validate_syntax_record
 
     recursive subroutine validate_expression(node, ok, message)
         type(sx_node_t), intent(in) :: node
@@ -322,12 +362,13 @@ contains
     end function contains_any_name
 
     recursive subroutine visit_expression(node, path, rule, statement_classes, reachable, nullable, &
-            values, ok, message)
+            values, unsupported_found, ok, message)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(in) :: path
         type(sequence_rule_t), intent(in) :: rule
         character(len=128), intent(in) :: statement_classes(:), reachable(:), nullable(:)
         type(standardir_statement_sequence_candidate_t), allocatable, intent(inout) :: values(:)
+        logical, intent(inout) :: unsupported_found
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=128) :: item_name, derivation
@@ -338,23 +379,22 @@ contains
 
         ok = .false.
         message = ''
+        call append_sequence_internal_candidates(node, path, rule, statement_classes, reachable, nullable, values)
         if (is_label(node, 'repeat')) then
             item_candidate = repeat_item(node, statement_classes, reachable, nullable, item_name, derivation, &
                 positions, position_names, supported, statement_bearing, ok, message)
             if (.not. ok) return
-            if (item_candidate) then
+            if (.not. supported .and. statement_bearing) then
+                call append_candidate(values, rule, path, 'expression', 'unsupported-repeat-item', derivation, &
+                    'unsupported')
+                unsupported_found = .true.
+            else if (item_candidate) then
                 if (trim(item_name) /= 'sequence') then
                     call append_candidate(values, rule, path, trim(item_name), standardir_sequence_repeat_item, &
                         derivation)
                 else
                     call append_candidate(values, rule, path, 'sequence', &
                         standardir_sequence_compound_repeat_item, derivation)
-                    do j = 1, size(positions)
-                        if (positions(j) < node%children(2)%child_count - 1) then
-                            call append_candidate(values, rule, trim(path)//'/1/'//itoa(positions(j)), &
-                                trim(position_names(j)), standardir_sequence_compound_internal, trim(position_names(j)))
-                        end if
-                    end do
                 end if
             end if
             if (allocated(positions)) deallocate (positions)
@@ -388,12 +428,54 @@ contains
         if (node%kind == sx_list) then
             do i = 2, node%child_count
                 call visit_expression(node%children(i), trim(path)//'/'//itoa(i), rule, statement_classes, &
-                    reachable, nullable, values, ok, message)
+                    reachable, nullable, values, unsupported_found, ok, message)
                 if (.not. ok) return
             end do
         end if
         ok = .true.
     end subroutine visit_expression
+
+    subroutine append_sequence_internal_candidates(node, path, rule, statement_classes, reachable, nullable, &
+            values)
+        type(sx_node_t), intent(in) :: node
+        character(len=*), intent(in) :: path
+        type(sequence_rule_t), intent(in) :: rule
+        character(len=128), intent(in) :: statement_classes(:), reachable(:), nullable(:)
+        type(standardir_statement_sequence_candidate_t), allocatable, intent(inout) :: values(:)
+        character(len=128) :: statement
+        integer :: i
+        logical :: direct
+
+        if (.not. is_label(node, 'seq')) return
+        do i = 2, node%child_count - 1
+            direct = direct_reference(node%children(i), statement)
+            if (.not. direct) cycle
+            if (.not. name_present(statement_classes, trim(statement))) cycle
+            if (suffix_reaches_statement_boundary(node, i + 1, reachable, nullable)) then
+                call append_candidate(values, rule, trim(path)//'/'//itoa(i - 1), trim(statement), &
+                    standardir_sequence_internal, trim(statement))
+            end if
+        end do
+    end subroutine append_sequence_internal_candidates
+
+    logical function suffix_reaches_statement_boundary(node, first, reachable, nullable)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: first
+        character(len=128), intent(in) :: reachable(:), nullable(:)
+        integer :: i
+
+        suffix_reaches_statement_boundary = .true.
+        do i = first, node%child_count
+            if (contains_any_name(node%children(i), reachable)) then
+                suffix_reaches_statement_boundary = .true.
+                return
+            end if
+            if (.not. expression_nullable(node%children(i), nullable)) then
+                suffix_reaches_statement_boundary = .false.
+                return
+            end if
+        end do
+    end function suffix_reaches_statement_boundary
 
     logical function repeat_item(node, statement_classes, reachable, nullable, item_name, derivation, positions, &
             position_names, supported, statement_bearing, ok, message)
@@ -447,7 +529,10 @@ contains
             end if
         end if
         if (contains_any_name(node%children(2), reachable)) then
-            message = 'unsupported repeated statement-bearing shape at repeat item'
+            call derivation_names(node%children(2), reachable, derivation)
+            supported = .false.
+            statement_bearing = .true.
+            ok = .true.
             repeat_item = .false.
             return
         end if
@@ -489,15 +574,26 @@ contains
         type(sx_node_t), intent(in) :: node
         character(len=128), intent(in) :: reachable(:)
         character(len=*), intent(out) :: text
-        integer :: i
+        character(len=128), allocatable :: names(:)
+        integer :: i, length, name_length
 
         text = ''
+        allocate (names(0))
         do i = 1, size(reachable)
-            if (contains_name(node, trim(reachable(i)))) then
-                if (len_trim(text) > 0) text = trim(text)//','
-                text = trim(text)//trim(reachable(i))
-            end if
+            if (contains_name(node, trim(reachable(i)))) call append_name(names, trim(reachable(i)))
         end do
+        call sort_names(names)
+        length = 0
+        do i = 1, size(names)
+            if (i > 1) then
+                length = length + 1
+                text(length:length) = ','
+            end if
+            name_length = len_trim(names(i))
+            text(length + 1:length + name_length) = trim(names(i))
+            length = length + name_length
+        end do
+        deallocate (names)
     end subroutine derivation_names
 
     recursive logical function contains_name(node, name) result(found)
@@ -600,10 +696,11 @@ contains
         call move_alloc(extended_names, names)
     end subroutine append_position
 
-    subroutine append_candidate(values, rule, path, item, kind, derivation)
+    subroutine append_candidate(values, rule, path, item, kind, derivation, status)
         type(standardir_statement_sequence_candidate_t), allocatable, intent(inout) :: values(:)
         type(sequence_rule_t), intent(in) :: rule
         character(len=*), intent(in) :: path, item, kind, derivation
+        character(len=*), intent(in), optional :: status
         type(standardir_statement_sequence_candidate_t), allocatable :: extended(:)
         integer :: old_size
 
@@ -622,8 +719,27 @@ contains
         extended(old_size + 1)%derivation = trim(derivation)
         extended(old_size + 1)%source_page = trim(rule%page)
         extended(old_size + 1)%source_byte_start = trim(rule%byte_start)
+        extended(old_size + 1)%status = 'candidate'
+        if (present(status)) extended(old_size + 1)%status = trim(status)
         call move_alloc(extended, values)
     end subroutine append_candidate
+
+    subroutine sort_names(values)
+        character(len=128), allocatable, intent(inout) :: values(:)
+        character(len=128) :: temporary
+        integer :: i, j
+
+        do i = 2, size(values)
+            temporary = values(i)
+            j = i - 1
+            do while (j >= 1)
+                if (trim(values(j)) <= trim(temporary)) exit
+                values(j + 1) = values(j)
+                j = j - 1
+            end do
+            values(j + 1) = temporary
+        end do
+    end subroutine sort_names
 
     subroutine sort_candidates(values)
         type(standardir_statement_sequence_candidate_t), allocatable, intent(inout) :: values(:)
