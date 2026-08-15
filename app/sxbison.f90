@@ -33,9 +33,6 @@ program sxbison
     end if
 
     write (output_unit, '(a)') '/* Generated from StandardIR syntax */'
-    write (output_unit, '(a)') '/* target-ambiguity-policy=preserve-standardir; no precedence inferred */'
-    write (output_unit, '(a)') '%glr-parser'
-    write (output_unit, '(a)') '%define lr.type ielr'
     write (output_unit, '(a)') '%%'
     records = 0
     do

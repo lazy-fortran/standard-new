@@ -485,8 +485,8 @@ contains
         case ('repeat')
             write (unit, '(a)') '    %empty'
             write (unit, '(a)', advance='no') '  | '
+            write (unit, '(a)', advance='no') trim(helper%name)//' '
             call emit_symbol(unit, helper%node%children(2), helpers, helper_count, ok, message)
-            write (unit, '(a)', advance='no') ' '//trim(helper%name)
             write (unit, '(a)')
         case default
             ok = .false.

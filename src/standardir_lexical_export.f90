@@ -97,7 +97,6 @@ contains
             if (.not. ok) return
             call emit_bison_comment(unit, facts%facts(i))
         end do
-        if (facts%count == 0) return
         write (unit, '(a)', advance='no') '%token'
         do i = 1, facts%count
             write (unit, '(a)', advance='no') ' '//trim(facts%facts(i)%target_name)

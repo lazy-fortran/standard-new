@@ -9,7 +9,7 @@ module standardir_composite
     use standardir_lexical, only: standardir_lexical_add, standardir_lexical_facts_t, &
         standardir_lexical_reset, standardir_lexical_validate
     use standardir_lexical_export, only: standardir_lexical_emit_antlr, &
-        standardir_lexical_emit_bison, standardir_lexical_emit_bison_aliases, standardir_lexical_emit_ebnf, &
+        standardir_lexical_emit_bison, standardir_lexical_emit_ebnf, &
         standardir_lexical_emit_treesitter
     use standardir_treesitter, only: standardir_emit_treesitter_group
     implicit none
@@ -143,16 +143,11 @@ contains
         integer :: group_count, i
 
         write (unit, '(a)') '/* Generated from composite StandardIR */'
-        write (unit, '(a)') '/* target-ambiguity-policy=preserve-standardir; no precedence inferred */'
-        write (unit, '(a)') '%glr-parser'
-        write (unit, '(a)') '%define lr.type ielr'
         call standardir_composite_validate(composite, ok, message)
         if (.not. ok) return
         call standardir_lexical_emit_bison(unit, composite%lexical, ok, message)
         if (.not. ok) return
         write (unit, '(a)') '%%'
-        call standardir_lexical_emit_bison_aliases(unit, composite%lexical, ok, message)
-        if (.not. ok) return
         call standardir_group_syntax(composite%syntax, composite%syntax_count, groups, &
             group_count, ok, message)
         if (.not. ok) return
