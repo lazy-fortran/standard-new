@@ -10,7 +10,8 @@ program sxgrammar
     use standardir_grammar_export, only: standardir_grammar_export_batch, &
         standardir_grammar_emit_source_disposition, &
         standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
-        standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+        standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter, &
+        standardir_target_role_family_config_t
     use standardir_grammar_producer, only: standardir_grammar_rule_t
     use standardir_lexical, only: standardir_lexical_add, standardir_lexical_facts_t, &
         standardir_lexical_reset
@@ -25,6 +26,7 @@ program sxgrammar
     character(len=4096) :: syntax_path, classifications_path, roots_path, lexical_path
     character(len=4096) :: format_text, output_path, message, line
     character(len=128) :: selected_root
+    type(standardir_target_role_family_config_t) :: role_family
     type(sx_node_t), allocatable :: nodes(:)
     type(closure_classification_t), allocatable :: classifications(:)
     character(len=128), allocatable :: roots(:)
@@ -38,22 +40,19 @@ program sxgrammar
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     integer :: i, j
-    logical :: ok, selected_mode, source_node_found
+    logical :: ok, selected_mode, role_family_mode, source_node_found
 
     argc = command_argument_count()
     selected_mode = .false.
+    role_family_mode = .false.
     selected_root = ''
-    if (argc == 8) then
-        call get_command_argument(7, line)
-        if (trim(line) /= '--selected-root') call fail('expected --selected-root')
-        call get_command_argument(8, selected_root)
-        if (len_trim(selected_root) == 0) call fail('selected root is empty')
-        selected_mode = .true.
-    else if (argc /= 6) then
+    role_family = standardir_target_role_family_config_t()
+    if (argc < 6) then
         call get_command_argument(0, syntax_path)
         print '(a)', 'usage: '//trim(syntax_path)// &
             ' <source.sx> <classifications.sx> <roots.sx> <lexical.sx|-> '// &
-            '<ebnf|antlr|bison|treesitter> <output> [--selected-root <root>]'
+            '<ebnf|antlr|bison|treesitter> <output> '// &
+            '[--selected-root <root>] [--role-family <representative>]'
         stop 2
     end if
     call get_command_argument(1, syntax_path)
@@ -62,6 +61,8 @@ program sxgrammar
     call get_command_argument(4, lexical_path)
     call get_command_argument(5, format_text)
     call get_command_argument(6, output_path)
+    call parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, ok, message)
+    if (.not. ok) call fail(trim(message))
     call parse_format(format_text, format, ok, message)
     if (.not. ok) call fail(trim(message))
 
@@ -114,11 +115,21 @@ program sxgrammar
         if (.not. ok) call fail_output(output_unit, message)
     end if
     if (selected_mode) then
-        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, &
-            selected_root=selected_root, lexical=lexical)
+        if (role_family_mode) then
+            call standardir_grammar_export_batch(output_unit, rules, format, ok, message, &
+                selected_root=selected_root, role_family=role_family, lexical=lexical)
+        else
+            call standardir_grammar_export_batch(output_unit, rules, format, ok, message, &
+                selected_root=selected_root, lexical=lexical)
+        end if
     else
-        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names, &
-            lexical=lexical)
+        if (role_family_mode) then
+            call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names, &
+                role_family=role_family, lexical=lexical)
+        else
+            call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names, &
+                lexical=lexical)
+        end if
     end if
     if (.not. ok) call fail_output(output_unit, message)
     if (selected_mode) then
@@ -526,6 +537,88 @@ contains
             message = 'unknown grammar format: '//trim(text)
         end select
     end subroutine parse_format
+
+    subroutine parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, ok, message)
+        integer, intent(in) :: argc
+        character(len=*), intent(out) :: selected_root
+        logical, intent(out) :: selected_mode, role_family_mode, ok
+        type(standardir_target_role_family_config_t), intent(out) :: role_family
+        character(len=*), intent(out) :: message
+
+        character(len=4096) :: option, value
+        integer :: i
+
+        selected_root = ''
+        selected_mode = .false.
+        role_family = standardir_target_role_family_config_t()
+        role_family_mode = .false.
+        ok = .false.
+        message = ''
+        i = 7
+        do while (i <= argc)
+            call get_command_argument(i, option)
+            if (len_trim(option) == 0) then
+                message = 'empty option'
+                return
+            end if
+            select case (trim(option))
+            case ('--selected-root')
+                if (selected_mode) then
+                    message = 'duplicate --selected-root'
+                    return
+                end if
+                if (i == argc) then
+                    message = 'missing value for --selected-root'
+                    return
+                end if
+                call get_command_argument(i + 1, value)
+                if (len_trim(value) == 0) then
+                    message = 'selected root is empty'
+                    return
+                end if
+                if (is_option(value)) then
+                    message = 'missing value for --selected-root'
+                    return
+                end if
+                selected_root = trim(value)
+                selected_mode = .true.
+            case ('--role-family')
+                if (role_family_mode) then
+                    message = 'duplicate --role-family'
+                    return
+                end if
+                if (i == argc) then
+                    message = 'missing value for --role-family'
+                    return
+                end if
+                call get_command_argument(i + 1, value)
+                if (len_trim(value) == 0) then
+                    message = 'role-family representative is empty'
+                    return
+                end if
+                if (is_option(value)) then
+                    message = 'missing value for --role-family'
+                    return
+                end if
+                role_family%enabled = .true.
+                role_family%representative = trim(value)
+                role_family_mode = .true.
+            case default
+                message = 'unknown option: '//trim(option)
+                return
+            end select
+            i = i + 2
+        end do
+        ok = .true.
+    end subroutine parse_options
+
+    logical function is_option(text)
+        character(len=*), intent(in) :: text
+
+        is_option = .false.
+        if (len_trim(text) < 2) return
+        is_option = text(1:2) == '--'
+    end function is_option
 
     subroutine append_node(values, value)
         type(sx_node_t), allocatable, intent(inout) :: values(:)

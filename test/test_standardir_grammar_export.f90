@@ -256,6 +256,10 @@ program test_standardir_grammar_export
     call require(size(role_retained) == 7 .and. size(role_pruned) == 0, &
         'role-family fixture did not pass reachability')
     role_config%enabled = .true.
+    role_config%representative = ''
+    call standardir_grammar_factor_role_family(role_retained, role_config, role_factored, role_witness, ok, message)
+    call require(.not. ok .and. index(message, 'representative is empty') > 0, &
+        'empty role-family configuration was accepted')
     role_config%representative = 'rep'
     call standardir_grammar_factor_role_family(role_retained, role_config, role_factored, role_witness, &
         ok, message, protected_lhs=role_roots)
@@ -370,6 +374,8 @@ program test_standardir_grammar_export
         ok, message)
     call require(ok .and. size(role_factored) == size(role_normalized) .and. size(role_witness) == 0, &
         'no-safe-family path was not unchanged')
+
+    call verify_sxgrammar_cli
 
     print '(a)', 'StandardIR grammar export tests passed'
 
@@ -1348,6 +1354,130 @@ contains
             text(length:length) = new_line('a')
         end do
     end subroutine read_text
+
+    subroutine verify_sxgrammar_cli
+        character(len=*), parameter :: syntax_path = 'build/sxgrammar-cli-syntax.sx'
+        character(len=*), parameter :: classifications_path = 'build/sxgrammar-cli-classifications.sx'
+        character(len=*), parameter :: roots_path = 'build/sxgrammar-cli-roots.sx'
+        character(len=*), parameter :: default_path = 'build/sxgrammar-cli-default.ebnf'
+        character(len=*), parameter :: role_path = 'build/sxgrammar-cli-role.ebnf'
+        character(len=*), parameter :: selected_path = 'build/sxgrammar-cli-selected.ebnf'
+        character(len=*), parameter :: reverse_path = 'build/sxgrammar-cli-reverse.ebnf'
+        character(len=*), parameter :: failure_path = 'build/sxgrammar-cli-failure.ebnf'
+        character(len=*), parameter :: failure_log = 'build/sxgrammar-cli-failure.log'
+        character(len=4096) :: base, command
+        character(len=65536) :: default_text, role_text, selected_text, reverse_text, failure_text
+        integer :: unit, ios, exit_status
+
+        call write_sxgrammar_cli_fixture(syntax_path, classifications_path, roots_path)
+        base = 'fo exec --no-build sxgrammar '//syntax_path//' '//classifications_path//' '// &
+            roots_path//' - ebnf'
+
+        command = trim(base)//' '//default_path
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar default invocation failed')
+        call read_file_text(default_path, default_text)
+        call require(index(default_text, 'alias_a ::=') > 0 .and. index(default_text, 'alias_b ::=') > 0 .and. &
+            index(default_text, 'target-role-family') == 0, &
+            'sxgrammar default output changed or unexpectedly enabled role-family lowering')
+
+        command = trim(base)//' '//role_path//' --role-family rep'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar role-family invocation failed')
+        call read_file_text(role_path, role_text)
+        call require(index(role_text, 'alias_a ::=') == 0 .and. index(role_text, 'alias_b ::=') == 0 .and. &
+            index(role_text, 'rep ::=') > 0 .and. &
+            index(role_text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0, &
+            'sxgrammar role-family option did not configure the generic export')
+
+        command = trim(base)//' '//selected_path//' --selected-root start'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar selected-root invocation failed')
+        call read_file_text(selected_path, selected_text)
+        call require(index(selected_text, 'target=selected-root root=start') > 0 .and. &
+            index(selected_text, 'alias_a ::=') > 0 .and. index(selected_text, 'target-role-family') == 0, &
+            'sxgrammar selected-root default behavior changed')
+
+        command = trim(base)//' '//selected_path//' --role-family rep --selected-root start'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar composed invocation failed')
+        call read_file_text(selected_path, selected_text)
+        command = trim(base)//' '//reverse_path//' --selected-root start --role-family rep'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar reverse composed invocation failed')
+        call read_file_text(reverse_path, reverse_text)
+        call require(trim(selected_text) == trim(reverse_text) .and. index(selected_text, 'alias_a ::=') == 0 .and. &
+            index(selected_text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0, &
+            'sxgrammar options did not compose deterministically')
+
+        command = trim(base)//' '//failure_path//' --role-family > '//failure_log//' 2>&1'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status /= 0, 'sxgrammar accepted a missing role-family value')
+        call read_file_text(failure_log, failure_text)
+        call require(index(failure_text, 'missing value for --role-family') > 0, &
+            'sxgrammar missing option value diagnostic changed')
+
+        command = trim(base)//' '//failure_path//' --selected-root start --selected-root other > '// &
+            failure_log//' 2>&1'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status /= 0, 'sxgrammar accepted a duplicate selected-root option')
+        call read_file_text(failure_log, failure_text)
+        call require(index(failure_text, 'duplicate --selected-root') > 0, &
+            'sxgrammar duplicate selected-root diagnostic changed')
+
+        command = trim(base)//' '//failure_path//' --role-family=rep > '//failure_log//' 2>&1'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status /= 0, 'sxgrammar accepted malformed role-family syntax')
+        call read_file_text(failure_log, failure_text)
+        call require(index(failure_text, 'unknown option: --role-family=rep') > 0, &
+            'sxgrammar malformed option diagnostic changed')
+    end subroutine verify_sxgrammar_cli
+
+    subroutine write_sxgrammar_cli_fixture(syntax_path, classifications_path, roots_path)
+        character(len=*), intent(in) :: syntax_path, classifications_path, roots_path
+        integer :: unit, ios
+
+        open (newunit=unit, file=syntax_path, status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not write sxgrammar syntax fixture')
+        write (unit, '(a)') '(syntax ROLE-START (lhs start) (rhs (seq (ref alias_a) (ref alias_b) '// &
+            '(ref unsafe))) (source (document DOC) (clause 1) (rule ROLE-START) (page 1) '// &
+            '(source-sha256 HASH-START)))'
+        write (unit, '(a)') '(syntax ROLE-A (lhs alias_a) (rhs (seq (ref rep))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-A) (page 2) (source-sha256 HASH-A)))'
+        write (unit, '(a)') '(syntax ROLE-B (lhs alias_b) (rhs (seq (ref rep))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-B) (page 3) (source-sha256 HASH-B)))'
+        write (unit, '(a)') '(syntax ROLE-REP-X (lhs rep) (rhs (seq (token X))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-REP-X) (page 4) (source-sha256 HASH-REP-X)))'
+        write (unit, '(a)') '(syntax ROLE-REP-Y (lhs rep) (rhs (seq (token Y))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-REP-Y) (page 5) (source-sha256 HASH-REP-Y)))'
+        write (unit, '(a)') '(syntax ROLE-UNSAFE-ALIAS (lhs unsafe) (rhs (seq (ref rep))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-UNSAFE-ALIAS) (page 6) '// &
+            '(source-sha256 HASH-UNSAFE-1)))'
+        write (unit, '(a)') '(syntax ROLE-UNSAFE-TOKEN (lhs unsafe) (rhs (seq (token Z))) '// &
+            '(source (document DOC) (clause 1) (rule ROLE-UNSAFE-TOKEN) (page 7) '// &
+            '(source-sha256 HASH-UNSAFE-2)))'
+        close (unit)
+
+        open (newunit=unit, file=classifications_path, status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not write sxgrammar classification fixture')
+        close (unit)
+
+        open (newunit=unit, file=roots_path, status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not write sxgrammar root fixture')
+        write (unit, '(a)') '(root start)'
+        close (unit)
+    end subroutine write_sxgrammar_cli_fixture
+
+    subroutine read_file_text(path, text)
+        character(len=*), intent(in) :: path
+        character(len=*), intent(out) :: text
+        integer :: unit, ios
+
+        open (newunit=unit, file=path, action='read', iostat=ios)
+        call require(ios == 0, 'could not read sxgrammar CLI output: '//trim(path))
+        call read_text(unit, text)
+        close (unit)
+    end subroutine read_file_text
 
     subroutine verify_format(unit, format)
         integer, intent(in) :: unit, format
