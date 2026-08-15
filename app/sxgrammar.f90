@@ -104,10 +104,12 @@ program sxgrammar
     call emit_header(output_unit, format, selected_root, selected_mode)
     if (.not. ok) call fail_output(output_unit, message)
     if (format == standardir_grammar_format_bison) then
+        write (output_unit, '(a)') '/* target-ambiguity-policy=preserve-standardir; no precedence inferred */'
+        write (output_unit, '(a)') '%glr-parser'
+        write (output_unit, '(a)') '%define lr.type ielr'
+        write (output_unit, '(a)') '%start standardir_start'
         call standardir_lexical_emit_bison(output_unit, lexical, ok, message)
         if (.not. ok) call fail_output(output_unit, message)
-        write (output_unit, '(a)') '%glr-parser'
-        write (output_unit, '(a)') '%start standardir_start'
         write (output_unit, '(a)') '%%'
         call standardir_emit_bison_start(output_unit, start_names, ok, message)
         if (.not. ok) call fail_output(output_unit, message)

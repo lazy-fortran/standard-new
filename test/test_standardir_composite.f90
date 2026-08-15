@@ -12,6 +12,7 @@ program test_standardir_composite
 
     character(len=8192) :: message
     character(len=65536) :: input, line
+    character(len=4096) :: command
     type(standardir_composite_t) :: composite
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -85,6 +86,11 @@ program test_standardir_composite
     if (.not. ok) call fail(trim(message))
     call require_contains('build/test_standardir_composite.y', &
         '%token EN_DASH "-" RIGHT_SINGLE_QUOTE "''"', 'Bison lexical export differs')
+    command = 'bison --report=all --report-file=build/test_standardir_composite.output '// &
+        'build/test_standardir_composite.y -o build/test_standardir_composite.tab.c '// &
+        '> build/test_standardir_composite.bison.log 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=ios)
+    if (ios /= 0) call fail('Bison rejected the composite StandardIR projection')
 
     open (newunit=unit, file='build/test_standardir_composite.ebnf', status='replace', &
         action='write', iostat=ios)

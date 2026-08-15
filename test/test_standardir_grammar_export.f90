@@ -22,6 +22,7 @@ program test_standardir_grammar_export
     type(standardir_grammar_rule_t) :: role_fixture(7), no_alias(2)
     type(standardir_grammar_rule_t) :: nullable_optional(2), source_less(3), many_merged(6)
     type(standardir_grammar_rule_t) :: role_reordered(7), alias_chain(4)
+    type(standardir_grammar_rule_t) :: common_prefix(3)
     type(standardir_target_rule_t), allocatable :: role_normalized(:), role_retained(:)
     type(standardir_target_rule_t), allocatable :: role_pruned(:), role_factored(:)
     type(standardir_target_role_family_witness_t), allocatable :: role_witness(:), broken_witness(:)
@@ -117,6 +118,27 @@ program test_standardir_grammar_export
         'different normalized bodies were incorrectly merged')
     call require(size(normalized(1)%provenance) == 1, 'first different body lost provenance')
     call require(size(normalized(2)%provenance) == 1, 'second different body lost provenance')
+
+    call make_common_prefix(common_prefix)
+    call standardir_grammar_normalize(common_prefix, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 3 .and. size(suppressed) == 0, &
+        'common-prefix fixture did not normalize: '//trim(message))
+    call require(trim(normalized(1)%lhs) == 'start' .and. &
+        normalized(1)%expression%kind == standardir_grammar_sequence .and. &
+        trim(normalized(1)%expression%children(2)%name) == 'start__common_prefix' .and. &
+        trim(normalized(2)%lhs) == 'start__common_prefix' .and. &
+        normalized(2)%expression%kind == standardir_grammar_choice .and. &
+        size(normalized(1)%provenance) == 2 .and. size(normalized(2)%provenance) == 2, &
+        'common-prefix factoring was not generic or lost source lineage')
+    call verify_common_prefix_language(normalized)
+    do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open common-prefix scratch output')
+        call standardir_grammar_export_batch(unit, common_prefix, format, ok, message)
+        call require(ok, trim(message))
+        call verify_common_prefix_output(unit, format)
+        close (unit)
+    end do
 
     call make_invalid_provenance(invalid_provenance)
     call verify_failure(invalid_provenance, standardir_grammar_format_ebnf, 'invalid source provenance')
@@ -512,6 +534,17 @@ contains
         call make_simple(values(2), 'DIFF-2', 2, 'different', 'Y', 'DOC-D2', '3.2', 5, 'HASH-D2')
     end subroutine make_different
 
+    subroutine make_common_prefix(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'COMMON-1', 1, 'start', 'prefix', 'X', 'DOC-COMMON', '1', 1, &
+            'HASH-COMMON-1')
+        call make_sequence_rule(values(2), 'COMMON-2', 2, 'start', 'prefix', 'Y', 'DOC-COMMON', '2', 2, &
+            'HASH-COMMON-2')
+        call make_simple(values(3), 'COMMON-PREFIX', 1, 'prefix', 'P', 'DOC-COMMON', '3', 3, &
+            'HASH-COMMON-PREFIX')
+    end subroutine make_common_prefix
+
     subroutine make_invalid_provenance(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
 
@@ -860,6 +893,49 @@ contains
             .not. language_contains(after_words, after_count, 'XXXX'), &
             'bounded language oracle accepted a rejected sentence')
     end subroutine verify_role_language
+
+    subroutine verify_common_prefix_language(values)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=32), allocatable :: words(:)
+        integer :: word_count
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        call evaluate_language(values, 'start', words, word_count, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call require(word_count == 2 .and. language_contains(words, word_count, 'PX') .and. &
+            language_contains(words, word_count, 'PY') .and. &
+            .not. language_contains(words, word_count, 'P'), &
+            'common-prefix factoring changed the independent accepted language')
+    end subroutine verify_common_prefix_language
+
+    subroutine verify_common_prefix_output(unit, format)
+        integer, intent(in) :: unit, format
+        character(len=65536) :: text
+
+        call read_text(unit, text)
+        call require(index(text, 'source-lineage=COMMON-1:1@') > 0 .and. &
+            index(text, 'COMMON-2:2@') > 0, &
+            'common-prefix output lost raw source lineage')
+        call require(index(text, 'reason=common-prefix-factor') > 0, &
+            'common-prefix output lost its generic transformation audit')
+        select case (format)
+        case (standardir_grammar_format_ebnf)
+            call require(index(text, 'start ::= ') > 0 .and. &
+                index(text, 'start__common_prefix ::= ') > 0, &
+                'EBNF common-prefix lowering differs')
+        case (standardir_grammar_format_antlr4)
+            call require(index(text, 'r_start__common_prefix') > 0 .and. &
+                index(text, 'r_start') > 0, 'ANTLR4 common-prefix lowering differs')
+        case (standardir_grammar_format_bison)
+            call require(index(text, 'r_start__common_prefix:') > 0 .and. &
+                index(text, 'r_start:') > 0, 'Bison common-prefix lowering differs')
+        case (standardir_grammar_format_tree_sitter)
+            call require(index(text, 'r_start__common_prefix: $ =>') > 0 .and. &
+                index(text, 'r_start: $ =>') > 0, &
+                'tree-sitter common-prefix lowering differs')
+        end select
+    end subroutine verify_common_prefix_output
 
     subroutine verify_language_oracle_kinds
         type(standardir_target_rule_t) :: values(1)
@@ -1365,13 +1441,19 @@ contains
         character(len=*), parameter :: reverse_path = 'build/sxgrammar-cli-reverse.ebnf'
         character(len=*), parameter :: failure_path = 'build/sxgrammar-cli-failure.ebnf'
         character(len=*), parameter :: failure_log = 'build/sxgrammar-cli-failure.log'
-        character(len=4096) :: base, command
+        character(len=*), parameter :: bison_path = 'build/sxgrammar-cli.y'
+        character(len=*), parameter :: bison_report = 'build/sxgrammar-cli.output'
+        character(len=*), parameter :: bison_parser = 'build/sxgrammar-cli.tab.c'
+        character(len=*), parameter :: bison_log = 'build/sxgrammar-cli-bison.log'
+        character(len=4096) :: base, bison_base, command
         character(len=65536) :: default_text, role_text, selected_text, reverse_text, failure_text
         integer :: unit, ios, exit_status
 
         call write_sxgrammar_cli_fixture(syntax_path, classifications_path, roots_path)
         base = 'fo exec --no-build sxgrammar '//syntax_path//' '//classifications_path//' '// &
             roots_path//' - ebnf'
+        bison_base = 'fo exec --no-build sxgrammar '//syntax_path//' '//classifications_path//' '// &
+            roots_path//' - bison'
 
         command = trim(base)//' '//default_path
         call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
@@ -1410,6 +1492,17 @@ contains
             index(selected_text, 'target-role-family alias=alias_a representative=rep disposition=factored') > 0, &
             'sxgrammar options did not compose deterministically')
 
+        command = trim(bison_base)//' '//bison_path
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'sxgrammar Bison invocation failed')
+        command = 'bison --report=all --report-file='//bison_report//' '//bison_path//' -o '// &
+            bison_parser//' > '//bison_log//' 2>&1'
+        call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+        call require(exit_status == 0, 'Bison rejected the generated StandardIR projection')
+        call read_file_text(bison_log, failure_text)
+        call require(index(failure_text, 'error:') == 0, &
+            'Bison emitted an error for the generated StandardIR projection')
+
         command = trim(base)//' '//failure_path//' --role-family > '//failure_log//' 2>&1'
         call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
         call require(exit_status /= 0, 'sxgrammar accepted a missing role-family value')
@@ -1440,7 +1533,8 @@ contains
         open (newunit=unit, file=syntax_path, status='replace', action='write', iostat=ios)
         call require(ios == 0, 'could not write sxgrammar syntax fixture')
         write (unit, '(a)') '(syntax ROLE-START (lhs start) (rhs (seq (ref alias_a) (ref alias_b) '// &
-            '(ref unsafe))) (source (document DOC) (clause 1) (rule ROLE-START) (page 1) '// &
+            '(ref unsafe) (repeat (ref rep) 0 unbounded))) (source (document DOC) (clause 1) '// &
+            '(rule ROLE-START) (page 1) '// &
             '(source-sha256 HASH-START)))'
         write (unit, '(a)') '(syntax ROLE-A (lhs alias_a) (rhs (seq (ref rep))) '// &
             '(source (document DOC) (clause 1) (rule ROLE-A) (page 2) (source-sha256 HASH-A)))'

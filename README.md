@@ -61,7 +61,12 @@ available, and technically near-identical to ISO/IEC 1539-1:2023.
 
 The Bison projection lowers StandardIR optional and repeated expressions to
 generated helper nonterminals because Bison has no native EBNF repetition
-operators.
+operators. Generic common-prefix factoring happens in the shared target
+normalization, so all four projections receive the same language-preserving
+target expression and source witnesses. Bison uses GLR with IELR tables and
+does not infer precedence that is absent from StandardIR; generated conflict
+reports therefore remain evidence of unresolved ambiguity rather than being
+silenced with rule-specific directives.
 
 ## Licence
 
