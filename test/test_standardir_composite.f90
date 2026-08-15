@@ -45,6 +45,16 @@ program test_standardir_composite
     if (.not. ok) call fail(trim(message))
     call standardir_composite_add(composite, node, ok, message)
     if (.not. ok) call fail(trim(message))
+
+    input = '(syntax RULE-LEXICAL (lhs lexical) (rhs (seq (ref '// &
+        achar(226)//achar(128)//achar(147)//') (token '// &
+        achar(226)//achar(128)//achar(147)//'))) (source '// &
+        '(document J3-24-007) (clause lexical) (rule RULE-LEXICAL) (page 1) '// &
+        '(source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2) ))'
+    call sx_parse(trim(input), node, ok, message)
+    if (.not. ok) call fail(trim(message))
+    call standardir_composite_add(composite, node, ok, message)
+    if (.not. ok) call fail(trim(message))
     call standardir_lexical_validate(composite%lexical, ok, message)
     if (.not. ok) call fail(trim(message))
 
@@ -85,6 +95,8 @@ program test_standardir_composite
     call require_contains('build/test_standardir_composite.ebnf', &
         'codepoint=U+2013 target=EN_DASH canonical-spelling=-', &
         'EBNF lexical provenance differs')
+    call require_contains('build/test_standardir_composite.ebnf', '- "-" ;', &
+        'EBNF lexical grammar spelling differs')
 
     open (newunit=unit, file='build/test_standardir_composite.js', status='replace', &
         action='write', iostat=ios)

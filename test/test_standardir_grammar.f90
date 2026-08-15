@@ -1,9 +1,11 @@
 program test_standardir_grammar
     !! Fixed EBNF is the independent oracle for the grammar projection.
 
+    use, intrinsic :: iso_fortran_env, only: int64
     use fortsx, only: sx_node_t, sx_parse
     use standardir_bison, only: standardir_emit_bison
     use standardir_grammar, only: standardir_emit_antlr, standardir_emit_ebnf
+    use standardir_lexical, only: standardir_lexical_facts_t
     use standardir_treesitter, only: standardir_emit_treesitter
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
         standardir_max_syntax_groups
@@ -39,7 +41,10 @@ program test_standardir_grammar
     character(len=*), parameter :: expected_treesitter_rule = &
         'r_program: $ => seq($.r_program_x2D_unit, repeat($.r_program_x2D_unit)),'
     character(len=256) :: line, message
+    character(len=2048) :: lexical_input
+    character(len=3) :: lexical_source
     type(sx_node_t) :: node, nodes(2)
+    type(standardir_lexical_facts_t) :: lexical
     type(standardir_group_t) :: groups(standardir_max_syntax_groups)
     integer :: unit, ios, group_count
     logical :: ok
@@ -120,6 +125,36 @@ program test_standardir_grammar
     if (group_count /= 1 .or. groups(1)%count /= 2 .or. &
         groups(1)%indices(1) /= 1 .or. groups(1)%indices(2) /= 2) &
         call fail('duplicate lhs grouping differs')
+
+    lexical_source = achar(194)//achar(164)
+    lexical_input = '(syntax RULE-LEXICAL (lhs lexical) (rhs (seq (ref '// &
+        lexical_source//') (token '//lexical_source//') (ref ordinary))) '// &
+        '(source (document DOC) (clause C) (rule RULE-LEXICAL) (page 1) '// &
+        '(source-sha256 HASH)))'
+    call sx_parse(trim(lexical_input), node, ok, message)
+    if (.not. ok) call fail(trim(message))
+    call make_lexical_facts(lexical, lexical_source)
+    open (newunit=unit, file='build/test_standardir_grammar_lexical.ebnf', &
+        status='replace', action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open lexical EBNF fixture')
+    call standardir_emit_ebnf(unit, node, ok, message, lexical)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar_lexical.ebnf', &
+        action='read', iostat=ios)
+    if (ios /= 0) call fail('cannot read lexical EBNF fixture')
+    read (unit, '(a)', iostat=ios) line
+    read (unit, '(a)', iostat=ios) line
+    close (unit)
+    if (ios /= 0 .or. trim(line) /= 'lexical ::= - "-" ordinary ;') &
+        call fail('lexical EBNF canonical spelling differs')
+
+    lexical%facts(1)%canonical_spelling = lexical_source
+    open (newunit=unit, status='scratch', action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open lexical negative control')
+    call standardir_emit_ebnf(unit, node, ok, message, lexical)
+    close (unit)
+    if (ok) call fail('invalid canonical lexical spelling was accepted')
     print '(a)', 'StandardIR grammar tests passed'
 
 contains
@@ -130,5 +165,25 @@ contains
         print '(a)', 'FAIL: '//trim(text)
         stop 1
     end subroutine fail
+
+    subroutine make_lexical_facts(facts, source)
+        type(standardir_lexical_facts_t), intent(out) :: facts
+        character(len=*), intent(in) :: source
+
+        facts%count = 1
+        facts%facts(1)%source_term = source
+        facts%facts(1)%canonical_spelling = '-'
+        facts%facts(1)%class_name = 'constructed-class'
+        facts%facts(1)%target_name = 'GENERIC_DASH'
+        facts%facts(1)%source_rule = 'SOURCE-RULE'
+        facts%facts(1)%source_page = '1'
+        facts%facts(1)%document = 'DOC'
+        facts%facts(1)%clause = 'C'
+        facts%facts(1)%source_hash = repeat('a', 64)
+        facts%facts(1)%codepoint = 'U+00A4'
+        facts%facts(1)%range_count = 1
+        facts%facts(1)%range_first(1) = 164_int64
+        facts%facts(1)%range_last(1) = 164_int64
+    end subroutine make_lexical_facts
 
 end program test_standardir_grammar

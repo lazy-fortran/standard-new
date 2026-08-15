@@ -103,7 +103,8 @@ contains
             group_count, ok, message)
         if (.not. ok) return
         do i = 1, group_count
-            call standardir_emit_ebnf_group(unit, composite%syntax, groups(i), ok, message)
+            call standardir_emit_ebnf_group(unit, composite%syntax, groups(i), ok, message, &
+                composite%lexical)
             if (.not. ok) return
         end do
         call standardir_lexical_emit_ebnf(unit, composite%lexical, ok, message)

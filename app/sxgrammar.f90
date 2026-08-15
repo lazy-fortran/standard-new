@@ -115,9 +115,10 @@ program sxgrammar
     end if
     if (selected_mode) then
         call standardir_grammar_export_batch(output_unit, rules, format, ok, message, &
-            selected_root=selected_root)
+            selected_root=selected_root, lexical=lexical)
     else
-        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names)
+        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names, &
+            lexical=lexical)
     end if
     if (.not. ok) call fail_output(output_unit, message)
     if (selected_mode) then

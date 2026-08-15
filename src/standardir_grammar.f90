@@ -3,6 +3,8 @@ module standardir_grammar
 
     use fortsx, only: sx_atom, sx_list, sx_max_atom_length, sx_node_t
     use standardir_grouping, only: standardir_group_t
+    use standardir_lexical, only: standardir_lexical_facts_t, standardir_lexical_resolve_spelling, &
+        standardir_lexical_validate
     implicit none
     private
 
@@ -13,11 +15,12 @@ module standardir_grammar
 
 contains
 
-    subroutine standardir_emit_ebnf(unit, node, ok, message)
+    subroutine standardir_emit_ebnf(unit, node, ok, message, lexical)
         integer, intent(in) :: unit
         type(sx_node_t), intent(in) :: node
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
         character(len=sx_max_atom_length) :: source_lineage, source_expression_hash, target_expression_hash
@@ -25,6 +28,10 @@ contains
 
         ok = .false.
         message = ''
+        if (present(lexical)) then
+            call standardir_lexical_validate(lexical, ok, message)
+            if (.not. ok) return
+        end if
         call read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
             ok, message, source_lineage, source_byte_start, source_byte_length, source_expression_hash, &
             target_expression_hash)
@@ -61,7 +68,7 @@ contains
         write (unit, '(a)') ' *)'
         write (unit, '(a)', advance='no') trim(lhs)
         write (unit, '(a)', advance='no') ' ::= '
-        call emit_expression(unit, node%children(4), ok, message)
+        call emit_expression(unit, node%children(4), ok, message, lexical)
         if (.not. ok) return
         write (unit, '(a)') ' ;'
     end subroutine standardir_emit_ebnf
@@ -120,12 +127,13 @@ contains
         write (unit, '(a)') '    ;'
     end subroutine standardir_emit_antlr
 
-    subroutine standardir_emit_ebnf_group(unit, nodes, group, ok, message)
+    subroutine standardir_emit_ebnf_group(unit, nodes, group, ok, message, lexical)
         integer, intent(in) :: unit
         type(sx_node_t), intent(in) :: nodes(:)
         type(standardir_group_t), intent(in) :: group
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
         character(len=sx_max_atom_length) :: source_lineage, source_expression_hash, target_expression_hash
@@ -134,6 +142,10 @@ contains
 
         ok = .false.
         message = ''
+        if (present(lexical)) then
+            call standardir_lexical_validate(lexical, ok, message)
+            if (.not. ok) return
+        end if
         if (group%count < 1) then
             message = 'cannot emit an empty EBNF group'
             return
@@ -151,7 +163,7 @@ contains
             end if
             call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
                 source_byte_start, source_byte_length, source_expression_hash, target_expression_hash)
-            call emit_expression(unit, nodes(index)%children(4), ok, message)
+            call emit_expression(unit, nodes(index)%children(4), ok, message, lexical)
             if (.not. ok) return
         end do
         write (unit, '(a)') ' ;'
@@ -388,11 +400,12 @@ contains
         ok = .true.
     end subroutine read_source
 
-    recursive subroutine emit_expression(unit, node, ok, message)
+    recursive subroutine emit_expression(unit, node, ok, message, lexical)
         integer, intent(in) :: unit
         type(sx_node_t), intent(in) :: node
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         character(len=256) :: label, minimum, maximum
         integer :: i
@@ -412,11 +425,11 @@ contains
                 message = 'rhs expression has the wrong field count'
                 return
             end if
-            call emit_expression(unit, node%children(2), ok, message)
+            call emit_expression(unit, node%children(2), ok, message, lexical)
         case ('ref')
-            call emit_leaf(unit, node, .false., ok, message)
+            call emit_leaf(unit, node, .false., ok, message, lexical)
         case ('token')
-            call emit_leaf(unit, node, .true., ok, message)
+            call emit_leaf(unit, node, .true., ok, message, lexical)
         case ('seq')
             if (node%child_count < 2) then
                 message = 'sequence expression is empty'
@@ -424,7 +437,7 @@ contains
             end if
             do i = 2, node%child_count
                 if (i > 2) write (unit, '(a)', advance='no') ' '
-                call emit_expression(unit, node%children(i), ok, message)
+                call emit_expression(unit, node%children(i), ok, message, lexical)
                 if (.not. ok) return
             end do
         case ('alt')
@@ -435,7 +448,7 @@ contains
             write (unit, '(a)', advance='no') '( '
             do i = 2, node%child_count
                 if (i > 2) write (unit, '(a)', advance='no') ' | '
-                call emit_expression(unit, node%children(i), ok, message)
+                call emit_expression(unit, node%children(i), ok, message, lexical)
                 if (.not. ok) return
             end do
             write (unit, '(a)', advance='no') ' )'
@@ -445,7 +458,7 @@ contains
                 return
             end if
             write (unit, '(a)', advance='no') '[ '
-            call emit_expression(unit, node%children(2), ok, message)
+            call emit_expression(unit, node%children(2), ok, message, lexical)
             if (.not. ok) return
             write (unit, '(a)', advance='no') ' ]'
         case ('repeat')
@@ -463,14 +476,14 @@ contains
             end if
             if (trim(minimum) == '0') then
                 write (unit, '(a)', advance='no') '{ '
-                call emit_expression(unit, node%children(2), ok, message)
+                call emit_expression(unit, node%children(2), ok, message, lexical)
                 if (.not. ok) return
                 write (unit, '(a)', advance='no') ' }'
             else if (trim(minimum) == '1') then
-                call emit_expression(unit, node%children(2), ok, message)
+                call emit_expression(unit, node%children(2), ok, message, lexical)
                 if (.not. ok) return
                 write (unit, '(a)', advance='no') ' { '
-                call emit_expression(unit, node%children(2), ok, message)
+                call emit_expression(unit, node%children(2), ok, message, lexical)
                 if (.not. ok) return
                 write (unit, '(a)', advance='no') ' }'
             else
@@ -630,14 +643,17 @@ contains
         end do
     end function antlr_name
 
-    subroutine emit_leaf(unit, node, quoted, ok, message)
+    subroutine emit_leaf(unit, node, quoted, ok, message, lexical)
         integer, intent(in) :: unit
         type(sx_node_t), intent(in) :: node
         logical, intent(in) :: quoted
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         character(len=256) :: value
+        character(len=256) :: spelling
+        integer :: i
 
         ok = .false.
         message = ''
@@ -647,6 +663,15 @@ contains
         end if
         call read_atom(node%children(2), value, ok, message)
         if (.not. ok) return
+        if (present(lexical)) then
+            do i = 1, lexical%count
+                if (trim(lexical%facts(i)%source_term) /= trim(value)) cycle
+                call standardir_lexical_resolve_spelling(lexical%facts(i), spelling, ok, message)
+                if (.not. ok) return
+                if (len_trim(spelling) > 0) value = spelling
+                exit
+            end do
+        end if
         if (quoted) write (unit, '(a)', advance='no') '"'
         write (unit, '(a)', advance='no') trim(value)
         if (quoted) write (unit, '(a)', advance='no') '"'

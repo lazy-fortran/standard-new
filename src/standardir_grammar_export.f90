@@ -25,6 +25,7 @@ module standardir_grammar_export
         standardir_grammar_validate_reachability, standardir_target_reachability_witness_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
         standardir_max_syntax_groups
+    use standardir_lexical, only: standardir_lexical_facts_t
     use standardir_treesitter, only: standardir_emit_treesitter_group
     implicit none
     private
@@ -57,7 +58,7 @@ contains
 
 
     subroutine standardir_grammar_export_batch(unit, rules, format, ok, message, selected_root, &
-            roots, reachability_witness, role_family, role_family_witness)
+            roots, reachability_witness, role_family, role_family_witness, lexical)
         integer, intent(in) :: unit, format
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(out) :: ok
@@ -69,6 +70,7 @@ contains
         type(standardir_target_role_family_config_t), intent(in), optional :: role_family
         type(standardir_target_role_family_witness_t), allocatable, intent(out), optional :: &
             role_family_witness(:)
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
         type(standardir_target_rule_t), allocatable :: pruned(:)
@@ -144,7 +146,7 @@ contains
             close (scratch)
             return
         end if
-        call emit_groups(scratch, nodes, groups, group_count, format, ok, message)
+        call emit_groups(scratch, nodes, groups, group_count, format, ok, message, lexical)
         if (.not. ok) then
             close (scratch)
             return
@@ -450,12 +452,13 @@ contains
         write (unit, '(a)', advance='no') trim(value)
     end subroutine write_witness_field
 
-    subroutine emit_groups(unit, nodes, groups, group_count, format, ok, message)
+    subroutine emit_groups(unit, nodes, groups, group_count, format, ok, message, lexical)
         integer, intent(in) :: unit, group_count, format
         type(sx_node_t), intent(in) :: nodes(:)
         type(standardir_group_t), intent(in) :: groups(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_lexical_facts_t), intent(in), optional :: lexical
 
         integer :: i
 
@@ -464,7 +467,7 @@ contains
         do i = 1, group_count
             select case (format)
             case (standardir_grammar_format_ebnf)
-                call standardir_emit_ebnf_group(unit, nodes, groups(i), ok, message)
+                call standardir_emit_ebnf_group(unit, nodes, groups(i), ok, message, lexical)
             case (standardir_grammar_format_antlr4)
                 call standardir_emit_antlr_group(unit, nodes, groups(i), ok, message)
             case (standardir_grammar_format_bison)
