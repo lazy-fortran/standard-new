@@ -12,10 +12,11 @@ module fortsx
     integer, parameter, public :: sx_atom = 1
     integer, parameter, public :: sx_list = 2
     integer, parameter :: sx_max_children = 128
+    integer, parameter, public :: sx_max_atom_length = 262144
 
     type, public :: sx_node_t
         integer :: kind = 0
-        character(len=256) :: atom = ''
+        character(len=:), allocatable :: atom
         integer :: child_count = 0
         type(sx_node_t), allocatable :: children(:)
     end type sx_node_t
@@ -27,8 +28,8 @@ contains
     subroutine sx_clear(node)
         type(sx_node_t), intent(inout) :: node
         if (allocated(node%children)) deallocate (node%children)
+        if (allocated(node%atom)) deallocate (node%atom)
         node%kind = 0
-        node%atom = ''
         node%child_count = 0
     end subroutine sx_clear
 
@@ -92,13 +93,13 @@ contains
             message = 'empty SX atom'
             return
         end if
-        if (position - start > len(node%atom)) then
+        if (position - start > sx_max_atom_length) then
             ok = .false.
             message = 'SX atom exceeds seed limit'
             return
         end if
         node%kind = sx_atom
-        node%atom(1:position - start) = text(start:position - 1)
+        node%atom = text(start:position - 1)
         ok = .true.
         message = ''
     end subroutine parse_form
@@ -109,51 +110,58 @@ contains
         type(sx_node_t), intent(out) :: node
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
-        integer :: count, n
+        integer :: count, n, start, cursor
         character(len=1) :: ch
 
         call sx_clear(node)
         n = len_trim(text)
         position = position + 1
+        start = position
+        cursor = start
         count = 0
-        do while (position <= n)
-            if (text(position:position) == '"') then
-                position = position + 1
-                node%kind = sx_atom
-                node%child_count = 0
-                ok = .true.
-                message = ''
-                return
-            end if
-            if (text(position:position) == achar(92)) then
-                position = position + 1
-                if (position > n) then
+        do while (cursor <= n)
+            if (text(cursor:cursor) == '"') exit
+            if (text(cursor:cursor) == achar(92)) then
+                cursor = cursor + 1
+                if (cursor > n) then
                     ok = .false.
                     message = 'unterminated SX escape'
                     return
                 end if
-                if (text(position:position) == '"' .or. &
-                    text(position:position) == achar(92)) then
-                    ch = text(position:position)
-                else
+                if (text(cursor:cursor) /= '"' .and. text(cursor:cursor) /= achar(92)) then
                     ok = .false.
                     message = 'unsupported SX escape'
                     return
                 end if
-            else
-                ch = text(position:position)
             end if
-            if (count >= len(node%atom)) then
+            count = count + 1
+            if (count > sx_max_atom_length) then
                 ok = .false.
                 message = 'SX atom exceeds seed limit'
                 return
             end if
+            cursor = cursor + 1
+        end do
+        if (cursor > n .or. text(cursor:cursor) /= '"') then
+            ok = .false.
+            message = 'unclosed SX quoted atom'
+            return
+        end if
+        allocate (character(len=count) :: node%atom)
+        cursor = start
+        count = 0
+        do while (text(cursor:cursor) /= '"')
+            if (text(cursor:cursor) == achar(92)) cursor = cursor + 1
+            ch = text(cursor:cursor)
             count = count + 1
             node%atom(count:count) = ch
-            position = position + 1
+            cursor = cursor + 1
         end do
-        ok = .false.
-        message = 'unclosed SX quoted atom'
+        position = cursor + 1
+        node%kind = sx_atom
+        node%child_count = 0
+        ok = .true.
+        message = ''
     end subroutine parse_quoted_atom
 
     recursive subroutine parse_list(text, position, node, ok, message)

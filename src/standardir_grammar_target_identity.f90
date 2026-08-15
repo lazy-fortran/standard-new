@@ -18,6 +18,7 @@ contains
         a = left%source
         b = right%source
         same_provenance = left%alternative == right%alternative .and. &
+            (left%source_expression_present .eqv. right%source_expression_present) .and. &
             trim(left%source_expression_sha256) == trim(right%source_expression_sha256) .and. &
             trim(a%document) == trim(b%document) .and. trim(a%clause) == trim(b%clause) .and. &
             trim(a%rule) == trim(b%rule) .and. a%page == b%page .and. &
@@ -50,6 +51,7 @@ contains
         same_target_rule = trim(left%id) == trim(right%id) .and. left%alternative == right%alternative .and. &
             trim(left%lhs) == trim(right%lhs) .and. same_source_ref(left%source, right%source) .and. &
             same_expression(left%expression, right%expression) .and. &
+            trim(left%target_expression_sha256) == trim(right%target_expression_sha256) .and. &
             same_provenance_list(left%provenance, right%provenance) .and. &
             same_roles(left%source_roles, right%source_roles) .and. left%origin == right%origin .and. &
             left%resolution == right%resolution

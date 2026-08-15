@@ -27,6 +27,7 @@ program test_standardir_grammar_sx_adapter
         '(syntax RULE-A (lhs lhs-a) (rhs (bogus (token X))) '// &
         '(source (document DOC) (clause C) (rule RULE-A) (page 42) '// &
         '(source-sha256 HASH)))'
+    character(len=*), parameter :: non_ascii_expression_text = '(seq (token –))'
     character(len=*), parameter :: program_text = &
         '(syntax R502 (lhs program-unit) (rhs (alt (seq (ref main-program)) '// &
         '(seq (ref external-subprogram)) (seq (ref module)) '// &
@@ -41,6 +42,7 @@ program test_standardir_grammar_sx_adapter
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     logical :: ok
     character(len=64) :: expected_fingerprint
+    character(len=64) :: raw_utf8_expression_text
     integer :: i, position, depth
 
     call sx_parse(syntax_text, node, ok, message)
@@ -60,6 +62,19 @@ program test_standardir_grammar_sx_adapter
         expected_fingerprint, ok, message)
     call require(ok .and. trim(values(1)%source_expression_sha256) == trim(expected_fingerprint), &
         'source-expression fingerprint is not the canonical SX hash')
+    call sx_parse(non_ascii_expression_text, node, ok, message)
+    call require(ok, message)
+    call standardir_grammar_source_expression_sha256(node, expected_fingerprint, ok, message)
+    call require(ok .and. trim(expected_fingerprint) == &
+        '2fa8772f66ee6732895a9ac09271e5c0729e0e676482cb8245def04a91e166df', &
+        'non-ASCII source-expression fingerprint differs from the independent UTF-8 oracle')
+    raw_utf8_expression_text = '(seq (token '//achar(226)//achar(128)//achar(147)//'))'
+    call sx_parse(trim(raw_utf8_expression_text), node, ok, message)
+    call require(ok, message)
+    call standardir_grammar_source_expression_sha256(node, expected_fingerprint, ok, message)
+    call require(ok .and. trim(expected_fingerprint) == &
+        '2fa8772f66ee6732895a9ac09271e5c0729e0e676482cb8245def04a91e166df', &
+        'raw UTF-8 bytes were reinterpreted before source-expression hashing')
     call require(values(1)%nodes%values(1)%kind == standardir_grammar_sequence .and. &
         values(1)%nodes%values(1)%child_count == 2 .and. &
         values(1)%nodes%values(2)%kind == standardir_grammar_reference .and. &

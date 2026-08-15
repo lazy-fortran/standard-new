@@ -16,6 +16,7 @@ module standardir_grammar_target_records
     type, public :: standardir_target_provenance_t
         type(standardir_source_ref_t) :: source
         integer :: alternative = 0
+        logical :: source_expression_present = .true.
         character(len=64) :: source_expression_sha256 = ''
     end type standardir_target_provenance_t
 
@@ -26,6 +27,7 @@ module standardir_grammar_target_records
         type(standardir_target_expression_t) :: expression
         type(standardir_source_ref_t) :: source
         type(standardir_target_provenance_t), allocatable :: provenance(:)
+        character(len=64) :: target_expression_sha256 = ''
         character(len=128), allocatable :: source_roles(:)
         integer :: origin = 0
         integer :: resolution = 0
@@ -47,6 +49,8 @@ module standardir_grammar_target_records
         character(len=128), allocatable :: source_roles(:)
         type(standardir_target_provenance_t), allocatable :: alias_provenance(:)
         type(standardir_target_provenance_t), allocatable :: representative_provenance(:)
+        character(len=64) :: alias_target_expression_sha256 = ''
+        character(len=64) :: representative_target_expression_sha256 = ''
     end type standardir_target_role_family_witness_t
 
     public :: append_expression, append_target, contains_expression, same_expression

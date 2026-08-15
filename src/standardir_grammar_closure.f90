@@ -732,6 +732,7 @@ contains
         rule%alternative = 1
         rule%lhs = trim(record%lhs)
         rule%source = record%provenance
+        rule%source_expression_present = .false.
         rule%origin = standardir_grammar_origin_mechanical
         rule%resolution = standardir_grammar_resolution_resolved
         select case (record%kind)

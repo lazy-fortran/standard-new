@@ -76,6 +76,8 @@ contains
         if (.not. ok) return
         call reject_remaining_left_recursion(working, names, name_count, nullable, ok, message)
         if (.not. ok) return
+        call refresh_target_expression_hashes(working, ok, message)
+        if (.not. ok) return
         if (size(working) < 1) then
             message = 'grammar normalization removed every alternative'
             return
@@ -84,6 +86,24 @@ contains
         ok = .true.
         message = ''
     end subroutine standardir_grammar_normalize
+
+    subroutine refresh_target_expression_hashes(values, ok, message)
+        type(standardir_target_rule_t), intent(inout) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            call standardir_target_expression_sha256(values(i)%expression, &
+                values(i)%target_expression_sha256, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine refresh_target_expression_hashes
 
     subroutine rule_to_target(rule, value, ok, message)
         type(standardir_grammar_rule_t), intent(in) :: rule
@@ -106,17 +126,21 @@ contains
         allocate (value%provenance(1))
         value%provenance(1)%source = rule%source
         value%provenance(1)%alternative = rule%alternative
+        value%provenance(1)%source_expression_present = rule%source_expression_present
         call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
         if (.not. ok) return
         call standardir_target_expression_sha256(value%expression, source_expression_sha256, ok, message)
         if (.not. ok) return
-        if (len_trim(rule%source_expression_sha256) > 0 .and. &
+        if (rule%source_expression_present .and. len_trim(rule%source_expression_sha256) > 0 .and. &
             trim(rule%source_expression_sha256) /= trim(source_expression_sha256)) then
             message = 'source-expression fingerprint does not match the canonical source expression'
             ok = .false.
             return
         end if
-        value%provenance(1)%source_expression_sha256 = source_expression_sha256
+        if (rule%source_expression_present) then
+            value%provenance(1)%source_expression_sha256 = source_expression_sha256
+        end if
+        value%target_expression_sha256 = source_expression_sha256
         allocate (value%source_roles(1))
         value%source_roles(1) = trim(rule%lhs)
         value%origin = rule%origin
@@ -287,7 +311,11 @@ contains
             ok = .true.
             return
         end if
-        if (.not. allocated(expression%children) .or. size(expression%children) < 1) then
+        if (.not. allocated(expression%children)) then
+            message = 'grammar normalization encountered an empty expression'
+            return
+        end if
+        if (size(expression%children) < 1) then
             message = 'grammar normalization encountered an empty expression'
             return
         end if
@@ -320,17 +348,16 @@ contains
         end if
         result = expression
         call move_alloc(children, result%children)
-        if (result%kind == standardir_grammar_optional .and. &
-            expression_nullable(result%children(1), names, nullable)) then
-            result = result%children(1)
-        else if (result%kind == standardir_grammar_repeat .and. &
-                result%children(1)%kind == standardir_grammar_optional) then
-            result%minimum = 0
-            result%children(1) = result%children(1)%children(1)
+        if (result%kind == standardir_grammar_optional) then
+            if (expression_nullable(result%children(1), names, nullable)) result = result%children(1)
+        else if (result%kind == standardir_grammar_repeat) then
+            if (result%children(1)%kind == standardir_grammar_optional) then
+                result%minimum = 0
+                result%children(1) = result%children(1)%children(1)
+            end if
         end if
-        if ((result%kind == standardir_grammar_sequence .or. &
-            result%kind == standardir_grammar_choice) .and. size(result%children) == 1) then
-            result = result%children(1)
+        if (result%kind == standardir_grammar_sequence .or. result%kind == standardir_grammar_choice) then
+            if (size(result%children) == 1) result = result%children(1)
         end if
         ok = .true.
         message = ''
@@ -812,8 +839,9 @@ contains
             if (trim(expression%name) == trim(name)) found = .true.
             return
         end if
-        if (expression%kind /= standardir_grammar_sequence .or. &
-            .not. allocated(expression%children) .or. size(expression%children) < 1) return
+        if (expression%kind /= standardir_grammar_sequence) return
+        if (.not. allocated(expression%children)) return
+        if (size(expression%children) < 1) return
         if (expression%children(1)%kind /= standardir_grammar_reference .or. &
             trim(expression%children(1)%name) /= trim(name)) return
         found = .true.

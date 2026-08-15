@@ -1,14 +1,14 @@
 program test_fortsx_robustness
     !! Independent canonical fixtures and malformed SX expectations.
 
-    use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse, sx_write
+    use fortsx, only: sx_atom, sx_list, sx_max_atom_length, sx_node_t, sx_parse, sx_write
     implicit none
 
     character(len=*), parameter :: canonical_input = &
         '(list   "a b" "a\"b"    )'
     character(len=*), parameter :: canonical_output = '(list "a b" "a\"b")'
     character(len=1024) :: actual, message, many_children
-    character(len=257) :: long_atom
+    character(len=sx_max_atom_length + 1) :: long_atom
     type(sx_node_t) :: first, second
     logical :: ok
     integer :: i, ios, position, unit

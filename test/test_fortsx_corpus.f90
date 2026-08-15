@@ -67,7 +67,7 @@ contains
         if (depth >= max_depth .or. modulo(next_value(random_state), 4) /= 0) then
             node%kind = 1
             length = 1 + modulo(next_value(random_state), 9)
-            node%atom = ''
+            node%atom = alphabet(:length)
             do child = 1, length
                 random_index = 1 + modulo(next_value(random_state), len(alphabet))
                 node%atom(child:child) = alphabet(random_index:random_index)

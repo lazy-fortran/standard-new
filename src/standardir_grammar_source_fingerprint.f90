@@ -2,7 +2,7 @@ module standardir_grammar_source_fingerprint
     !! Canonical SHA-256 fingerprints for source grammar expressions.
 
     use, intrinsic :: iso_fortran_env, only: int8, int32
-    use fortsx, only: sx_atom, sx_list, sx_node_t, sx_validate, sx_write_writer
+    use fortsx, only: sx_atom, sx_list, sx_node_t, sx_validate
     use writer, only: writer_digest, writer_init_hash, writer_t, writer_write_byte, &
         writer_write_newline
     implicit none
@@ -32,15 +32,10 @@ contains
         if (.not. valid) return
         call writer_init_hash(output, ok, message)
         if (.not. ok) return
-        call sx_write_writer(output, expression, ok, message)
-        if (.not. ok) then
-            call writer_init_hash(output, ok, message)
-            if (.not. ok) return
-            call write_utf8_compatible_node(output, expression, ok, message)
-            if (.not. ok) return
-            call writer_write_newline(output, ok, message)
-            if (.not. ok) return
-        end if
+        call write_utf8_compatible_node(output, expression, ok, message)
+        if (.not. ok) return
+        call writer_write_newline(output, ok, message)
+        if (.not. ok) return
         call writer_digest(output, digest, ok, message)
         if (.not. ok) return
         if (len(fingerprint) < 64) then
@@ -116,16 +111,63 @@ contains
                 if (.not. ok) return
             end if
             code = iachar(atom(i:i))
-            if (code < 0 .or. code > 255) then
+            if (code < 0) then
                 ok = .false.
-                message = 'SX atom character is outside byte storage'
+                message = 'SX atom character code is invalid'
                 return
             end if
-            call writer_write_byte(output, int(code, int8), ok, message)
+            if (code <= 255) then
+                call writer_write_byte(output, int(code, int8), ok, message)
+            else
+                call write_utf8_codepoint(output, code, ok, message)
+            end if
             if (.not. ok) return
         end do
         if (quoted) call write_byte(output, '"', ok, message)
     end subroutine write_utf8_compatible_atom
+
+    subroutine write_utf8_codepoint(output, code, ok, message)
+        type(writer_t), intent(inout) :: output
+        integer, intent(in) :: code
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: first, second, third, fourth
+
+        ok = .false.
+        message = ''
+        if (code < 0 .or. code > int(z'10ffff')) then
+            message = 'SX atom codepoint is outside Unicode'
+            return
+        end if
+        if (code >= int(z'd800') .and. code <= int(z'dfff')) then
+            message = 'SX atom codepoint is a Unicode surrogate'
+            return
+        end if
+        if (code <= 127) then
+            call writer_write_byte(output, int(code, int8), ok, message)
+        else if (code <= int(z'7ff')) then
+            first = 192 + shiftr(code, 6)
+            second = 128 + iand(code, 63)
+            call writer_write_byte(output, int(first, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(second, int8), ok, message)
+        else if (code <= int(z'ffff')) then
+            first = 224 + shiftr(code, 12)
+            second = 128 + iand(shiftr(code, 6), 63)
+            third = 128 + iand(code, 63)
+            call writer_write_byte(output, int(first, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(second, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(third, int8), ok, message)
+        else
+            first = 240 + shiftr(code, 18)
+            second = 128 + iand(shiftr(code, 12), 63)
+            third = 128 + iand(shiftr(code, 6), 63)
+            fourth = 128 + iand(code, 63)
+            call writer_write_byte(output, int(first, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(second, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(third, int8), ok, message)
+            if (ok) call writer_write_byte(output, int(fourth, int8), ok, message)
+        end if
+    end subroutine write_utf8_codepoint
 
     subroutine write_byte(output, value, ok, message)
         type(writer_t), intent(inout) :: output

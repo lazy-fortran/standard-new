@@ -19,6 +19,7 @@ program test_standardir_grammar_export
     type(standardir_target_reachability_witness_t), allocatable :: reachability_witness(:)
     type(standardir_grammar_rule_t) :: reachability(4)
     type(standardir_grammar_rule_t) :: role_fixture(7), no_alias(2)
+    type(standardir_grammar_rule_t) :: nullable_optional(2), source_less(3), many_merged(6)
     type(standardir_grammar_rule_t) :: role_reordered(7), alias_chain(4)
     type(standardir_target_rule_t), allocatable :: role_normalized(:), role_retained(:)
     type(standardir_target_rule_t), allocatable :: role_pruned(:), role_factored(:)
@@ -158,6 +159,34 @@ program test_standardir_grammar_export
     call require(normalized(1)%expression%kind == standardir_grammar_sequence .and. &
         trim(normalized(1)%expression%children(1)%name) == 'term', &
         'non-recursive reference was not retained in normalized grammar')
+
+    call make_nullable_optional(nullable_optional)
+    call standardir_grammar_normalize(nullable_optional, normalized, suppressed, ok, message)
+    call require(ok, 'nullable optional fixture did not normalize: '//trim(message))
+    call require(trim(normalized(1)%lhs) == 'main' .and. normalized(1)%expression%kind == standardir_grammar_reference .and. &
+        trim(normalized(1)%provenance(1)%source_expression_sha256) == &
+        'eb4bedd1b792a5558374efb0b3164e05cdc4fafe7cb679c1d253d2dbe4a25496' .and. &
+        trim(normalized(1)%target_expression_sha256) == &
+        '4c800e5a38fc94d3dbc4e0a4263cc5fda2dedd250328c6d8cf3a0e8d2a93d698', &
+        'nullable optional normalization lost the generic source/target identity witness')
+
+    source_less = rules
+    source_less(1)%source_expression_present = .false.
+    source_less(1)%source_expression_sha256 = ''
+    call standardir_grammar_normalize(source_less, normalized, suppressed, ok, message)
+    call require(ok .and. .not. normalized(1)%provenance(1)%source_expression_present .and. &
+        len_trim(normalized(1)%provenance(1)%source_expression_sha256) == 0 .and. &
+        len_trim(normalized(1)%target_expression_sha256) == 64, &
+        'source-less generated provenance did not retain none plus target identity')
+    call verify_source_less_output(source_less)
+
+    call make_many_merged(many_merged)
+    call standardir_grammar_normalize(many_merged, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 1 .and. size(normalized(1)%provenance) == 6, &
+        'merged provenance cardinality was truncated')
+    do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+        call verify_many_merged_lineage(many_merged, format)
+    end do
 
     call make_mutual(mutual)
     call standardir_grammar_normalize(mutual, normalized, suppressed, ok, message)
@@ -406,6 +435,47 @@ contains
         values(2)%source%byte_start = 202
         values(2)%source%byte_length = 8
     end subroutine make_merged
+
+    subroutine make_many_merged(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+        integer :: i
+        character(len=16) :: id, document, clause, hash
+
+        do i = 1, size(values)
+            write (id, '(a,i0)') 'MERGE-', i
+            write (document, '(a,i0)') 'DOC-M', i
+            write (clause, '(a,i0)') '2.', i
+            write (hash, '(a,i0)') 'HASH-M', i
+            call make_simple(values(i), trim(id), i, 'many-merged', 'X', trim(document), trim(clause), i, trim(hash))
+            values(i)%source%byte_start = 100 * i + 1
+            values(i)%source%byte_length = 10 + i
+        end do
+    end subroutine make_many_merged
+
+    subroutine make_nullable_optional(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        values = standardir_grammar_rule_t()
+        values(1)%id = 'NULLABLE-MAIN'
+        values(1)%alternative = 1
+        values(1)%lhs = 'main'
+        values(1)%root = 1
+        allocate (values(1)%nodes%values(3))
+        values(1)%nodes%values = standardir_grammar_node_t()
+        call set_node(values(1)%nodes%values(1), standardir_grammar_optional, '-', 0, .false., 2, 1)
+        call set_node(values(1)%nodes%values(2), standardir_grammar_reference, 'spec', 1, .false., 0, 0)
+        call set_source(values(1), 'DOC-N', '1', 'NULLABLE-MAIN', 1, 'HASH-N1')
+
+        values(2)%id = 'NULLABLE-SPEC'
+        values(2)%alternative = 1
+        values(2)%lhs = 'spec'
+        values(2)%root = 1
+        allocate (values(2)%nodes%values(2))
+        values(2)%nodes%values = standardir_grammar_node_t()
+        call set_node(values(2)%nodes%values(1), standardir_grammar_optional, '-', 0, .false., 2, 1)
+        call set_node(values(2)%nodes%values(2), standardir_grammar_token, 'X', 1, .false., 0, 0)
+        call set_source(values(2), 'DOC-N', '2', 'NULLABLE-SPEC', 2, 'HASH-N2')
+    end subroutine make_nullable_optional
 
     subroutine make_different(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -1073,6 +1143,46 @@ contains
             'merged lineage is absent from downstream format output')
         close (unit)
     end subroutine verify_merged_lineage
+
+    subroutine verify_many_merged_lineage(values, format)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        integer, intent(in) :: format
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open many-merged scratch output')
+        call standardir_grammar_export_batch(unit, values, format, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call read_text(unit, text)
+        call require(index(text, 'source-lineage=MERGE-1:1@101+11,MERGE-2:2@201+12') > 0 .and. &
+            index(text, 'MERGE-6:6@601+16') > 0, 'many-entry source lineage was truncated')
+        call require(index(text, 'target-expression-sha256=8e3ffdacb8701db0afb9cde194b1c08d678223fdc5b9dc8dc028403b8e0ccac1') > 0, &
+            'many-entry target identity was not exported')
+        close (unit)
+    end subroutine verify_many_merged_lineage
+
+    subroutine verify_source_less_output(values)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: format, unit, ios
+        logical :: local_ok
+
+        do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+            open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+            call require(ios == 0, 'could not open source-less scratch output')
+            call standardir_grammar_export_batch(unit, values, format, local_ok, local_message)
+            call require(local_ok, trim(local_message))
+            call read_text(unit, text)
+            call require(index(text, 'source-expression-sha256=none') > 0 .and. &
+                index(text, 'target-expression-sha256=') > 0, &
+                'source-less provenance did not export none and target identity')
+            close (unit)
+        end do
+    end subroutine verify_source_less_output
 
     subroutine verify_reachability_output(values)
         type(standardir_grammar_rule_t), intent(in) :: values(:)

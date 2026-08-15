@@ -18,6 +18,7 @@ module standardir_grammar_reachability
         character(len=128) :: reason = ''
         type(standardir_source_ref_t) :: source
         type(standardir_target_provenance_t), allocatable :: provenance(:)
+        character(len=64) :: target_expression_sha256 = ''
     end type standardir_target_reachability_witness_t
 
     public :: standardir_grammar_select_reachable
@@ -76,6 +77,7 @@ contains
                     item%reason = 'not-reachable-from-declared-roots'
                 end if
                 item%source = values(i)%source
+                item%target_expression_sha256 = values(i)%target_expression_sha256
                 if (allocated(values(i)%provenance)) then
                     item%provenance = values(i)%provenance
                 end if

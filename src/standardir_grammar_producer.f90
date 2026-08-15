@@ -56,6 +56,7 @@ module standardir_grammar_producer
         integer :: root = 0
         type(standardir_grammar_nodes_t) :: nodes
         type(standardir_source_ref_t) :: source
+        logical :: source_expression_present = .true.
         character(len=64) :: source_expression_sha256 = ''
         integer :: origin = 0
         integer :: resolution = 0
@@ -453,6 +454,10 @@ contains
             message = 'grammar source provenance is incomplete'
             return
         end if
+        if (.not. value%source_expression_present .and. len_trim(value%source_expression_sha256) > 0) then
+            message = 'source-less grammar provenance carries a source-expression hash'
+            return
+        end if
         if (value%origin < standardir_grammar_origin_mechanical .or. &
             value%origin > standardir_grammar_origin_differential) then
             message = 'grammar origin is invalid'
@@ -503,7 +508,11 @@ contains
         call schema_runtime_write_space(unit, ok, message)
         call standardir_write_source_inner(value%source, unit, ok, message)
         if (.not. ok) return
-        call write_pair_name(unit, 'source-expression-sha256', value%source_expression_sha256, ok, message)
+        if (value%source_expression_present) then
+            call write_pair_name(unit, 'source-expression-sha256', value%source_expression_sha256, ok, message)
+        else
+            call write_pair_name(unit, 'source-expression-sha256', 'none', ok, message)
+        end if
         if (.not. ok) return
         call write_pair_origin(unit, value%origin, ok, message)
         if (.not. ok) return
@@ -541,6 +550,12 @@ contains
         call read_pair_name(node%children(8), 'source-expression-sha256', &
             value%source_expression_sha256, ok, message)
         if (.not. ok) return
+        if (trim(value%source_expression_sha256) == 'none') then
+            value%source_expression_present = .false.
+            value%source_expression_sha256 = ''
+        else
+            value%source_expression_present = .true.
+        end if
         call read_pair_origin(node%children(9), value%origin, ok, message)
         if (.not. ok) return
         call read_pair_resolution(node%children(10), value%resolution, ok, message)
@@ -555,6 +570,7 @@ contains
         value%lhs = ''
         value%root = 0
         value%source_expression_sha256 = ''
+        value%source_expression_present = .true.
         if (allocated(value%nodes%values)) deallocate (value%nodes%values)
         value%origin = 0
         value%resolution = 0

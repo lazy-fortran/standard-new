@@ -15,13 +15,14 @@ module standardir_syntax_fields
 contains
 
     subroutine standardir_read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
-            ok, message, source_lineage, source_byte_start, source_byte_length, source_expression_hash)
+            ok, message, source_lineage, source_byte_start, source_byte_length, source_expression_hash, &
+            target_expression_hash)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: rule, lhs, document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length, &
-            source_expression_hash
+            source_expression_hash, target_expression_hash
 
         rule = ''
         lhs = ''
@@ -33,6 +34,7 @@ contains
         if (present(source_byte_start)) source_byte_start = ''
         if (present(source_byte_length)) source_byte_length = ''
         if (present(source_expression_hash)) source_expression_hash = ''
+        if (present(target_expression_hash)) target_expression_hash = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count /= 5) then
@@ -48,17 +50,19 @@ contains
         call standardir_read_pair(node%children(3), 'lhs', lhs, ok, message)
         if (.not. ok) return
         call standardir_read_source(node%children(5), document, clause, page, source_hash, ok, message, &
-            source_lineage, source_byte_start, source_byte_length, source_expression_hash=source_expression_hash)
+            source_lineage, source_byte_start, source_byte_length, source_expression_hash=source_expression_hash, &
+            target_expression_hash=target_expression_hash)
     end subroutine standardir_read_syntax_header
 
     subroutine standardir_read_source(node, document, clause, page, source_hash, ok, message, &
-            source_lineage, source_byte_start, source_byte_length, reject_unknown, source_expression_hash)
+            source_lineage, source_byte_start, source_byte_length, reject_unknown, source_expression_hash, &
+            target_expression_hash)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length, &
-            source_expression_hash
+            source_expression_hash, target_expression_hash
         logical, intent(in), optional :: reject_unknown
         integer :: i
 
@@ -70,6 +74,7 @@ contains
         if (present(source_byte_start)) source_byte_start = ''
         if (present(source_byte_length)) source_byte_length = ''
         if (present(source_expression_hash)) source_expression_hash = ''
+        if (present(target_expression_hash)) target_expression_hash = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count < 1) then
@@ -111,6 +116,17 @@ contains
                 if (present(source_expression_hash)) then
                     call standardir_read_pair(node%children(i), 'source-expression-sha256', &
                         source_expression_hash, ok, message)
+                else if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unsupported child'
+                        return
+                    end if
+                end if
+            else if (standardir_atom_equals(node%children(i)%children(1), 'target-expression-sha256')) then
+                if (present(target_expression_hash)) then
+                    call standardir_read_pair(node%children(i), 'target-expression-sha256', &
+                        target_expression_hash, ok, message)
                 else if (present(reject_unknown)) then
                     if (reject_unknown) then
                         ok = .false.

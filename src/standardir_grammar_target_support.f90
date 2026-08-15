@@ -9,6 +9,7 @@ module standardir_grammar_target_support
         standardir_target_rule_t
     use standardir_grammar_target_identity, only: same_provenance, same_provenance_list, same_roles, &
         same_target_rule
+    use standardir_grammar_target_fingerprint, only: standardir_target_expression_sha256
     implicit none
     private
 
@@ -53,7 +54,8 @@ contains
 
         if (.not. any(removed)) then
             factored = values
-            call finish_witness(witness, family_roles, family_provenance)
+            call finish_witness(witness, family_roles, family_provenance, &
+                representative_target_hash(values, trim(config%representative)))
             ok = .true.
             return
         end if
@@ -182,13 +184,15 @@ contains
         deallocate (family_roles, family_provenance)
         allocate (family_roles(0), family_provenance(0))
         call collect_representative_family(factored, trim(representative), family_roles, family_provenance)
-        call finish_witness(witness, family_roles, family_provenance)
+        call finish_witness(witness, family_roles, family_provenance, &
+            representative_target_hash(factored, trim(representative)))
         do i = 1, size(values)
             if (removed(i)) call add_role_family_witness(witness, values(i), family_roles, &
                 family_provenance, trim(representative), standardir_target_role_family_factored, &
                 'whole-unit-alias')
         end do
-        call finish_witness(witness, family_roles, family_provenance)
+        call finish_witness(witness, family_roles, family_provenance, &
+            representative_target_hash(factored, trim(representative)))
         call sort_role_family_witness(witness)
     end subroutine materialize_factored_family
 
@@ -231,6 +235,8 @@ contains
         type(standardir_target_rule_t) :: candidate
         character(len=128), allocatable :: merged_roles(:)
         type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
+        character(len=256) :: local_message
+        logical :: local_ok
 
         candidate = value
         call replace_aliases(candidate%expression, values, removed, representative)
@@ -240,18 +246,23 @@ contains
             call merge_provenance(candidate%provenance, alias_provenance, merged_provenance)
             call move_alloc(merged_provenance, candidate%provenance)
         end if
+        call standardir_target_expression_sha256(candidate%expression, candidate%target_expression_sha256, &
+            local_ok, local_message)
+        if (.not. local_ok) candidate%target_expression_sha256 = ''
         call append_target(factored, candidate)
     end subroutine append_factored_rule
 
-    subroutine finish_witness(values, roles, provenance)
+    subroutine finish_witness(values, roles, provenance, representative_hash)
         type(standardir_target_role_family_witness_t), intent(inout) :: values(:)
         character(len=128), allocatable, intent(in) :: roles(:)
         type(standardir_target_provenance_t), allocatable, intent(in) :: provenance(:)
+        character(len=*), intent(in) :: representative_hash
         integer :: i
 
         do i = 1, size(values)
             values(i)%source_roles = roles
             values(i)%representative_provenance = provenance
+            values(i)%representative_target_expression_sha256 = trim(representative_hash)
         end do
     end subroutine finish_witness
 
@@ -324,6 +335,7 @@ contains
         type(standardir_target_provenance_t), allocatable :: provenance(:), alias_provenance(:)
         type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
         logical, allocatable :: removed(:)
+        logical :: expression_changed
         type(standardir_target_rule_t) :: candidate
         integer :: i, j, index
         character(len=128) :: representative
@@ -354,8 +366,10 @@ contains
         do i = 1, size(before)
             if (removed(i)) cycle
             candidate = before(i)
+            expression_changed = .false.
             if (len_trim(representative) > 0) then
                 call replace_aliases(candidate%expression, before, removed, representative)
+                expression_changed = .not. same_expression(candidate%expression, before(i)%expression)
                 if (trim(candidate%lhs) == representative) then
                     call merge_roles(candidate%source_roles, roles, merged_roles)
                     call move_alloc(merged_roles, candidate%source_roles)
@@ -368,6 +382,11 @@ contains
                     call merge_provenance(candidate%provenance, alias_provenance, merged_provenance)
                     call move_alloc(merged_provenance, candidate%provenance)
                 end if
+            end if
+            if (expression_changed) then
+                call standardir_target_expression_sha256(candidate%expression, &
+                    candidate%target_expression_sha256, ok, message)
+                if (.not. ok) return
             end if
             call append_target(expected, candidate)
         end do
@@ -413,7 +432,9 @@ contains
         call collect_representative_family(after, trim(item%representative_role), expected_roles, &
             expected_provenance)
         ok = same_roles(item%source_roles, expected_roles) .and. &
-            same_provenance_list(item%representative_provenance, expected_provenance)
+            same_provenance_list(item%representative_provenance, expected_provenance) .and. &
+            trim(item%representative_target_expression_sha256) == &
+            trim(representative_target_hash(after, trim(item%representative_role)))
         if (.not. ok) then
             message = 'role-family witness does not match representative target records'
             return
@@ -454,6 +475,8 @@ contains
             return
         end if
         if (ok) ok = same_provenance_list(item%alias_provenance, before(alias_index)%provenance)
+        if (ok) ok = trim(item%alias_target_expression_sha256) == &
+            trim(before(alias_index)%target_expression_sha256)
         if (ok) ok = rule_source_in_lineage(before(alias_index), item%alias_provenance)
         if (.not. ok) then
             message = 'role-family witness does not match the exact source alternative'
@@ -473,6 +496,7 @@ contains
         expected%source = rule%source
         expected%alternative = rule%alternative
         do i = 1, size(lineage)
+            expected%source_expression_present = lineage(i)%source_expression_present
             expected%source_expression_sha256 = lineage(i)%source_expression_sha256
             if (same_provenance(lineage(i), expected)) then
                 rule_source_in_lineage = .true.
@@ -720,8 +744,24 @@ contains
         item%source_roles = family_roles
         item%representative_provenance = family_provenance
         item%alias_provenance = alias%provenance
+        item%alias_target_expression_sha256 = alias%target_expression_sha256
         call append_role_family_witness(values, item)
     end subroutine add_role_family_witness
+
+    function representative_target_hash(values, representative) result(hash)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: representative
+        character(len=64) :: hash
+        integer :: i
+
+        hash = ''
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) == trim(representative)) then
+                hash = values(i)%target_expression_sha256
+                return
+            end if
+        end do
+    end function representative_target_hash
 
     subroutine append_role_family_witness(values, value)
         type(standardir_target_role_family_witness_t), allocatable, intent(inout) :: values(:)
