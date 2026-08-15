@@ -6,7 +6,7 @@ module standardir_grammar_reachability
         standardir_grammar_optional, standardir_grammar_reference, &
         standardir_grammar_repeat, standardir_grammar_sequence
     use standardir_grammar_targetnorm, only: standardir_target_expression_t, &
-        standardir_target_provenance_t, standardir_target_rule_t
+        standardir_target_provenance_t, standardir_target_rule_t, standardir_target_source_witness_t
     implicit none
     private
 
@@ -18,6 +18,7 @@ module standardir_grammar_reachability
         character(len=128) :: reason = ''
         type(standardir_source_ref_t) :: source
         type(standardir_target_provenance_t), allocatable :: provenance(:)
+        type(standardir_target_source_witness_t), allocatable :: source_witnesses(:)
         character(len=64) :: target_expression_sha256 = ''
     end type standardir_target_reachability_witness_t
 
@@ -80,6 +81,9 @@ contains
                 item%target_expression_sha256 = values(i)%target_expression_sha256
                 if (allocated(values(i)%provenance)) then
                     item%provenance = values(i)%provenance
+                end if
+                if (allocated(values(i)%source_witnesses)) then
+                    item%source_witnesses = values(i)%source_witnesses
                 end if
                 call append_witness(witness, item)
             end if

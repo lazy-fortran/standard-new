@@ -2,11 +2,12 @@ module standardir_grammar_target_support
     !! Generic target records and source-backed role-family factoring.
 
     use standardir_grammar_producer, only: standardir_grammar_reference
-    use standardir_grammar_target_records, only: append_expression, append_target, contains_expression, &
-        same_expression, standardir_target_expression_t, standardir_target_provenance_t, &
-        standardir_target_role_family_config_t, standardir_target_role_family_factored, &
-        standardir_target_role_family_rejected, standardir_target_role_family_witness_t, &
-        standardir_target_rule_t
+    use standardir_grammar_target_records, only: append_expression, append_source_witness, append_target, &
+        contains_expression, same_expression, standardir_target_expression_t, &
+        standardir_target_provenance_t, standardir_target_role_family_config_t, &
+        standardir_target_role_family_factored, standardir_target_role_family_rejected, &
+        standardir_target_role_family_witness_t, standardir_target_rule_t, &
+        standardir_target_source_witness_t
     use standardir_grammar_target_identity, only: same_provenance, same_provenance_list, same_roles, &
         same_target_rule
     use standardir_grammar_target_fingerprint, only: standardir_target_expression_sha256
@@ -18,9 +19,12 @@ module standardir_grammar_target_support
     public :: standardir_target_expression_t, standardir_target_provenance_t, standardir_target_rule_t
     public :: standardir_target_role_family_config_t, standardir_target_role_family_factored
     public :: standardir_target_role_family_rejected, standardir_target_role_family_witness_t
-    public :: append_expression, append_name, append_target
+    public :: standardir_target_source_witness_t
+    public :: append_expression, append_name, append_source_witness, append_target
     public :: collect_lhs_names, contains_expression
-    public :: merge_provenance, merge_roles, same_expression, same_provenance
+    public :: dependency_provenance, merge_provenance, merge_roles, merge_source_witnesses, &
+        refresh_source_witnesses, source_witness_exists, &
+        same_expression, same_provenance
 
 contains
 
@@ -251,6 +255,172 @@ contains
         if (.not. local_ok) candidate%target_expression_sha256 = ''
         call append_target(factored, candidate)
     end subroutine append_factored_rule
+
+    subroutine refresh_source_witnesses(values, ok, message)
+        type(standardir_target_rule_t), intent(inout) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, j
+        logical :: requires_witness
+        type(standardir_target_source_witness_t) :: witness
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            call validate_target_provenance(values(i), ok, message)
+            if (.not. ok) return
+            requires_witness = .false.
+            if (allocated(values(i)%provenance)) then
+                requires_witness = size(values(i)%provenance) > 1
+                do j = 1, size(values(i)%provenance)
+                    if (values(i)%provenance(j)%source_expression_present) then
+                        if (trim(values(i)%provenance(j)%source_expression_sha256) /= &
+                            trim(values(i)%target_expression_sha256)) requires_witness = .true.
+                    end if
+                end do
+            end if
+            if (requires_witness .and. allocated(values(i)%provenance)) then
+                if (.not. allocated(values(i)%source_witnesses)) allocate (values(i)%source_witnesses(0))
+                do j = 1, size(values(i)%provenance)
+                    if (.not. values(i)%provenance(j)%source_expression_present) cycle
+                    if (source_witness_exists(values(i)%source_witnesses, values(i)%provenance(j))) cycle
+                    witness = standardir_target_source_witness_t()
+                    witness%source = values(i)%provenance(j)
+                    witness%target_rule_id = trim(values(i)%id)
+                    witness%target_lhs = trim(values(i)%lhs)
+                    witness%target_alternative = values(i)%alternative
+                    witness%reason = 'source-alternative-preservation'
+                    witness%target_expression_sha256 = trim(values(i)%target_expression_sha256)
+                    call append_source_witness(values(i)%source_witnesses, witness)
+                end do
+            end if
+            if (allocated(values(i)%source_witnesses)) then
+                do j = 1, size(values(i)%source_witnesses)
+                    values(i)%source_witnesses(j)%target_rule_id = trim(values(i)%id)
+                    values(i)%source_witnesses(j)%target_lhs = trim(values(i)%lhs)
+                    values(i)%source_witnesses(j)%target_alternative = values(i)%alternative
+                    values(i)%source_witnesses(j)%target_expression_sha256 = &
+                        trim(values(i)%target_expression_sha256)
+                end do
+            end if
+        end do
+        ok = .true.
+        message = ''
+    end subroutine refresh_source_witnesses
+
+    subroutine merge_source_witnesses(left, right, merged)
+        type(standardir_target_source_witness_t), allocatable, intent(in) :: left(:), right(:)
+        type(standardir_target_source_witness_t), allocatable, intent(out) :: merged(:)
+        integer :: i
+
+        allocate (merged(0))
+        if (allocated(left)) then
+            do i = 1, size(left)
+                call append_unique_source_witness(merged, left(i))
+            end do
+        end if
+        if (allocated(right)) then
+            do i = 1, size(right)
+                call append_unique_source_witness(merged, right(i))
+            end do
+        end if
+    end subroutine merge_source_witnesses
+
+    subroutine append_unique_source_witness(values, value)
+        type(standardir_target_source_witness_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_source_witness_t), intent(in) :: value
+        integer :: i
+
+        if (allocated(values)) then
+            do i = 1, size(values)
+                if (same_provenance(values(i)%source, value%source)) return
+            end do
+        end if
+        call append_source_witness(values, value)
+    end subroutine append_unique_source_witness
+
+    subroutine validate_target_provenance(value, ok, message)
+        type(standardir_target_rule_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .false.
+        message = ''
+        if (.not. allocated(value%provenance)) then
+            message = 'target rule has no provenance lineage'
+            return
+        end if
+        do i = 1, size(value%provenance)
+            if (.not. value%provenance(i)%source_expression_present .and. &
+                len_trim(value%provenance(i)%source_expression_sha256) > 0) then
+                message = 'source-less target provenance carries a source-expression hash'
+                return
+            end if
+            if (value%provenance(i)%source_expression_present .and. &
+                len_trim(value%provenance(i)%source_expression_sha256) == 0) then
+                message = 'source-backed target provenance lacks a source-expression hash'
+                return
+            end if
+        end do
+        ok = .true.
+    end subroutine validate_target_provenance
+
+    logical function source_witness_exists(values, source)
+        type(standardir_target_source_witness_t), allocatable, intent(in) :: values(:)
+        type(standardir_target_provenance_t), intent(in) :: source
+        integer :: i
+
+        source_witness_exists = .false.
+        if (.not. allocated(values)) return
+        do i = 1, size(values)
+            if (same_provenance(values(i)%source, source)) then
+                source_witness_exists = .true.
+                return
+            end if
+        end do
+    end function source_witness_exists
+
+    subroutine dependency_provenance(input, output)
+        type(standardir_target_provenance_t), allocatable, intent(in) :: input(:)
+        type(standardir_target_provenance_t), allocatable, intent(out) :: output(:)
+        integer :: i
+
+        allocate (output(0))
+        if (.not. allocated(input)) return
+        do i = 1, size(input)
+            call append_dependency(output, input(i))
+        end do
+    end subroutine dependency_provenance
+
+    subroutine append_dependency(values, value)
+        type(standardir_target_provenance_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_provenance_t), intent(in) :: value
+        type(standardir_target_provenance_t) :: dependency
+        type(standardir_target_provenance_t), allocatable :: expanded(:)
+        integer :: i, n
+
+        do i = 1, size(values)
+            if (values(i)%alternative == value%alternative .and. &
+                trim(values(i)%source%document) == trim(value%source%document) .and. &
+                trim(values(i)%source%clause) == trim(value%source%clause) .and. &
+                trim(values(i)%source%rule) == trim(value%source%rule) .and. &
+                values(i)%source%page == value%source%page .and. &
+                values(i)%source%end_page == value%source%end_page .and. &
+                values(i)%source%byte_start == value%source%byte_start .and. &
+                values(i)%source%byte_length == value%source%byte_length .and. &
+                trim(values(i)%source%source_hash) == trim(value%source%source_hash)) return
+        end do
+        dependency = value
+        dependency%source_expression_present = .false.
+        dependency%source_expression_sha256 = ''
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = dependency
+        call move_alloc(expanded, values)
+    end subroutine append_dependency
 
     subroutine finish_witness(values, roles, provenance, representative_hash)
         type(standardir_target_role_family_witness_t), intent(inout) :: values(:)

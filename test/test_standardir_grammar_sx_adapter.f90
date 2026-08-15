@@ -28,6 +28,10 @@ program test_standardir_grammar_sx_adapter
         '(source (document DOC) (clause C) (rule RULE-A) (page 42) '// &
         '(source-sha256 HASH)))'
     character(len=*), parameter :: non_ascii_expression_text = '(seq (token –))'
+    character(len=*), parameter :: lexical_source_text = &
+        '(syntax R1010 (lhs unicode) (rhs (seq (token –))) '// &
+        '(source (document DOC) (clause 5) (rule R1010) (page 69) '// &
+        '(byte-start 701) (byte-length 18) (source-sha256 HASH)))'
     character(len=*), parameter :: program_text = &
         '(syntax R502 (lhs program-unit) (rhs (alt (seq (ref main-program)) '// &
         '(seq (ref external-subprogram)) (seq (ref module)) '// &
@@ -36,7 +40,7 @@ program test_standardir_grammar_sx_adapter
         '(source-sha256 HASH)))'
     character(len=65536) :: deep_text
     character(len=256) :: message
-    type(sx_node_t) :: node
+    type(sx_node_t) :: node, raw_node, target_node
     type(standardir_grammar_rule_t), allocatable :: values(:)
     type(standardir_grammar_rule_t), allocatable :: wrong_values(:)
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
@@ -93,8 +97,8 @@ program test_standardir_grammar_sx_adapter
     wrong_values = values
     wrong_values(1)%source_expression_sha256 = repeat('0', 64)
     call standardir_grammar_normalize(wrong_values, normalized, suppressed, ok, message)
-    call require(.not. ok .and. index(message, 'source-expression fingerprint') > 0, &
-        'wrong source-expression fingerprint was accepted')
+    call require(ok .and. trim(normalized(1)%provenance(1)%source_expression_sha256) == repeat('0', 64), &
+        'source identity was recomputed from a target tree')
     deallocate (wrong_values)
     call standardir_grammar_normalize(values, normalized, suppressed, ok, message)
     call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 0, &
@@ -103,6 +107,23 @@ program test_standardir_grammar_sx_adapter
         normalized(1)%expression%name /= normalized(2)%expression%name .or. &
         normalized(1)%expression%children(1)%kind /= normalized(2)%expression%children(1)%kind, &
         'normalized alternatives lost their distinct structure')
+    deallocate (values)
+
+    call sx_parse(lexical_source_text, raw_node, ok, message)
+    call require(ok, message)
+    target_node = raw_node
+    target_node%children(4)%children(2)%children(2)%children(1)%atom = 'ref'
+    call standardir_grammar_adapt_sx(target_node, standardir_grammar_origin_mechanical, &
+        standardir_grammar_resolution_resolved, values, ok, message, source_node=raw_node)
+    call require(ok .and. size(values) == 1, 'lexical target adaptation failed')
+    call standardir_grammar_source_expression_sha256(raw_node%children(4)%children(2), &
+        expected_fingerprint, ok, message)
+    call require(ok .and. trim(values(1)%source_expression_sha256) == trim(expected_fingerprint), &
+        'lexical rewrite lost the raw source expression identity')
+    call standardir_grammar_normalize(values, normalized, suppressed, ok, message)
+    call require(ok .and. trim(normalized(1)%provenance(1)%source_expression_sha256) == &
+        trim(expected_fingerprint) .and. trim(normalized(1)%target_expression_sha256) /= &
+        trim(expected_fingerprint), 'lexical source and target identities were conflated')
     deallocate (values)
 
     call sx_parse(program_text, node, ok, message)

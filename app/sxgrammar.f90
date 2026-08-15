@@ -8,6 +8,7 @@ program sxgrammar
         standardir_grammar_disposition_omitted_root, standardir_grammar_disposition_selected, &
         standardir_grammar_disposition_t
     use standardir_grammar_export, only: standardir_grammar_export_batch, &
+        standardir_grammar_emit_source_disposition, &
         standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
         standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
     use standardir_grammar_producer, only: standardir_grammar_rule_t
@@ -36,7 +37,8 @@ program sxgrammar
     type(standardir_grammar_disposition_t), allocatable :: dispositions(:)
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
-    logical :: ok, selected_mode
+    integer :: i, j
+    logical :: ok, selected_mode, source_node_found
 
     argc = command_argument_count()
     selected_mode = .false.
@@ -118,6 +120,25 @@ program sxgrammar
         call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names)
     end if
     if (.not. ok) call fail_output(output_unit, message)
+    if (selected_mode) then
+        do i = 1, size(dispositions)
+            if (dispositions(i)%disposition /= standardir_grammar_disposition_omitted_root) cycle
+            source_node_found = .false.
+            do j = 1, records
+                if (.not. source_node_matches(nodes(j), dispositions(i)%source%rule, dispositions(i)%name)) cycle
+                call standardir_grammar_emit_source_disposition(output_unit, format, nodes(j), &
+                    'omitted-'//trim(dispositions(i)%name), dispositions(i)%name, &
+                    'omitted-before-target-lowering', ok, message)
+                if (.not. ok) call fail_output(output_unit, message)
+                source_node_found = .true.
+                exit
+            end do
+            if (.not. source_node_found) then
+                call fail_output(output_unit, 'omitted root has no source syntax record: '// &
+                    trim(dispositions(i)%name))
+            end if
+        end do
+    end if
     select case (format)
     case (standardir_grammar_format_ebnf)
         call standardir_lexical_emit_ebnf(output_unit, lexical, ok, message)
@@ -140,6 +161,21 @@ program sxgrammar
     if (selected_mode) call print_dispositions(dispositions)
 
 contains
+
+    logical function source_node_matches(node, source_rule, source_lhs)
+        type(sx_node_t), intent(in) :: node
+        character(len=*), intent(in) :: source_rule, source_lhs
+
+        source_node_matches = .false.
+        if (node%kind /= sx_list .or. node%child_count < 4) return
+        if (node%children(2)%kind /= sx_atom .or. node%children(3)%kind /= sx_list) return
+        if (trim(node%children(2)%atom) /= trim(source_rule)) return
+        if (node%children(3)%child_count /= 2) return
+        if (node%children(3)%children(1)%kind /= sx_atom .or. &
+            trim(node%children(3)%children(1)%atom) /= 'lhs') return
+        if (node%children(3)%children(2)%kind /= sx_atom) return
+        source_node_matches = trim(node%children(3)%children(2)%atom) == trim(source_lhs)
+    end function source_node_matches
 
     subroutine read_syntax_file(path, values, count, ok, message)
         character(len=*), intent(in) :: path

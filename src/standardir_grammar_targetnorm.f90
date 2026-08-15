@@ -8,11 +8,13 @@ module standardir_grammar_targetnorm
         standardir_grammar_sequence, standardir_grammar_token, &
         standardir_grammar_validate
     use standardir_grammar_target_support, only: append_expression, append_target, &
-        collect_lhs_names, contains_expression, merge_provenance, merge_roles, &
+        append_source_witness, collect_lhs_names, contains_expression, dependency_provenance, &
+        merge_provenance, merge_roles, merge_source_witnesses, &
+        refresh_source_witnesses, source_witness_exists, &
         same_expression, standardir_target_expression_t, standardir_target_provenance_t, &
         standardir_target_role_family_config_t, standardir_target_role_family_factored, &
         standardir_target_role_family_rejected, standardir_target_role_family_witness_t, &
-        standardir_target_rule_t, standardir_grammar_factor_role_family, &
+        standardir_target_rule_t, standardir_target_source_witness_t, standardir_grammar_factor_role_family, &
         standardir_grammar_validate_role_family_witness
     use standardir_grammar_target_fingerprint, only: standardir_target_expression_sha256
     implicit none
@@ -21,8 +23,10 @@ module standardir_grammar_targetnorm
     public :: standardir_grammar_normalize
     public :: standardir_grammar_factor_role_family
     public :: standardir_grammar_validate_role_family_witness
+    public :: refresh_source_witnesses
     public :: standardir_target_expression_t
     public :: standardir_target_provenance_t
+    public :: standardir_target_source_witness_t
     public :: standardir_target_role_family_config_t
     public :: standardir_target_role_family_factored
     public :: standardir_target_role_family_rejected
@@ -78,6 +82,8 @@ contains
         if (.not. ok) return
         call refresh_target_expression_hashes(working, ok, message)
         if (.not. ok) return
+        call refresh_source_witnesses(working, ok, message)
+        if (.not. ok) return
         if (size(working) < 1) then
             message = 'grammar normalization removed every alternative'
             return
@@ -110,7 +116,8 @@ contains
         type(standardir_target_rule_t), intent(out) :: value
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
-        character(len=64) :: source_expression_sha256
+        character(len=64) :: target_expression_sha256
+        type(standardir_target_source_witness_t) :: source_witness
 
         call standardir_grammar_validate(rule, ok, message)
         if (.not. ok) return
@@ -129,18 +136,27 @@ contains
         value%provenance(1)%source_expression_present = rule%source_expression_present
         call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
         if (.not. ok) return
-        call standardir_target_expression_sha256(value%expression, source_expression_sha256, ok, message)
+        call standardir_target_expression_sha256(value%expression, target_expression_sha256, ok, message)
         if (.not. ok) return
-        if (rule%source_expression_present .and. len_trim(rule%source_expression_sha256) > 0 .and. &
-            trim(rule%source_expression_sha256) /= trim(source_expression_sha256)) then
-            message = 'source-expression fingerprint does not match the canonical source expression'
-            ok = .false.
-            return
-        end if
         if (rule%source_expression_present) then
-            value%provenance(1)%source_expression_sha256 = source_expression_sha256
+            if (len_trim(rule%source_expression_sha256) > 0) then
+                value%provenance(1)%source_expression_sha256 = trim(rule%source_expression_sha256)
+            else
+                value%provenance(1)%source_expression_sha256 = target_expression_sha256
+            end if
         end if
-        value%target_expression_sha256 = source_expression_sha256
+        value%target_expression_sha256 = target_expression_sha256
+        if (rule%source_expression_present) then
+            allocate (value%source_witnesses(1))
+            source_witness = standardir_target_source_witness_t()
+            source_witness%source = value%provenance(1)
+            source_witness%target_rule_id = trim(value%id)
+            source_witness%target_lhs = trim(value%lhs)
+            source_witness%target_alternative = value%alternative
+            source_witness%reason = 'source-alternative-preservation'
+            source_witness%target_expression_sha256 = trim(value%target_expression_sha256)
+            value%source_witnesses(1) = source_witness
+        end if
         allocate (value%source_roles(1))
         value%source_roles(1) = trim(rule%lhs)
         value%origin = rule%origin
@@ -372,6 +388,7 @@ contains
 
         type(standardir_target_rule_t), allocatable :: unique(:)
         type(standardir_target_provenance_t), allocatable :: merged(:)
+        type(standardir_target_source_witness_t), allocatable :: merged_witnesses(:)
         character(len=128), allocatable :: merged_roles(:)
         integer :: i, j
         logical :: duplicate
@@ -385,6 +402,9 @@ contains
                     duplicate = .true.
                     call merge_provenance(unique(j)%provenance, values(i)%provenance, merged)
                     call move_alloc(merged, unique(j)%provenance)
+                    call merge_source_witnesses(unique(j)%source_witnesses, values(i)%source_witnesses, &
+                        merged_witnesses)
+                    call move_alloc(merged_witnesses, unique(j)%source_witnesses)
                     call merge_roles(unique(j)%source_roles, values(i)%source_roles, merged_roles)
                     call move_alloc(merged_roles, unique(j)%source_roles)
                     exit
@@ -533,6 +553,7 @@ contains
         type(standardir_target_rule_t), allocatable :: replaced(:)
         type(standardir_target_rule_t) :: candidate
         type(standardir_target_expression_t) :: tail, expression
+        type(standardir_target_source_witness_t), allocatable :: merged_witnesses(:)
         integer :: i, j
         logical :: found
 
@@ -560,6 +581,9 @@ contains
                 candidate%source = source(j)%source
                 call merge_provenance(source(j)%provenance, values(i)%provenance, &
                     candidate%provenance)
+                call merge_source_witnesses(source(j)%source_witnesses, values(i)%source_witnesses, &
+                    merged_witnesses)
+                call move_alloc(merged_witnesses, candidate%source_witnesses)
                 call merge_roles(source(j)%source_roles, values(i)%source_roles, &
                     candidate%source_roles)
                 candidate%alternative = source(j)%alternative
@@ -647,6 +671,8 @@ contains
         if (.not. ok) return
         do i = 1, size(recursive_rules)
             item = recursive_rules(i)
+            call preserve_source_witnesses(item, recursive_rules(i)%provenance, 'generated-helper')
+            call dependency_provenance(recursive_rules(i)%provenance, item%provenance)
             item%id = derived_id(item%id, -1)
             if (i > 1) item%id = derived_id(item%id, i)
             item%lhs = helper_lhs
@@ -671,6 +697,29 @@ contains
         ok = .true.
         message = ''
     end subroutine eliminate_direct_group
+
+    subroutine preserve_source_witnesses(value, provenance, reason)
+        type(standardir_target_rule_t), intent(inout) :: value
+        type(standardir_target_provenance_t), allocatable, intent(in) :: provenance(:)
+        character(len=*), intent(in) :: reason
+        type(standardir_target_source_witness_t) :: witness
+        integer :: i
+
+        if (.not. allocated(provenance)) return
+        do i = 1, size(provenance)
+            if (.not. provenance(i)%source_expression_present) cycle
+            witness = standardir_target_source_witness_t()
+            witness%source = provenance(i)
+            witness%target_rule_id = trim(value%id)
+            witness%target_lhs = trim(value%lhs)
+            witness%target_alternative = value%alternative
+            witness%reason = trim(reason)
+            witness%target_expression_sha256 = trim(value%target_expression_sha256)
+            if (.not. source_witness_exists(value%source_witnesses, provenance(i))) then
+                call append_source_witness(value%source_witnesses, witness)
+            end if
+        end do
+    end subroutine preserve_source_witnesses
 
     subroutine replace_lhs(values, lhs, replacement)
         type(standardir_target_rule_t), allocatable, intent(inout) :: values(:)

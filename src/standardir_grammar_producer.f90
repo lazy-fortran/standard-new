@@ -455,6 +455,7 @@ contains
             return
         end if
         if (.not. value%source_expression_present .and. len_trim(value%source_expression_sha256) > 0) then
+            ok = .false.
             message = 'source-less grammar provenance carries a source-expression hash'
             return
         end if

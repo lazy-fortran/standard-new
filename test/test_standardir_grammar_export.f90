@@ -1,6 +1,7 @@
 program test_standardir_grammar_export
     !! Independent format text is the oracle for the normalized batch boundary.
 
+    use, intrinsic :: iso_fortran_env, only: int64
     use standardir_grammar_export
     use standardir_grammar_producer, only: standardir_grammar_node_t, &
         standardir_grammar_origin_human, standardir_grammar_reference, &
@@ -128,6 +129,12 @@ program test_standardir_grammar_export
         'nullable wrapper and singleton sequence were not simplified')
 
     call make_direct(direct)
+    direct(1)%source%byte_start = 401
+    direct(1)%source%byte_length = 11
+    direct(1)%source_expression_sha256 = 'RAW-REC-1'
+    direct(2)%source%byte_start = 402
+    direct(2)%source%byte_length = 12
+    direct(2)%source_expression_sha256 = 'RAW-REC-2'
     call standardir_grammar_normalize(direct, normalized, suppressed, ok, message)
     call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 1, &
         'direct normalization failed: '//trim(message))
@@ -137,6 +144,16 @@ program test_standardir_grammar_export
         'direct left recursion was not transformed into a generic helper')
     call require(direct_witnesses_preserved(normalized), &
         'direct left-recursion witness structure changed')
+    call require(has_source_witness(normalized, 'REC-1', 1, 401_int64, 11_int64, 'RAW-REC-1') .and. &
+        has_source_witness(normalized, 'REC-2', 2, 402_int64, 12_int64, 'RAW-REC-2'), &
+        'direct left-recursion source-key coverage is incomplete')
+    call require(.not. normalized(2)%provenance(1)%source_expression_present .and. &
+        len_trim(normalized(2)%provenance(1)%source_expression_sha256) == 0 .and. &
+        len_trim(normalized(2)%target_expression_sha256) == 64, &
+        'generated helper source-less typing is incomplete')
+    normalized(2)%provenance(1)%source_expression_sha256 = 'mutated-helper-hash'
+    call refresh_source_witnesses(normalized, ok, message)
+    call require(.not. ok, 'generated helper source-less mutation was accepted')
     do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
         call verify_transform_output(direct, format, 'expr__left_recursion')
     end do
@@ -179,6 +196,11 @@ program test_standardir_grammar_export
         len_trim(normalized(1)%target_expression_sha256) == 64, &
         'source-less generated provenance did not retain none plus target identity')
     call verify_source_less_output(source_less)
+    source_less(1)%source_expression_sha256 = 'mutated-source-hash'
+    call require(.not. source_less(1)%source_expression_present .and. &
+        len_trim(source_less(1)%source_expression_sha256) > 0, 'source-less mutation fixture was not set')
+    call standardir_grammar_normalize(source_less, normalized, suppressed, ok, message)
+    call require(.not. ok, 'source-less helper mutation was accepted: '//trim(message))
 
     call make_many_merged(many_merged)
     call standardir_grammar_normalize(many_merged, normalized, suppressed, ok, message)
@@ -703,6 +725,29 @@ contains
         end if
     end function direct_witnesses_preserved
 
+    logical function has_source_witness(values, source_rule, alternative, byte_start, byte_length, hash)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: source_rule, hash
+        integer(int64), intent(in) :: byte_start, byte_length
+        integer, intent(in) :: alternative
+        integer :: i, j
+
+        has_source_witness = .false.
+        do i = 1, size(values)
+            if (.not. allocated(values(i)%source_witnesses)) cycle
+            do j = 1, size(values(i)%source_witnesses)
+                if (trim(values(i)%source_witnesses(j)%source%source%rule) == trim(source_rule) .and. &
+                    values(i)%source_witnesses(j)%source%alternative == alternative .and. &
+                    values(i)%source_witnesses(j)%source%source%byte_start == byte_start .and. &
+                    values(i)%source_witnesses(j)%source%source%byte_length == byte_length .and. &
+                    trim(values(i)%source_witnesses(j)%source%source_expression_sha256) == trim(hash)) then
+                    has_source_witness = .true.
+                    return
+                end if
+            end do
+        end do
+    end function has_source_witness
+
     logical function no_left_corner(values)
         type(standardir_target_rule_t), intent(in) :: values(:)
         integer :: i
@@ -1123,6 +1168,14 @@ contains
         call require(index(text, 'source-lineage=REC-1:') > 0 .and. &
             index(text, 'source-lineage=REC-2:') > 0, &
             'left-recursion source mapping is absent from target output')
+        call require(index(text, 'target-source-preservation target-rule=REC-1__left_recursion_helper') > 0 .and. &
+            index(text, 'source-rule=REC-1 source-alternative=1 source-page=1 '// &
+            'source-byte-start=401 source-byte-length=11 source-sha256=HASH-R1 '// &
+            'source-lineage=REC-1:1@401+11 source-expression-sha256=RAW-REC-1') > 0 .and. &
+            index(text, 'source-rule=REC-2 source-alternative=2 source-page=2 '// &
+            'source-byte-start=402 source-byte-length=12 source-sha256=HASH-R2 '// &
+            'source-lineage=REC-2:2@402+12 source-expression-sha256=RAW-REC-2') > 0, &
+            'left-recursion source-preservation witness coverage is incomplete')
         close (unit)
     end subroutine verify_transform_output
 

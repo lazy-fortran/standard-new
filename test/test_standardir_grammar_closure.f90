@@ -9,6 +9,7 @@ program test_standardir_grammar_closure
         standardir_grammar_disposition_omitted_root, standardir_grammar_disposition_selected, &
         standardir_grammar_disposition_t
     use standardir_grammar_producer, only: standardir_grammar_reference, standardir_grammar_rule_t
+    use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     use standardir_lexical, only: standardir_lexical_facts_t
     use standardir_reference_closure, only: closure_classification_t, closure_kind_list, &
         closure_kind_semantic_only, closure_kind_unresolved
@@ -42,6 +43,7 @@ program test_standardir_grammar_closure
     character(len=128), allocatable :: semantic_skipped_names(:)
     integer :: i, semantic_skipped, lexical_closed
     logical :: ok
+    character(len=64) :: raw_expression_hash
 
     call parse_node(first_text, nodes(1))
     call parse_node(second_text, nodes(2))
@@ -118,7 +120,7 @@ program test_standardir_grammar_closure
 
     call parse_node('(syntax R3 (lhs unicode) (rhs (seq (token –))) '// &
         '(source (document DOC) (clause 5) (rule R3) (page 3) '// &
-        '(source-sha256 '//hash//')))', lexical_node)
+        '(byte-start 703) (byte-length 18) (source-sha256 '//hash//')))', lexical_node)
     lexical = standardir_lexical_facts_t()
     lexical%count = 1
     lexical%facts(1)%source_term = '–'
@@ -143,6 +145,11 @@ program test_standardir_grammar_closure
     call require(rules(1)%nodes%values(2)%kind == standardir_grammar_reference .and. &
         trim(rules(1)%nodes%values(2)%name) == '–', &
         'source lexical token did not become a target reference')
+    call standardir_grammar_source_expression_sha256(lexical_node%children(4)%children(2), &
+        raw_expression_hash, ok, message)
+    call require(ok .and. trim(rules(1)%source_expression_sha256) == trim(raw_expression_hash) .and. &
+        rules(1)%source%byte_start == 703 .and. rules(1)%source%byte_length == 18, &
+        'lexical closure lost the exact raw source key')
 
     print '(a)', 'StandardIR grammar closure test passed'
 

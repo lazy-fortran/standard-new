@@ -7,16 +7,20 @@ module standardir_grammar_export
     use standardir_grammar_export_support, only: standardir_grammar_apply_role_family, &
         standardir_grammar_validate_export_input
     use standardir_grammar_producer, only: standardir_grammar_choice, &
+        standardir_grammar_origin_mechanical, standardir_grammar_resolution_resolved, &
         standardir_grammar_optional, standardir_grammar_reference, &
         standardir_grammar_repeat, standardir_grammar_rule_t, &
         standardir_grammar_sequence, standardir_grammar_token
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
         standardir_grammar_factor_role_family, standardir_grammar_validate_role_family_witness, &
+        refresh_source_witnesses, &
         standardir_target_expression_t, &
         standardir_target_provenance_t, standardir_target_role_family_config_t, &
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
-        standardir_target_role_family_witness_t, standardir_target_rule_t
+        standardir_target_role_family_witness_t, standardir_target_rule_t, &
+        standardir_target_source_witness_t
     use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
+    use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
     use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
         standardir_grammar_validate_reachability, standardir_target_reachability_witness_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
@@ -34,8 +38,10 @@ module standardir_grammar_export
     public :: standardir_grammar_normalize
     public :: standardir_grammar_factor_role_family
     public :: standardir_grammar_validate_role_family_witness
+    public :: refresh_source_witnesses
     public :: standardir_target_expression_t
     public :: standardir_target_provenance_t
+    public :: standardir_target_source_witness_t
     public :: standardir_target_role_family_config_t
     public :: standardir_target_role_family_factored
     public :: standardir_target_role_family_rejected
@@ -45,6 +51,7 @@ module standardir_grammar_export
     public :: standardir_grammar_select_reachable
     public :: standardir_grammar_validate_reachability
     public :: standardir_grammar_source_expression_sha256
+    public :: standardir_grammar_emit_source_disposition
 
 contains
 
@@ -131,6 +138,11 @@ contains
                     return
                 end if
             end if
+        end if
+        call emit_source_preservation_witnesses(scratch, format, normalized, ok, message)
+        if (.not. ok) then
+            close (scratch)
+            return
         end if
         call emit_groups(scratch, nodes, groups, group_count, format, ok, message)
         if (.not. ok) then
@@ -229,6 +241,8 @@ contains
             call write_witness_field(unit, 'source-expression-sha256', trim(expression_hashes))
             call write_witness_field(unit, 'target-expression-sha256', &
                 trim(values(i)%target_expression_sha256))
+            call write_witness_field(unit, 'source-preservation', &
+                source_witness_text(values(i)%source_witnesses))
             select case (format)
             case (standardir_grammar_format_ebnf)
                 write (unit, '(a)') ' *)'
@@ -241,6 +255,136 @@ contains
         ok = .true.
         message = ''
     end subroutine emit_reachability_witness
+
+    subroutine emit_source_preservation_witnesses(unit, format, values, ok, message)
+        integer, intent(in) :: unit, format
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i, j
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            if (.not. allocated(values(i)%source_witnesses)) cycle
+            do j = 1, size(values(i)%source_witnesses)
+                select case (format)
+                case (standardir_grammar_format_ebnf)
+                    write (unit, '(a)', advance='no') '(* target-source-preservation'
+                case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                    write (unit, '(a)', advance='no') '// target-source-preservation'
+                case (standardir_grammar_format_bison)
+                    write (unit, '(a)', advance='no') '/* target-source-preservation'
+                case default
+                    message = 'source-preservation witness format is unsupported'
+                    return
+                end select
+                call write_source_witness_fields(unit, values(i)%source_witnesses(j))
+                select case (format)
+                case (standardir_grammar_format_ebnf)
+                    write (unit, '(a)') ' *)'
+                case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                    write (unit, '(a)') ''
+                case (standardir_grammar_format_bison)
+                    write (unit, '(a)') ' */'
+                end select
+            end do
+        end do
+        ok = .true.
+        message = ''
+    end subroutine emit_source_preservation_witnesses
+
+    subroutine standardir_grammar_emit_source_disposition(unit, format, source_node, target_rule, &
+            target_lhs, reason, ok, message)
+        integer, intent(in) :: unit, format
+        type(sx_node_t), intent(in) :: source_node
+        character(len=*), intent(in) :: target_rule, target_lhs, reason
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_grammar_rule_t), allocatable :: values(:)
+        type(standardir_target_source_witness_t) :: witness
+        integer :: i
+
+        ok = .false.
+        message = ''
+        call standardir_grammar_adapt_sx(source_node, standardir_grammar_origin_mechanical, &
+            standardir_grammar_resolution_resolved, values, ok, message)
+        if (.not. ok) return
+        do i = 1, size(values)
+            witness = standardir_target_source_witness_t()
+            witness%source%source = values(i)%source
+            witness%source%alternative = values(i)%alternative
+            witness%source%source_expression_present = .true.
+            witness%source%source_expression_sha256 = values(i)%source_expression_sha256
+            witness%target_rule_id = trim(target_rule)
+            witness%target_lhs = trim(target_lhs)
+            witness%target_alternative = values(i)%alternative
+            witness%reason = trim(reason)
+            witness%target_expression_sha256 = values(i)%source_expression_sha256
+            call emit_source_witness_line(unit, format, witness, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_emit_source_disposition
+
+    subroutine emit_source_witness_line(unit, format, value, ok, message)
+        integer, intent(in) :: unit, format
+        type(standardir_target_source_witness_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        select case (format)
+        case (standardir_grammar_format_ebnf)
+            write (unit, '(a)', advance='no') '(* target-source-preservation'
+        case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+            write (unit, '(a)', advance='no') '// target-source-preservation'
+        case (standardir_grammar_format_bison)
+            write (unit, '(a)', advance='no') '/* target-source-preservation'
+        case default
+            message = 'source-preservation witness format is unsupported'
+            return
+        end select
+        call write_source_witness_fields(unit, value)
+        select case (format)
+        case (standardir_grammar_format_ebnf)
+            write (unit, '(a)') ' *)'
+        case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+            write (unit, '(a)') ''
+        case (standardir_grammar_format_bison)
+            write (unit, '(a)') ' */'
+        end select
+        ok = .true.
+        message = ''
+    end subroutine emit_source_witness_line
+
+    subroutine write_source_witness_fields(unit, value)
+        integer, intent(in) :: unit
+        type(standardir_target_source_witness_t), intent(in) :: value
+        character(len=32) :: alternative
+
+        write (alternative, '(i0)') value%source%source%page
+        call write_witness_field(unit, 'target-rule', trim(value%target_rule_id))
+        call write_witness_field(unit, 'target-lhs', trim(value%target_lhs))
+        call write_witness_field(unit, 'target-alternative', integer_text(value%target_alternative))
+        call write_witness_field(unit, 'reason', trim(value%reason))
+        call write_witness_field(unit, 'source-document', trim(value%source%source%document))
+        call write_witness_field(unit, 'source-clause', trim(value%source%source%clause))
+        call write_witness_field(unit, 'source-rule', trim(value%source%source%rule))
+        call write_witness_field(unit, 'source-alternative', integer_text(value%source%alternative))
+        call write_witness_field(unit, 'source-page', trim(alternative))
+        call write_witness_field(unit, 'source-byte-start', integer64_text(value%source%source%byte_start))
+        call write_witness_field(unit, 'source-byte-length', integer64_text(value%source%source%byte_length))
+        call write_witness_field(unit, 'source-sha256', trim(value%source%source%source_hash))
+        call write_witness_field(unit, 'source-lineage', provenance_item_text(value%source))
+        call write_witness_field(unit, 'source-expression-sha256', &
+            trim(value%source%source_expression_sha256))
+        call write_witness_field(unit, 'target-expression-sha256', &
+            trim(value%target_expression_sha256))
+    end subroutine write_source_witness_fields
 
     subroutine emit_role_family_witness(unit, format, values, ok, message)
         integer, intent(in) :: unit, format
@@ -696,6 +840,48 @@ contains
         end do
         if (len_trim(text) == 0) text = 'none'
     end function provenance_expression_text
+
+    function source_witness_text(values) result(text)
+        type(standardir_target_source_witness_t), allocatable, intent(in) :: values(:)
+        character(len=:), allocatable :: text
+        character(len=512) :: item
+        integer :: i, length, position, total
+
+        if (.not. allocated(values)) then
+            text = 'none'
+            return
+        end if
+        total = 0
+        do i = 1, size(values)
+            write (item, '(a,":",i0)') trim(values(i)%source%source%rule), &
+                values(i)%source%alternative
+            total = total + len_trim(item)
+        end do
+        total = total + max(0, size(values) - 1)
+        allocate (character(len=max(1, total)) :: text)
+        text = repeat(' ', len(text))
+        position = 1
+        do i = 1, size(values)
+            if (i > 1) then
+                text(position:position) = ','
+                position = position + 1
+            end if
+            write (item, '(a,":",i0)') trim(values(i)%source%source%rule), &
+                values(i)%source%alternative
+            length = len_trim(item)
+            text(position:position + length - 1) = trim(item)
+            position = position + length
+        end do
+        if (len_trim(text) == 0) text = 'none'
+    end function source_witness_text
+
+    function provenance_item_text(value) result(text)
+        type(standardir_target_provenance_t), intent(in) :: value
+        character(len=512) :: text
+
+        write (text, '(a,":",i0,"@",i0,"+",i0)') trim(value%source%rule), &
+            value%alternative, value%source%byte_start, value%source%byte_length
+    end function provenance_item_text
 
     function role_text(values) result(text)
         character(len=128), allocatable, intent(in) :: values(:)

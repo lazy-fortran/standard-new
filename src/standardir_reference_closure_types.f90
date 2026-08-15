@@ -46,6 +46,12 @@ module standardir_reference_closure_types
         type(standardir_source_ref_t) :: source
     end type closure_classification_t
 
+    type, public :: closure_source_witness_t
+        type(standardir_source_ref_t) :: source
+        integer :: alternative = 0
+        character(len=64) :: source_expression_sha256 = ''
+    end type closure_source_witness_t
+
     type, public :: closure_record_t
         character(len=closure_max_name_length) :: id = ''
         character(len=closure_max_name_length) :: lhs = ''
@@ -59,6 +65,8 @@ module standardir_reference_closure_types
         character(len=closure_max_name_length) :: target = ''
         character(len=closure_max_name_length) :: separator = ''
         character(len=closure_max_name_length) :: terminal = ''
+        logical :: source_witness_present = .false.
+        type(closure_source_witness_t) :: source_witness
     end type closure_record_t
 
     type, public :: closure_result_t

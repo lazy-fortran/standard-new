@@ -3,7 +3,7 @@ module standardir_grammar_export_support
 
     use standardir_grammar_targetnorm, only: standardir_grammar_factor_role_family, &
         standardir_grammar_validate_role_family_witness, standardir_target_role_family_config_t, &
-        standardir_target_role_family_witness_t, standardir_target_rule_t
+        standardir_target_role_family_witness_t, standardir_target_rule_t, refresh_source_witnesses
     use standardir_grammar_producer, only: standardir_grammar_rule_t
     implicit none
     private
@@ -83,6 +83,8 @@ contains
         end if
         if (.not. ok) return
         call standardir_grammar_validate_role_family_witness(normalized, factored, witness, ok, message)
+        if (.not. ok) return
+        call refresh_source_witnesses(factored, ok, message)
         if (.not. ok) return
         call move_alloc(factored, normalized)
     end subroutine standardir_grammar_apply_role_family

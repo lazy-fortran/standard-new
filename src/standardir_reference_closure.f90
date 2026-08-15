@@ -11,6 +11,7 @@ module standardir_reference_closure
         closure_kind_alias, closure_kind_list, closure_kind_scalar, closure_kind_lexical, &
         closure_kind_erratum, closure_kind_semantic_only, closure_kind_unresolved, &
         closure_reference_t, closure_input_record_t, closure_classification_t, closure_record_t, &
+        closure_source_witness_t, &
         closure_result_t
     use standardir_reference_closure_support, only: closure_append_derived, &
         closure_append_normative, closure_normalise_classifications, closure_reorder_derived, &
@@ -23,7 +24,7 @@ module standardir_reference_closure
     public :: closure_kind_list, closure_kind_scalar, closure_kind_lexical
     public :: closure_kind_erratum, closure_kind_semantic_only, closure_kind_unresolved
     public :: closure_reference_t, closure_input_record_t, closure_classification_t
-    public :: closure_record_t, closure_result_t
+    public :: closure_record_t, closure_source_witness_t, closure_result_t
 
     public :: closure_add_reference
     public :: closure_compute

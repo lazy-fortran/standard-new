@@ -20,6 +20,15 @@ module standardir_grammar_target_records
         character(len=64) :: source_expression_sha256 = ''
     end type standardir_target_provenance_t
 
+    type, public :: standardir_target_source_witness_t
+        type(standardir_target_provenance_t) :: source
+        character(len=128) :: target_rule_id = ''
+        character(len=128) :: target_lhs = ''
+        integer :: target_alternative = 0
+        character(len=256) :: reason = ''
+        character(len=64) :: target_expression_sha256 = ''
+    end type standardir_target_source_witness_t
+
     type, public :: standardir_target_rule_t
         character(len=128) :: id = ''
         integer :: alternative = 0
@@ -27,6 +36,7 @@ module standardir_grammar_target_records
         type(standardir_target_expression_t) :: expression
         type(standardir_source_ref_t) :: source
         type(standardir_target_provenance_t), allocatable :: provenance(:)
+        type(standardir_target_source_witness_t), allocatable :: source_witnesses(:)
         character(len=64) :: target_expression_sha256 = ''
         character(len=128), allocatable :: source_roles(:)
         integer :: origin = 0
@@ -53,7 +63,8 @@ module standardir_grammar_target_records
         character(len=64) :: representative_target_expression_sha256 = ''
     end type standardir_target_role_family_witness_t
 
-    public :: append_expression, append_target, contains_expression, same_expression
+    public :: append_expression, append_source_witness, append_target, contains_expression, &
+        same_expression
 
 contains
 
@@ -69,6 +80,19 @@ contains
         expanded(n + 1) = value
         call move_alloc(expanded, values)
     end subroutine append_target
+
+    subroutine append_source_witness(values, value)
+        type(standardir_target_source_witness_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_source_witness_t), intent(in) :: value
+        type(standardir_target_source_witness_t), allocatable :: expanded(:)
+        integer :: n
+
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_source_witness
 
     subroutine append_expression(values, value)
         type(standardir_target_expression_t), allocatable, intent(inout) :: values(:)

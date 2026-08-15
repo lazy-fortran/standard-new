@@ -118,13 +118,13 @@ contains
         type(closure_input_record_t), allocatable :: input(:)
         type(closure_classification_t), allocatable :: effective_classifications(:)
         type(closure_result_t) :: result
-        type(standardir_grammar_rule_t), allocatable :: staged(:), one(:)
+        type(standardir_grammar_rule_t), allocatable :: staged(:), one(:), source_rules(:), expanded_source_rules(:)
         type(standardir_source_ref_t) :: source
         type(sx_node_t), allocatable :: lexicalized_nodes(:)
         type(sx_node_t) :: expression
         character(len=128) :: rule, lhs, id
         character(len=128) :: semantic_name
-        integer :: i, j, input_index, count, effective_count
+        integer :: i, j, input_index, count, effective_count, source_rule_count
         logical :: local_ok, skip, semantic_found
 
         if (allocated(rules)) deallocate (rules)
@@ -155,6 +155,8 @@ contains
         if (.not. ok) return
         allocate (input(node_count))
         allocate (lexicalized_nodes(node_count))
+        allocate (source_rules(max(1, 4 * node_count)))
+        source_rule_count = 0
         do i = 1, node_count
             call lexicalize_tokens(nodes(i), lexical, lexicalized_nodes(i), ok, message)
             if (.not. ok) then
@@ -177,10 +179,30 @@ contains
                 message = 'source record '//integer_text(i)//': '//trim(message)
                 return
             end if
+            call standardir_grammar_adapt_sx(nodes(i), standardir_grammar_origin_mechanical, &
+                standardir_grammar_resolution_resolved, one, local_ok, message)
+            if (.not. local_ok) then
+                message = 'source record '//integer_text(i)//': '//trim(message)
+                return
+            end if
+            do j = 1, size(one)
+                if (source_rule_count >= size(source_rules)) then
+                    allocate (expanded_source_rules(2 * size(source_rules)))
+                    if (source_rule_count > 0) then
+                        expanded_source_rules(:source_rule_count) = source_rules(:source_rule_count)
+                    end if
+                    call move_alloc(expanded_source_rules, source_rules)
+                end if
+                source_rule_count = source_rule_count + 1
+                source_rules(source_rule_count) = one(j)
+            end do
+            if (allocated(one)) deallocate (one)
         end do
 
         call closure_compute(input, node_count, effective_classifications, effective_count, &
             selection_roots, selection_root_count, result, ok, message)
+        if (.not. ok) return
+        call attach_derived_source_witnesses(result, source_rules(:source_rule_count), ok, message)
         if (.not. ok) return
 
         if (selected_mode) then
@@ -215,7 +237,8 @@ contains
                 end if
                 call standardir_grammar_adapt_sx(lexicalized_nodes(input_index), &
                     standardir_grammar_origin_mechanical, &
-                    standardir_grammar_resolution_resolved, one, local_ok, message)
+                    standardir_grammar_resolution_resolved, one, local_ok, message, &
+                    source_node=nodes(input_index))
                 if (.not. local_ok) return
                 do j = 1, size(one)
                     call append_rule(staged, one(j))
@@ -731,8 +754,14 @@ contains
         rule%id = 'derived-'//trim(record%lhs)
         rule%alternative = 1
         rule%lhs = trim(record%lhs)
-        rule%source = record%provenance
-        rule%source_expression_present = .false.
+        if (record%source_witness_present) then
+            rule%source = record%source_witness%source
+            rule%source_expression_present = .true.
+            rule%source_expression_sha256 = record%source_witness%source_expression_sha256
+        else
+            rule%source = record%provenance
+            rule%source_expression_present = .false.
+        end if
         rule%origin = standardir_grammar_origin_mechanical
         rule%resolution = standardir_grammar_resolution_resolved
         select case (record%kind)
@@ -755,6 +784,42 @@ contains
         end if
         value(1) = rule
     end subroutine make_derived_rule
+
+    subroutine attach_derived_source_witnesses(result, source_rules, ok, message)
+        type(closure_result_t), intent(inout) :: result
+        type(standardir_grammar_rule_t), intent(in) :: source_rules(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, j, match_count, match_index
+
+        ok = .false.
+        message = ''
+        do i = 1, result%record_count
+            if (.not. result%records(i)%derived) cycle
+            if (len_trim(result%records(i)%provenance%rule) == 0) cycle
+            match_count = 0
+            match_index = 0
+            do j = 1, size(source_rules)
+                if (trim(source_rules(j)%id) /= trim(result%records(i)%provenance%rule)) cycle
+                match_count = match_count + 1
+                match_index = j
+            end do
+            if (match_count /= 1) cycle
+            ! A sidecar fact names a source rule, not an alternative.  Only
+            ! a one-alternative source rule can therefore be attached
+            ! without inventing a mapping.  Multi-alternative sources keep
+            ! their classification provenance and are covered by their own
+            ! normative records.
+            result%records(i)%source_witness%source = source_rules(match_index)%source
+            result%records(i)%source_witness%alternative = source_rules(match_index)%alternative
+            result%records(i)%source_witness%source_expression_sha256 = &
+                source_rules(match_index)%source_expression_sha256
+            result%records(i)%source_witness_present = .true.
+        end do
+        ok = .true.
+        message = ''
+    end subroutine attach_derived_source_witnesses
 
     subroutine make_alias_nodes(rule, target, ok, message)
         type(standardir_grammar_rule_t), intent(inout) :: rule

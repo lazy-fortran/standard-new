@@ -22,17 +22,19 @@ module standardir_grammar_sx_adapter
 
 contains
 
-    subroutine standardir_grammar_adapt_sx(node, origin, resolution, values, ok, message)
+    subroutine standardir_grammar_adapt_sx(node, origin, resolution, values, ok, message, source_node)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: origin, resolution
         type(standardir_grammar_rule_t), allocatable, intent(out) :: values(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(sx_node_t), intent(in), optional :: source_node
 
         type(standardir_grammar_rule_t), allocatable :: staged(:)
         type(standardir_source_ref_t) :: source
         type(sx_node_t) :: expression
         character(len=128) :: rule, lhs
+        character(len=64), allocatable :: raw_hashes(:)
         integer :: alternative_count, i, count, cursor, first
 
         if (allocated(values)) deallocate (values)
@@ -41,6 +43,12 @@ contains
         call validate_metadata(origin, resolution, ok, message)
         if (.not. ok) return
         call read_syntax(node, rule, lhs, expression, source, ok, message)
+        if (.not. ok) return
+        if (present(source_node)) then
+            call standardir_grammar_capture_source_identity(source_node, raw_hashes, ok, message)
+        else
+            call standardir_grammar_capture_source_identity(node, raw_hashes, ok, message)
+        end if
         if (.not. ok) return
         if (trim(source%rule) /= trim(rule)) then
             message = 'syntax rule and source rule differ'
@@ -52,12 +60,12 @@ contains
         do i = 1, alternative_count
             if (trim_expression(expression) == 'alt') then
                 staged(i) = standardir_grammar_rule_t()
-                call copy_alternative(expression, i, staged(i), rule, lhs, source, origin, &
-                    resolution, ok, message)
+                call copy_alternative(expression, i, staged(i), rule, lhs, source, origin, resolution, &
+                    raw_hashes, ok, message)
             else
                 staged(i) = standardir_grammar_rule_t()
-                call copy_expression(expression, staged(i), rule, lhs, source, origin, &
-                    resolution, 1, ok, message)
+                call copy_expression(expression, staged(i), rule, lhs, source, origin, resolution, 1, &
+                    raw_hashes, ok, message)
             end if
             if (.not. ok) then
                 deallocate (staged)
@@ -183,12 +191,13 @@ contains
     end subroutine expression_shape
 
     subroutine copy_alternative(expression, alternative, value, rule, lhs, source, origin, &
-            resolution, ok, message)
+            resolution, raw_hashes, ok, message)
         type(sx_node_t), intent(in) :: expression
         integer, intent(in) :: alternative, origin, resolution
         type(standardir_grammar_rule_t), intent(out) :: value
         character(len=*), intent(in) :: rule, lhs
         type(standardir_source_ref_t), intent(in) :: source
+        character(len=64), intent(in) :: raw_hashes(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -196,16 +205,17 @@ contains
 
         selected = expression%children(alternative + 1)
         call copy_expression(selected, value, rule, lhs, source, origin, resolution, alternative, &
-            ok, message)
+            raw_hashes, ok, message)
     end subroutine copy_alternative
 
     subroutine copy_expression(expression, value, rule, lhs, source, origin, resolution, &
-            alternative, ok, message)
+            alternative, raw_hashes, ok, message)
         type(sx_node_t), intent(in) :: expression
         type(standardir_grammar_rule_t), intent(out) :: value
         character(len=*), intent(in) :: rule, lhs
         type(standardir_source_ref_t), intent(in) :: source
         integer, intent(in) :: origin, resolution, alternative
+        character(len=64), intent(in) :: raw_hashes(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -217,8 +227,12 @@ contains
         cursor = 0
         call append_expression(expression, value%nodes%values, cursor, first, ok, message, 1)
         if (.not. ok) return
-        call standardir_grammar_source_expression_sha256(expression, value%source_expression_sha256, ok, message)
-        if (.not. ok) return
+        if (alternative < 1 .or. alternative > size(raw_hashes)) then
+            ok = .false.
+            message = 'source expression identity alternative is outside its raw source table'
+            return
+        end if
+        value%source_expression_sha256 = raw_hashes(alternative)
         value%id = trim(rule)
         value%alternative = alternative
         value%lhs = trim(lhs)
@@ -227,6 +241,34 @@ contains
         value%origin = origin
         value%resolution = resolution
     end subroutine copy_expression
+
+    subroutine standardir_grammar_capture_source_identity(node, hashes, ok, message)
+        type(sx_node_t), intent(in) :: node
+        character(len=64), allocatable, intent(out) :: hashes(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(sx_node_t) :: expression
+        type(standardir_source_ref_t) :: source
+        character(len=128) :: rule, lhs
+        integer :: count, i
+
+        allocate (hashes(0))
+        call read_syntax(node, rule, lhs, expression, source, ok, message)
+        if (.not. ok) return
+        call alternative_count_for(expression, count, ok, message)
+        if (.not. ok) return
+        deallocate (hashes)
+        allocate (hashes(count))
+        do i = 1, count
+            if (trim_expression(expression) == 'alt') then
+                call standardir_grammar_source_expression_sha256(expression%children(i + 1), hashes(i), ok, message)
+            else
+                call standardir_grammar_source_expression_sha256(expression, hashes(i), ok, message)
+            end if
+            if (.not. ok) return
+        end do
+    end subroutine standardir_grammar_capture_source_identity
 
     recursive subroutine append_expression(node, values, cursor, first, ok, message, depth)
         type(sx_node_t), intent(in) :: node
