@@ -5,6 +5,7 @@ program test_standardir_grammar_export
     use standardir_grammar_producer, only: standardir_grammar_node_t, &
         standardir_grammar_origin_human, standardir_grammar_reference, &
         standardir_grammar_optional, &
+        standardir_grammar_choice, &
         standardir_grammar_repeat, &
         standardir_grammar_resolution_resolved, standardir_grammar_resolution_unresolved, &
         standardir_grammar_rule_t, standardir_grammar_sequence, standardir_grammar_token
@@ -32,6 +33,7 @@ program test_standardir_grammar_export
     character(len=256) :: message, line
     integer, parameter :: max_language_words = 256
     integer, parameter :: max_language_depth = 8
+    integer, parameter :: max_language_repetitions = 3
 
     call make_rules(rules)
     do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
@@ -232,6 +234,7 @@ program test_standardir_grammar_export
     call require(ok, 'complete role-family witness failed validation: '//trim(message))
     call verify_role_target_mutations(role_retained, role_factored, role_witness)
     call verify_role_language(role_retained, role_factored)
+    call verify_language_oracle_kinds
     broken_witness = role_witness
     deallocate (broken_witness(1)%alias_provenance)
     call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
@@ -733,6 +736,52 @@ contains
             'bounded language oracle accepted a rejected sentence')
     end subroutine verify_role_language
 
+    subroutine verify_language_oracle_kinds
+        type(standardir_target_rule_t) :: values(1)
+        character(len=32), allocatable :: words(:)
+        integer :: word_count
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        call make_language_oracle_fixture(values(1))
+        call evaluate_language(values, 'root', words, word_count, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call require(word_count == 12, 'finite language oracle kind corpus has the wrong size')
+        call require(language_contains(words, word_count, 'BD') .and. &
+            language_contains(words, word_count, 'ACDDD'), &
+            'finite language oracle lost optional, choice or repeat sentences')
+    end subroutine verify_language_oracle_kinds
+
+    subroutine make_language_oracle_fixture(value)
+        type(standardir_target_rule_t), intent(out) :: value
+
+        value = standardir_target_rule_t()
+        value%lhs = 'root'
+        value%expression%kind = standardir_grammar_sequence
+        allocate (value%expression%children(3))
+        value%expression%children(1)%kind = standardir_grammar_optional
+        allocate (value%expression%children(1)%children(1))
+        call make_target_token(value%expression%children(1)%children(1), 'A')
+        value%expression%children(2)%kind = standardir_grammar_choice
+        allocate (value%expression%children(2)%children(2))
+        call make_target_token(value%expression%children(2)%children(1), 'B')
+        call make_target_token(value%expression%children(2)%children(2), 'C')
+        value%expression%children(3)%kind = standardir_grammar_repeat
+        value%expression%children(3)%minimum = 1
+        value%expression%children(3)%unbounded = .true.
+        allocate (value%expression%children(3)%children(1))
+        call make_target_token(value%expression%children(3)%children(1), 'D')
+    end subroutine make_language_oracle_fixture
+
+    subroutine make_target_token(value, name)
+        type(standardir_target_expression_t), intent(out) :: value
+        character(len=*), intent(in) :: name
+
+        value = standardir_target_expression_t()
+        value%kind = standardir_grammar_token
+        value%name = name
+    end subroutine make_target_token
+
     subroutine evaluate_language(values, lhs, words, word_count, ok, message)
         type(standardir_target_rule_t), intent(in) :: values(:)
         character(len=*), intent(in) :: lhs
@@ -759,19 +808,22 @@ contains
         integer, intent(out) :: word_count
         logical, intent(out) :: ok
         character(len=32) :: local_words(max_language_words)
-        integer :: i, local_count
+        integer :: i, local_count, match_count
 
         words = ''
         word_count = 0
-        ok = .true.
-        if (depth > max_language_depth) return
+        ok = depth <= max_language_depth
+        if (.not. ok) return
+        match_count = 0
         do i = 1, size(values)
             if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            match_count = match_count + 1
             call evaluate_expression(values(i)%expression, values, depth, local_words, local_count, ok)
             if (.not. ok) return
             call append_language_set(words, word_count, local_words, local_count, ok)
             if (.not. ok) return
         end do
+        if (match_count == 0) ok = .false.
     end subroutine evaluate_rule
 
     recursive subroutine evaluate_expression(expression, values, depth, words, word_count, ok)
@@ -793,6 +845,8 @@ contains
         case (standardir_grammar_reference)
             call evaluate_rule(values, trim(expression%name), depth + 1, words, word_count, ok)
         case (standardir_grammar_sequence)
+            call require_expression_children(expression, ok)
+            if (.not. ok) return
             words(1) = ''
             word_count = 1
             do i = 1, size(expression%children)
@@ -803,10 +857,90 @@ contains
                 words = combined
                 word_count = combined_count
             end do
+        case (standardir_grammar_choice)
+            call require_expression_children(expression, ok)
+            if (.not. ok) return
+            do i = 1, size(expression%children)
+                call evaluate_expression(expression%children(i), values, depth, child_words, child_count, ok)
+                if (.not. ok) return
+                call append_language_set(words, word_count, child_words, child_count, ok)
+                if (.not. ok) return
+            end do
+        case (standardir_grammar_optional)
+            call require_single_child(expression, ok)
+            if (.not. ok) return
+            words(1) = ''
+            word_count = 1
+            call evaluate_expression(expression%children(1), values, depth, child_words, child_count, ok)
+            if (ok) call append_language_set(words, word_count, child_words, child_count, ok)
+        case (standardir_grammar_repeat)
+            call evaluate_repeat(expression, values, depth, words, word_count, ok)
         case default
             ok = .false.
         end select
     end subroutine evaluate_expression
+
+    subroutine require_expression_children(expression, ok)
+        type(standardir_target_expression_t), intent(in) :: expression
+        logical, intent(out) :: ok
+
+        ok = allocated(expression%children)
+        if (.not. ok) return
+        ok = size(expression%children) > 0
+    end subroutine require_expression_children
+
+    subroutine require_single_child(expression, ok)
+        type(standardir_target_expression_t), intent(in) :: expression
+        logical, intent(out) :: ok
+
+        call require_expression_children(expression, ok)
+        if (.not. ok) return
+        ok = size(expression%children) == 1
+    end subroutine require_single_child
+
+    recursive subroutine evaluate_repeat(expression, values, depth, words, word_count, ok)
+        type(standardir_target_expression_t), intent(in) :: expression
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        integer, intent(in) :: depth
+        character(len=32), intent(out) :: words(max_language_words)
+        integer, intent(out) :: word_count
+        logical, intent(out) :: ok
+        character(len=32) :: child_words(max_language_words), current(max_language_words)
+        character(len=32) :: next(max_language_words)
+        integer :: child_count, current_count, next_count, repetition, maximum
+
+        words = ''
+        word_count = 0
+        ok = expression%minimum >= 0
+        if (.not. ok) return
+        call require_single_child(expression, ok)
+        if (.not. ok) return
+        call evaluate_expression(expression%children(1), values, depth, child_words, child_count, ok)
+        if (.not. ok) return
+        maximum = expression%minimum
+        if (expression%unbounded) maximum = max_language_repetitions
+        if (maximum < expression%minimum) then
+            ok = .false.
+            return
+        end if
+        current = ''
+        current(1) = ''
+        current_count = 1
+        if (expression%minimum == 0) then
+            words(1) = ''
+            word_count = 1
+        end if
+        do repetition = 1, maximum
+            call combine_language(current, current_count, child_words, child_count, next, next_count, ok)
+            if (.not. ok) return
+            current = next
+            current_count = next_count
+            if (repetition >= expression%minimum) then
+                call append_language_set(words, word_count, current, current_count, ok)
+                if (.not. ok) return
+            end if
+        end do
+    end subroutine evaluate_repeat
 
     subroutine combine_language(left, left_count, right, right_count, result, result_count, ok)
         character(len=32), intent(in) :: left(:), right(:)
@@ -821,6 +955,10 @@ contains
         ok = .true.
         do i = 1, left_count
             do j = 1, right_count
+                if (len_trim(left(i)) + len_trim(right(j)) > len(result(1))) then
+                    ok = .false.
+                    return
+                end if
                 call append_language_word(result, result_count, trim(left(i))//trim(right(j)), ok)
                 if (.not. ok) return
             end do
@@ -852,6 +990,10 @@ contains
             if (trim(values(i)) == trim(word)) return
         end do
         if (value_count == max_language_words) then
+            ok = .false.
+            return
+        end if
+        if (len_trim(word) > len(values(1))) then
             ok = .false.
             return
         end if

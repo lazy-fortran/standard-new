@@ -67,23 +67,52 @@ contains
         character(len=*), intent(out) :: message
         character(len=*), intent(in), optional :: protected_lhs(:)
 
-        character(len=128), allocatable :: family_roles(:), family_names(:)
+        character(len=128), allocatable :: family_roles(:)
         type(standardir_target_provenance_t), allocatable :: family_provenance(:)
-        type(standardir_target_provenance_t), allocatable :: alias_provenance(:)
-        character(len=128), allocatable :: merged_roles(:)
-        type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
         logical, allocatable :: removed(:)
-        integer :: i, count, representative_index, alias_index
-        logical :: safe, cycle, protected
-        character(len=128) :: final_target
-
         call initialize_factor_outputs(factored, witness, ok, message)
+        call validate_factor_request(values, config, ok, message)
+        if (.not. ok) return
+        if (.not. config%enabled) then
+            factored = values
+            ok = .true.
+            return
+        end if
+        allocate (removed(size(values)), family_roles(0), family_provenance(0))
+        removed = .false.
+        call collect_representative_family(values, trim(config%representative), family_roles, &
+            family_provenance)
+        call classify_role_family(values, config%representative, protected_lhs, family_roles, &
+            family_provenance, removed, witness)
+
+        if (.not. any(removed)) then
+            factored = values
+            call finish_witness(witness, family_roles, family_provenance)
+            ok = .true.
+            return
+        end if
+        call materialize_factored_family(values, removed, config%representative, family_roles, &
+            family_provenance, factored, witness)
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_factor_role_family
+
+    subroutine validate_factor_request(values, config, ok, message)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        type(standardir_target_role_family_config_t), intent(in) :: config
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: representative_index
+        integer :: representative_count
+
+        representative_index = 0
+        ok = .false.
+        message = ''
         if (size(values) < 1) then
             message = 'role-family factoring input is empty'
             return
         end if
         if (.not. config%enabled) then
-            factored = values
             ok = .true.
             return
         end if
@@ -97,30 +126,44 @@ contains
                 trim(config%representative)
             return
         end if
-        count = count_lhs(values, trim(config%representative))
-        if (count == 1 .and. is_whole_unit_alias(values(representative_index))) then
+        representative_count = count_lhs(values, trim(config%representative))
+        if (representative_count == 1 .and. is_whole_unit_alias(values(representative_index))) then
             message = 'role-family factoring representative is itself an alias'
             return
         end if
+        ok = .true.
+    end subroutine validate_factor_request
 
-        allocate (removed(size(values)), family_roles(0), family_provenance(0), family_names(0))
-        removed = .false.
-        call collect_representative_family(values, trim(config%representative), family_roles, &
-            family_provenance)
+    subroutine classify_role_family(values, representative, protected_lhs, family_roles, &
+            family_provenance, removed, witness)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: representative
+        character(len=*), intent(in), optional :: protected_lhs(:)
+        character(len=128), allocatable, intent(inout) :: family_roles(:)
+        type(standardir_target_provenance_t), allocatable, intent(inout) :: family_provenance(:)
+        logical, intent(inout) :: removed(:)
+        type(standardir_target_role_family_witness_t), allocatable, intent(inout) :: witness(:)
+        character(len=128), allocatable :: family_names(:), merged_roles(:)
+        type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
+        character(len=128) :: final_target
+        integer :: i, count, alias_index
+        logical :: safe, cycle, protected
+
+        allocate (family_names(0))
         do i = 1, size(values)
-            if (trim(values(i)%lhs) == trim(config%representative)) cycle
+            if (trim(values(i)%lhs) == trim(representative)) cycle
             if (find_name(family_names, trim(values(i)%lhs)) > 0) cycle
             call append_name(family_names, trim(values(i)%lhs))
             count = count_lhs(values, trim(values(i)%lhs))
             alias_index = i
             if (count == 1) then
-                call resolve_alias_target(values, trim(values(i)%lhs), trim(config%representative), &
+                call resolve_alias_target(values, trim(values(i)%lhs), trim(representative), &
                     final_target, safe, cycle)
-                if (safe .and. trim(final_target) == trim(config%representative)) then
+                if (safe .and. trim(final_target) == trim(representative)) then
                     protected = is_protected_lhs(trim(values(i)%lhs), protected_lhs)
                     if (protected) then
                         call add_role_family_witness(witness, values(alias_index), family_roles, &
-                            family_provenance, trim(config%representative), &
+                            family_provenance, trim(representative), &
                             standardir_target_role_family_rejected, 'protected-reachability-root')
                     else
                         removed(i) = .true.
@@ -131,26 +174,33 @@ contains
                     end if
                 else if (cycle) then
                     call add_role_family_witness(witness, values(alias_index), family_roles, &
-                        family_provenance, trim(config%representative), &
+                        family_provenance, trim(representative), &
                         standardir_target_role_family_rejected, 'cyclic-unit-alias')
                 end if
             else
                 alias_index = unique_unit_alias_to_representative(values, trim(values(i)%lhs), &
-                    trim(config%representative))
+                    trim(representative))
                 if (alias_index > 0) then
                     call add_role_family_witness(witness, values(alias_index), family_roles, &
-                        family_provenance, trim(config%representative), &
+                        family_provenance, trim(representative), &
                         standardir_target_role_family_rejected, 'multi-alternative-alias')
                 end if
             end if
         end do
+    end subroutine classify_role_family
 
-        if (.not. any(removed)) then
-            factored = values
-            call finish_witness(witness, family_roles, family_provenance)
-            ok = .true.
-            return
-        end if
+    subroutine materialize_factored_family(values, removed, representative, family_roles, &
+            family_provenance, factored, witness)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        logical, intent(in) :: removed(:)
+        character(len=*), intent(in) :: representative
+        character(len=128), allocatable, intent(inout) :: family_roles(:)
+        type(standardir_target_provenance_t), allocatable, intent(inout) :: family_provenance(:)
+        type(standardir_target_rule_t), allocatable, intent(inout) :: factored(:)
+        type(standardir_target_role_family_witness_t), allocatable, intent(inout) :: witness(:)
+        type(standardir_target_provenance_t), allocatable :: alias_provenance(:), merged_provenance(:)
+        integer :: i
+
         allocate (alias_provenance(0))
         do i = 1, size(values)
             if (removed(i)) then
@@ -160,24 +210,21 @@ contains
         end do
         do i = 1, size(values)
             if (removed(i)) cycle
-            call append_factored_rule(factored, values(i), values, removed, trim(config%representative), &
+            call append_factored_rule(factored, values(i), values, removed, trim(representative), &
                 family_roles, alias_provenance)
         end do
         deallocate (family_roles, family_provenance)
         allocate (family_roles(0), family_provenance(0))
-        call collect_representative_family(factored, trim(config%representative), family_roles, &
-            family_provenance)
+        call collect_representative_family(factored, trim(representative), family_roles, family_provenance)
         call finish_witness(witness, family_roles, family_provenance)
         do i = 1, size(values)
             if (removed(i)) call add_role_family_witness(witness, values(i), family_roles, &
-                family_provenance, trim(config%representative), standardir_target_role_family_factored, &
+                family_provenance, trim(representative), standardir_target_role_family_factored, &
                 'whole-unit-alias')
         end do
         call finish_witness(witness, family_roles, family_provenance)
         call sort_role_family_witness(witness)
-        ok = .true.
-        message = ''
-    end subroutine standardir_grammar_factor_role_family
+    end subroutine materialize_factored_family
 
     subroutine initialize_factor_outputs(factored, witness, ok, message)
         type(standardir_target_rule_t), allocatable, intent(out) :: factored(:)
@@ -266,10 +313,11 @@ contains
                     return
                 end if
             end do
-            if (i > 1 .and. trim(witness(i)%representative_role) /= &
-                trim(witness(1)%representative_role)) then
-                message = 'role-family witness uses multiple representatives'
-                return
+            if (i > 1) then
+                if (trim(witness(i)%representative_role) /= trim(witness(1)%representative_role)) then
+                    message = 'role-family witness uses multiple representatives'
+                    return
+                end if
             end if
             call validate_witness_item(before, after, witness, i, ok, message)
             if (.not. ok) return
