@@ -1,9 +1,9 @@
 module standardir_lexical_export
     !! Target-specific projection of source-defined lexical facts.
 
-    use, intrinsic :: iso_fortran_env, only: int64
     use standardir_lexical, only: standardir_lexical_fact_t, &
-        standardir_lexical_facts_t, standardir_lexical_validate
+        standardir_lexical_facts_t, standardir_lexical_resolve_spelling, &
+        standardir_lexical_validate
     implicit none
     private
 
@@ -20,11 +20,14 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=256) :: spelling
         integer :: i
 
         call standardir_lexical_validate(facts, ok, message)
         if (.not. ok) return
         do i = 1, facts%count
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
             write (unit, '(a)', advance='no') '(* lexical-fact source-term='
             write (unit, '(a)', advance='no') trim(facts%facts(i)%source_term)
             write (unit, '(a)', advance='no') ' class='
@@ -41,6 +44,12 @@ contains
             write (unit, '(a)', advance='no') trim(facts%facts(i)%source_hash)
             write (unit, '(a)', advance='no') ' codepoint='
             write (unit, '(a)', advance='no') trim(facts%facts(i)%codepoint)
+            write (unit, '(a)', advance='no') ' target='
+            write (unit, '(a)', advance='no') trim(facts%facts(i)%target_name)
+            if (len_trim(spelling) > 0) then
+                write (unit, '(a)', advance='no') ' canonical-spelling='
+                write (unit, '(a)', advance='no') trim(spelling)
+            end if
             write (unit, '(a)') ' *)'
         end do
     end subroutine standardir_lexical_emit_ebnf
@@ -50,11 +59,14 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=256) :: spelling
         integer :: i
 
         call standardir_lexical_validate(facts, ok, message)
         if (.not. ok) return
         do i = 1, facts%count
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
             call emit_antlr_comment(unit, facts%facts(i))
             write (unit, '(a)', advance='no') &
                 trim(lexical_reference_name(facts%facts(i)%source_term))
@@ -63,7 +75,9 @@ contains
         end do
         do i = 1, facts%count
             write (unit, '(a)', advance='no') trim(facts%facts(i)%target_name)//' : '
-            call emit_antlr_pattern(unit, facts%facts(i))
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
+            call emit_antlr_pattern(unit, facts%facts(i), spelling)
             write (unit, '(a)') ' ;'
         end do
     end subroutine standardir_lexical_emit_antlr
@@ -73,16 +87,25 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=256) :: spelling
         integer :: i
 
         call standardir_lexical_validate(facts, ok, message)
         if (.not. ok) return
         do i = 1, facts%count
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
             call emit_bison_comment(unit, facts%facts(i))
         end do
         write (unit, '(a)', advance='no') '%token'
         do i = 1, facts%count
             write (unit, '(a)', advance='no') ' '//trim(facts%facts(i)%target_name)
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
+            if (len_trim(spelling) > 0) then
+                write (unit, '(a)', advance='no') ' '
+                call emit_bison_spelling(unit, spelling)
+            end if
         end do
         write (unit, '(a)')
     end subroutine standardir_lexical_emit_bison
@@ -93,11 +116,14 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=256) :: spelling
         integer :: i
 
         call standardir_lexical_validate(facts, ok, message)
         if (.not. ok) return
         do i = 1, facts%count
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
             write (unit, '(a)', advance='no') trim(lexical_reference_name( &
                 facts%facts(i)%source_term))
             write (unit, '(a)', advance='no') ' : '
@@ -110,11 +136,14 @@ contains
         type(standardir_lexical_facts_t), intent(in) :: facts
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=256) :: spelling
         integer :: i
 
         call standardir_lexical_validate(facts, ok, message)
         if (.not. ok) return
         do i = 1, facts%count
+            call standardir_lexical_resolve_spelling(facts%facts(i), spelling, ok, message)
+            if (.not. ok) return
             call emit_treesitter_comment(unit, facts%facts(i))
             write (unit, '(a)', advance='no') '    '
             write (unit, '(a)', advance='no') &
@@ -125,7 +154,7 @@ contains
             write (unit, '(a)', advance='no') '    '
             write (unit, '(a)', advance='no') trim(facts%facts(i)%target_name)
             write (unit, '(a)', advance='no') ': $ => '
-            call emit_treesitter_pattern(unit, facts%facts(i))
+            call emit_treesitter_pattern(unit, facts%facts(i), spelling)
             write (unit, '(a)') ','
         end do
     end subroutine standardir_lexical_emit_treesitter
@@ -169,7 +198,12 @@ contains
         write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
-        write (unit, '(a)') trim(fact%codepoint)
+        write (unit, '(a)', advance='no') trim(fact%codepoint)
+        if (len_trim(fact%canonical_spelling) > 0) then
+            write (unit, '(a)', advance='no') ' canonical-spelling='
+            write (unit, '(a)', advance='no') trim(fact%canonical_spelling)
+        end if
+        write (unit, '(a)')
     end subroutine emit_antlr_comment
 
     subroutine emit_treesitter_comment(unit, fact)
@@ -191,7 +225,12 @@ contains
         write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
-        write (unit, '(a)') trim(fact%codepoint)
+        write (unit, '(a)', advance='no') trim(fact%codepoint)
+        if (len_trim(fact%canonical_spelling) > 0) then
+            write (unit, '(a)', advance='no') ' canonical-spelling='
+            write (unit, '(a)', advance='no') trim(fact%canonical_spelling)
+        end if
+        write (unit, '(a)')
     end subroutine emit_treesitter_comment
 
     subroutine emit_bison_comment(unit, fact)
@@ -213,19 +252,23 @@ contains
         write (unit, '(a)', advance='no') ' source-document-sha256='
         write (unit, '(a)', advance='no') trim(fact%source_hash)
         write (unit, '(a)', advance='no') ' codepoint='
-        write (unit, '(a)') trim(fact%codepoint)//' */'
+        write (unit, '(a)', advance='no') trim(fact%codepoint)
+        if (len_trim(fact%canonical_spelling) > 0) then
+            write (unit, '(a)', advance='no') ' canonical-spelling='
+            write (unit, '(a)', advance='no') trim(fact%canonical_spelling)
+        end if
+        write (unit, '(a)') ' */'
     end subroutine emit_bison_comment
 
-    subroutine emit_antlr_pattern(unit, fact)
+    subroutine emit_antlr_pattern(unit, fact, spelling)
         integer, intent(in) :: unit
         type(standardir_lexical_fact_t), intent(in) :: fact
+        character(len=*), intent(in) :: spelling
 
         if (trim(fact%codepoint) == 'processor-defined') then
             write (unit, '(a)', advance='no') '.'
-        else if (fact%range_count == 1 .and. fact%range_first(1) == int(z'2013', int64)) then
-            write (unit, '(a)', advance='no') "'\u2013'"
-        else if (fact%range_count == 1 .and. fact%range_first(1) == int(z'2019', int64)) then
-            write (unit, '(a)', advance='no') "'\u2019'"
+        else if (len_trim(spelling) > 0) then
+            call emit_antlr_spelling(unit, spelling)
         else
             write (unit, '(a)', advance='no') '['
             call emit_antlr_ranges(unit, fact)
@@ -248,13 +291,16 @@ contains
         end do
     end subroutine emit_antlr_ranges
 
-    subroutine emit_treesitter_pattern(unit, fact)
+    subroutine emit_treesitter_pattern(unit, fact, spelling)
         integer, intent(in) :: unit
         type(standardir_lexical_fact_t), intent(in) :: fact
+        character(len=*), intent(in) :: spelling
         integer :: i
 
         if (trim(fact%codepoint) == 'processor-defined') then
             write (unit, '(a)', advance='no') '/[\s\S]/'
+        else if (len_trim(spelling) > 0) then
+            call emit_treesitter_spelling(unit, spelling)
         else
             write (unit, '(a)', advance='no') '/['
             do i = 1, fact%range_count
@@ -268,5 +314,50 @@ contains
             write (unit, '(a)', advance='no') ']/'
         end if
     end subroutine emit_treesitter_pattern
+
+    subroutine emit_antlr_spelling(unit, spelling)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: spelling
+        integer :: i
+
+        write (unit, '(a)', advance='no') achar(39)
+        do i = 1, len_trim(spelling)
+            if (spelling(i:i) == achar(39) .or. spelling(i:i) == achar(92)) then
+                write (unit, '(a)', advance='no') achar(92)
+            end if
+            write (unit, '(a)', advance='no') spelling(i:i)
+        end do
+        write (unit, '(a)', advance='no') achar(39)
+    end subroutine emit_antlr_spelling
+
+    subroutine emit_bison_spelling(unit, spelling)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: spelling
+        integer :: i
+
+        write (unit, '(a)', advance='no') achar(34)
+        do i = 1, len_trim(spelling)
+            if (spelling(i:i) == achar(34) .or. spelling(i:i) == achar(92)) then
+                write (unit, '(a)', advance='no') achar(92)
+            end if
+            write (unit, '(a)', advance='no') spelling(i:i)
+        end do
+        write (unit, '(a)', advance='no') achar(34)
+    end subroutine emit_bison_spelling
+
+    subroutine emit_treesitter_spelling(unit, spelling)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: spelling
+        integer :: i
+
+        write (unit, '(a)', advance='no') achar(39)
+        do i = 1, len_trim(spelling)
+            if (spelling(i:i) == achar(39) .or. spelling(i:i) == achar(92)) then
+                write (unit, '(a)', advance='no') achar(92)
+            end if
+            write (unit, '(a)', advance='no') spelling(i:i)
+        end do
+        write (unit, '(a)', advance='no') achar(39)
+    end subroutine emit_treesitter_spelling
 
 end module standardir_lexical_export

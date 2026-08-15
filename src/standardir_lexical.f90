@@ -1,10 +1,12 @@
 module standardir_lexical
     !! Source-defined lexical facts and their target-specific terminal exports.
 
-    use, intrinsic :: iso_fortran_env, only: int64
+    use, intrinsic :: iso_fortran_env, only: int8, int64
+    use byte_span, only: byte_span_from_array, byte_span_t
     use fortsx, only: sx_list, sx_node_t
     use standardir_syntax_fields, only: standardir_atom_equals, standardir_read_pair, &
         standardir_read_source
+    use utf8_boundary, only: utf8_codepoint_t, utf8_decode_next, utf8_validate
     implicit none
     private
 
@@ -20,6 +22,7 @@ module standardir_lexical
 
     type, public :: standardir_lexical_fact_t
         character(len=lexical_text_length) :: source_term = ''
+        character(len=lexical_text_length) :: canonical_spelling = ''
         character(len=64) :: class_name = ''
         character(len=128) :: target_name = ''
         character(len=64) :: source_rule = ''
@@ -40,6 +43,7 @@ module standardir_lexical
 
     public :: standardir_lexical_add
     public :: standardir_lexical_lookup
+    public :: standardir_lexical_resolve_spelling
     public :: standardir_lexical_reset
     public :: standardir_lexical_validate
 
@@ -246,9 +250,45 @@ contains
                 message = 'Unicode lexical fact does not preserve its UTF-8 scalar'
                 return
             end if
+            if (.not. canonical_spelling_is_valid(facts%facts(i)%canonical_spelling)) then
+                message = 'lexical fact has an unrepresentable canonical spelling'
+                return
+            end if
         end do
         ok = .true.
     end subroutine standardir_lexical_validate
+
+    subroutine standardir_lexical_resolve_spelling(fact, spelling, ok, message)
+        type(standardir_lexical_fact_t), intent(in) :: fact
+        character(len=*), intent(out) :: spelling
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        logical :: exact
+        integer :: width
+        integer(int64) :: scalar
+
+        spelling = ''
+        ok = .false.
+        message = ''
+        if (.not. canonical_spelling_is_valid(fact%canonical_spelling)) then
+            message = 'lexical fact has an unrepresentable canonical spelling'
+            return
+        end if
+        if (len_trim(fact%canonical_spelling) > 0) then
+            spelling = trim(fact%canonical_spelling)
+            ok = .true.
+            return
+        end if
+        call source_term_scalar(fact%source_term, scalar, width, exact, ok, message)
+        if (.not. ok) return
+        if (exact .and. width > 1) then
+            message = 'lexical fact lacks a canonical spelling for a Unicode scalar'
+            ok = .false.
+            return
+        end if
+        ok = .true.
+    end subroutine standardir_lexical_resolve_spelling
 
     logical function processor_defined_fact_is_set(fact)
         type(standardir_lexical_fact_t), intent(in) :: fact
@@ -295,12 +335,13 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        character(len=256) :: source_term, class_name, target_name, codepoint, source_rule
+        character(len=256) :: source_term, canonical_spelling, class_name, target_name, codepoint
+        character(len=256) :: source_rule
         character(len=256) :: document, clause, page, source_hash
         integer :: i
 
         fact = standardir_lexical_fact_t()
-        source_term = ''; class_name = ''; target_name = ''; codepoint = ''
+        source_term = ''; canonical_spelling = ''; class_name = ''; target_name = ''; codepoint = ''
         source_rule = ''; document = ''; clause = ''; page = ''; source_hash = ''
         ok = .false.; message = ''
         do i = 2, node%child_count
@@ -310,6 +351,9 @@ contains
             end if
             if (standardir_atom_equals(node%children(i)%children(1), 'source-term')) then
                 call standardir_read_pair(node%children(i), 'source-term', source_term, ok, message)
+            else if (standardir_atom_equals(node%children(i)%children(1), 'canonical-spelling')) then
+                call standardir_read_pair(node%children(i), 'canonical-spelling', canonical_spelling, &
+                    ok, message)
             else if (standardir_atom_equals(node%children(i)%children(1), 'class')) then
                 call standardir_read_pair(node%children(i), 'class', class_name, ok, message)
             else if (standardir_atom_equals(node%children(i)%children(1), 'target')) then
@@ -332,6 +376,7 @@ contains
             return
         end if
         fact%source_term = trim(source_term)
+        fact%canonical_spelling = trim(canonical_spelling)
         fact%class_name = trim(class_name)
         fact%target_name = trim(target_name)
         fact%source_rule = trim(source_rule)
@@ -443,26 +488,96 @@ contains
     logical function source_scalar_is_exact(fact)
         type(standardir_lexical_fact_t), intent(in) :: fact
 
-        integer :: n
+        logical :: exact, ok
+        integer :: width
+        integer(int64) :: scalar
+        character(len=256) :: message
 
-        source_scalar_is_exact = .true.
+        call source_term_scalar(fact%source_term, scalar, width, exact, ok, message)
+        source_scalar_is_exact = ok
+        if (.not. ok .or. .not. exact) return
         if (fact%range_count /= 1) return
-        if (fact%range_first(1) /= int(z'2013', int64) .and. &
-            fact%range_first(1) /= int(z'2019', int64)) return
-        n = len_trim(fact%source_term)
-        source_scalar_is_exact = n == 3
-        if (.not. source_scalar_is_exact) return
-        if (fact%range_first(1) == int(z'2013', int64)) then
-            source_scalar_is_exact = iachar(fact%source_term(1:1)) == 226 .and. &
-                iachar(fact%source_term(2:2)) == 128 .and. &
-                iachar(fact%source_term(3:3)) == 147 .and. &
-                trim(fact%target_name) == 'EN_DASH'
-        else
-            source_scalar_is_exact = iachar(fact%source_term(1:1)) == 226 .and. &
-                iachar(fact%source_term(2:2)) == 128 .and. &
-                iachar(fact%source_term(3:3)) == 153 .and. &
-                trim(fact%target_name) == 'RIGHT_SINGLE_QUOTE'
-        end if
+        if (fact%range_first(1) /= fact%range_last(1)) return
+        source_scalar_is_exact = scalar == fact%range_first(1)
     end function source_scalar_is_exact
+
+    subroutine source_term_scalar(source_term, scalar, width, exact, ok, message)
+        character(len=*), intent(in) :: source_term
+        integer(int64), intent(out) :: scalar
+        integer, intent(out) :: width
+        logical, intent(out) :: exact, ok
+        character(len=*), intent(out) :: message
+
+        integer(int8), target :: bytes(lexical_text_length)
+        type(byte_span_t) :: source
+        type(utf8_codepoint_t) :: codepoint
+        integer :: length, bad_offset
+
+        scalar = 0_int64
+        width = 0
+        exact = .false.
+        ok = .false.
+        message = ''
+        call source_term_bytes(source_term, bytes, length, ok, message)
+        if (.not. ok) return
+        call byte_span_from_array(bytes, 1, length, source, ok, message)
+        if (.not. ok) return
+        call utf8_validate(source, ok, bad_offset, message)
+        if (.not. ok) then
+            message = 'lexical fact source term is not valid UTF-8'
+            return
+        end if
+        if (length == 0) then
+            ok = .true.
+            return
+        end if
+        call utf8_decode_next(source, 1, codepoint, ok, message)
+        if (.not. ok) return
+        if (codepoint%width == length) then
+            exact = .true.
+            scalar = int(codepoint%value, int64)
+            width = codepoint%width
+        end if
+    end subroutine source_term_scalar
+
+    subroutine source_term_bytes(source_term, bytes, length, ok, message)
+        character(len=*), intent(in) :: source_term
+        integer(int8), intent(out) :: bytes(:)
+        integer, intent(out) :: length
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i, code
+
+        bytes = 0_int8
+        length = len_trim(source_term)
+        ok = .false.
+        message = ''
+        if (length > size(bytes)) then
+            message = 'lexical fact source term exceeds UTF-8 storage'
+            return
+        end if
+        do i = 1, length
+            code = iachar(source_term(i:i))
+            if (code > 127) code = code - 256
+            bytes(i) = int(code, int8)
+        end do
+        ok = .true.
+    end subroutine source_term_bytes
+
+    logical function canonical_spelling_is_valid(value)
+        character(len=*), intent(in) :: value
+
+        integer :: i, code
+
+        canonical_spelling_is_valid = .true.
+        do i = 1, len_trim(value)
+            code = iachar(value(i:i))
+            if (code < 33 .or. code > 126) then
+                canonical_spelling_is_valid = .false.
+                return
+            end if
+        end do
+    end function canonical_spelling_is_valid
 
 end module standardir_lexical

@@ -26,7 +26,8 @@ program test_standardir_composite
     call standardir_composite_add(composite, node, ok, message)
     if (.not. ok) call fail(trim(message))
 
-    input = '(lexical-fact (source-term "–") (class unicode-lexical) '// &
+    input = '(lexical-fact (source-term "–") (canonical-spelling "-") '// &
+        '(class unicode-lexical) '// &
         '(target EN_DASH) (rule R1010) (codepoint U+2013) (source '// &
         '(document J3-24-007) (clause R1010) (page 69) '// &
         '(source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2) ))'
@@ -35,7 +36,8 @@ program test_standardir_composite
     call standardir_composite_add(composite, node, ok, message)
     if (.not. ok) call fail(trim(message))
 
-    input = '(lexical-fact (source-term "’") (class unicode-lexical) '// &
+    input = '(lexical-fact (source-term "’") (canonical-spelling "''") '// &
+        '(class unicode-lexical) '// &
         '(target RIGHT_SINGLE_QUOTE) (rule R724) (codepoint U+2019) (source '// &
         '(document J3-24-007) (clause R724) (page 85) '// &
         '(source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2) ))'
@@ -60,10 +62,10 @@ program test_standardir_composite
     call standardir_composite_emit_antlr(unit, composite, ok, message)
     close (unit)
     if (.not. ok) call fail(trim(message))
-    call require_contains('build/test_standardir_composite.g4', 'EN_DASH : ''\u2013'' ;', &
+    call require_contains('build/test_standardir_composite.g4', "EN_DASH : '-' ;", &
         'ANTLR en dash export differs')
     call require_contains('build/test_standardir_composite.g4', &
-        'RIGHT_SINGLE_QUOTE : ''\u2019'' ;', 'ANTLR quote export differs')
+        "RIGHT_SINGLE_QUOTE : '\'' ;", 'ANTLR quote export differs')
 
     open (newunit=unit, file='build/test_standardir_composite.y', status='replace', &
         action='write', iostat=ios)
@@ -72,7 +74,7 @@ program test_standardir_composite
     close (unit)
     if (.not. ok) call fail(trim(message))
     call require_contains('build/test_standardir_composite.y', &
-        '%token EN_DASH RIGHT_SINGLE_QUOTE', 'Bison lexical export differs')
+        '%token EN_DASH "-" RIGHT_SINGLE_QUOTE "''"', 'Bison lexical export differs')
 
     open (newunit=unit, file='build/test_standardir_composite.ebnf', status='replace', &
         action='write', iostat=ios)
@@ -81,7 +83,8 @@ program test_standardir_composite
     close (unit)
     if (.not. ok) call fail(trim(message))
     call require_contains('build/test_standardir_composite.ebnf', &
-        'codepoint=U+2013', 'EBNF lexical provenance differs')
+        'codepoint=U+2013 target=EN_DASH canonical-spelling=-', &
+        'EBNF lexical provenance differs')
 
     open (newunit=unit, file='build/test_standardir_composite.js', status='replace', &
         action='write', iostat=ios)
@@ -90,11 +93,23 @@ program test_standardir_composite
     close (unit)
     if (.not. ok) call fail(trim(message))
     call require_contains('build/test_standardir_composite.js', &
-        'EN_DASH: $ => /[\u2013]/,', 'tree-sitter en dash export differs')
+        "EN_DASH: $ => '-',", 'tree-sitter en dash export differs')
     call require_contains('build/test_standardir_composite.js', &
-        'RIGHT_SINGLE_QUOTE: $ => /[\u2019]/,', 'tree-sitter quote export differs')
+        "RIGHT_SINGLE_QUOTE: $ => '\'',", 'tree-sitter quote export differs')
 
+    open (newunit=unit, status='scratch', action='write', iostat=ios)
+    if (ios /= 0) call fail('could not open control output')
+    composite%lexical%facts(1)%canonical_spelling = ''
+    call standardir_lexical_validate(composite%lexical, ok, message)
+    if (.not. ok) call fail('missing optional canonical spelling was rejected')
+    call standardir_composite_emit_antlr(unit, composite, ok, message)
+    if (ok) call fail('missing canonical spelling was silently normalized')
+    composite%lexical%facts(1)%canonical_spelling = '☃'
+    call standardir_composite_emit_treesitter(unit, composite, ok, message)
+    if (ok) call fail('unrepresentable canonical spelling was accepted')
+    close (unit)
     composite%lexical%facts(1)%source_term = '-'
+    composite%lexical%facts(1)%canonical_spelling = '-'
     call standardir_lexical_validate(composite%lexical, ok, message)
     if (ok) call fail('ASCII mutation was accepted')
     print '(a)', 'StandardIR composite tests passed'

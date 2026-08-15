@@ -70,6 +70,16 @@ program test_standardir_lexical_lookup
     call require(status /= standardir_lexical_lookup_ambiguous, &
         'invalid overlap was reported as an ordinary ambiguity')
 
+    call make_facts(facts)
+    facts%count = 4
+    call set_fact(facts%facts(4), '€', 'constructed-class', 'TARGET_EURO', &
+        'U+20AC', 8364_int64, 8364_int64)
+    call standardir_lexical_validate(facts, ok, message)
+    call require(ok, 'generic exact UTF-8 source term was rejected')
+    facts%facts(4)%source_term = 'x'
+    call standardir_lexical_validate(facts, ok, message)
+    call require(.not. ok, 'mismatched exact UTF-8 source term was accepted')
+
     print '(a)', 'StandardIR lexical lookup test passed'
 
 contains
