@@ -20,11 +20,13 @@ contains
         character(len=*), intent(out) :: message
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
+        character(len=4096) :: source_lineage
+        character(len=64) :: source_byte_start, source_byte_length
 
         ok = .false.
         message = ''
         call read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
-            ok, message)
+            ok, message, source_lineage, source_byte_start, source_byte_length)
         if (.not. ok) return
 
         write (unit, '(a)', advance='no') '(* rule='
@@ -37,6 +39,16 @@ contains
         write (unit, '(a)', advance='no') trim(page)
         write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
+        if (len_trim(source_byte_start) > 0) then
+            write (unit, '(a)', advance='no') ' source-byte-start='
+            write (unit, '(a)', advance='no') trim(source_byte_start)
+            write (unit, '(a)', advance='no') ' source-byte-length='
+            write (unit, '(a)', advance='no') trim(source_byte_length)
+        end if
+        if (len_trim(source_lineage) > 0) then
+            write (unit, '(a)', advance='no') ' source-lineage='
+            write (unit, '(a)', advance='no') trim(source_lineage)
+        end if
         write (unit, '(a)') ' *)'
         write (unit, '(a)', advance='no') trim(lhs)
         write (unit, '(a)', advance='no') ' ::= '
@@ -52,11 +64,13 @@ contains
         character(len=*), intent(out) :: message
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
+        character(len=4096) :: source_lineage
+        character(len=64) :: source_byte_start, source_byte_length
 
         ok = .false.
         message = ''
         call read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
-            ok, message)
+            ok, message, source_lineage, source_byte_start, source_byte_length)
         if (.not. ok) return
 
         write (unit, '(a)', advance='no') '// rule='
@@ -69,6 +83,16 @@ contains
         write (unit, '(a)', advance='no') trim(page)
         write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
+        if (len_trim(source_byte_start) > 0) then
+            write (unit, '(a)', advance='no') ' source-byte-start='
+            write (unit, '(a)', advance='no') trim(source_byte_start)
+            write (unit, '(a)', advance='no') ' source-byte-length='
+            write (unit, '(a)', advance='no') trim(source_byte_length)
+        end if
+        if (len_trim(source_lineage) > 0) then
+            write (unit, '(a)', advance='no') ' source-lineage='
+            write (unit, '(a)', advance='no') trim(source_lineage)
+        end if
         write (unit, '(a)')
         write (unit, '(a)') trim(antlr_name(lhs))
         write (unit, '(a)', advance='no') '    : '
@@ -86,6 +110,8 @@ contains
         character(len=*), intent(out) :: message
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
+        character(len=4096) :: source_lineage
+        character(len=64) :: source_byte_start, source_byte_length
         integer :: i, index
 
         ok = .false.
@@ -97,9 +123,10 @@ contains
         do i = 1, group%count
             index = group%indices(i)
             call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
-                ok, message)
+                ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
-            call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash)
+            call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+                source_byte_start, source_byte_length)
             if (i == 1) then
                 write (unit, '(a)', advance='no') trim(lhs)//' ::= '
             else
@@ -121,6 +148,8 @@ contains
         character(len=*), intent(out) :: message
 
         character(len=256) :: rule, lhs, document, clause, page, source_hash
+        character(len=4096) :: source_lineage
+        character(len=64) :: source_byte_start, source_byte_length
         integer :: i, index
 
         ok = .false.
@@ -132,9 +161,10 @@ contains
         do i = 1, group%count
             index = group%indices(i)
             call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
-                ok, message)
+                ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
-            call emit_antlr_provenance(unit, rule, document, clause, page, source_hash)
+            call emit_antlr_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+                source_byte_start, source_byte_length)
         end do
         write (unit, '(a)') trim(antlr_name(group%lhs))
         do i = 1, group%count
@@ -153,9 +183,11 @@ contains
         message = ''
     end subroutine standardir_emit_antlr_group
 
-    subroutine emit_ebnf_provenance(unit, rule, document, clause, page, source_hash)
+    subroutine emit_ebnf_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+            source_byte_start, source_byte_length)
         integer, intent(in) :: unit
         character(len=*), intent(in) :: rule, document, clause, page, source_hash
+        character(len=*), intent(in) :: source_lineage, source_byte_start, source_byte_length
 
         write (unit, '(a)', advance='no') '(* rule='
         write (unit, '(a)', advance='no') trim(rule)
@@ -167,12 +199,24 @@ contains
         write (unit, '(a)', advance='no') trim(page)
         write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
+        if (len_trim(source_byte_start) > 0) then
+            write (unit, '(a)', advance='no') ' source-byte-start='
+            write (unit, '(a)', advance='no') trim(source_byte_start)
+            write (unit, '(a)', advance='no') ' source-byte-length='
+            write (unit, '(a)', advance='no') trim(source_byte_length)
+        end if
+        if (len_trim(source_lineage) > 0) then
+            write (unit, '(a)', advance='no') ' source-lineage='
+            write (unit, '(a)', advance='no') trim(source_lineage)
+        end if
         write (unit, '(a)') ' *)'
     end subroutine emit_ebnf_provenance
 
-    subroutine emit_antlr_provenance(unit, rule, document, clause, page, source_hash)
+    subroutine emit_antlr_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+            source_byte_start, source_byte_length)
         integer, intent(in) :: unit
         character(len=*), intent(in) :: rule, document, clause, page, source_hash
+        character(len=*), intent(in) :: source_lineage, source_byte_start, source_byte_length
 
         write (unit, '(a)', advance='no') '// rule='
         write (unit, '(a)', advance='no') trim(rule)
@@ -184,15 +228,26 @@ contains
         write (unit, '(a)', advance='no') trim(page)
         write (unit, '(a)', advance='no') ' source-canonical-text-sha256='
         write (unit, '(a)', advance='no') trim(source_hash)
+        if (len_trim(source_byte_start) > 0) then
+            write (unit, '(a)', advance='no') ' source-byte-start='
+            write (unit, '(a)', advance='no') trim(source_byte_start)
+            write (unit, '(a)', advance='no') ' source-byte-length='
+            write (unit, '(a)', advance='no') trim(source_byte_length)
+        end if
+        if (len_trim(source_lineage) > 0) then
+            write (unit, '(a)', advance='no') ' source-lineage='
+            write (unit, '(a)', advance='no') trim(source_lineage)
+        end if
         write (unit, '(a)')
     end subroutine emit_antlr_provenance
 
     subroutine read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
-            ok, message)
+            ok, message, source_lineage, source_byte_start, source_byte_length)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: rule, lhs, document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length
 
         rule = ''
         lhs = ''
@@ -200,6 +255,9 @@ contains
         clause = ''
         page = ''
         source_hash = ''
+        if (present(source_lineage)) source_lineage = ''
+        if (present(source_byte_start)) source_byte_start = ''
+        if (present(source_byte_length)) source_byte_length = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count /= 5) then
@@ -214,14 +272,17 @@ contains
         if (.not. ok) return
         call read_pair(node%children(3), 'lhs', lhs, ok, message)
         if (.not. ok) return
-        call read_source(node%children(5), document, clause, page, source_hash, ok, message)
+        call read_source(node%children(5), document, clause, page, source_hash, ok, message, &
+            source_lineage, source_byte_start, source_byte_length)
     end subroutine read_syntax_header
 
-    subroutine read_source(node, document, clause, page, source_hash, ok, message)
+    subroutine read_source(node, document, clause, page, source_hash, ok, message, &
+            source_lineage, source_byte_start, source_byte_length)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length
 
         integer :: i
 
@@ -229,6 +290,9 @@ contains
         clause = ''
         page = ''
         source_hash = ''
+        if (present(source_lineage)) source_lineage = ''
+        if (present(source_byte_start)) source_byte_start = ''
+        if (present(source_byte_length)) source_byte_length = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count < 1) then
@@ -256,6 +320,15 @@ contains
                 call read_pair(node%children(i), 'page', page, ok, message)
             else if (atom_equals(node%children(i)%children(1), 'source-sha256')) then
                 call read_pair(node%children(i), 'source-sha256', source_hash, ok, message)
+            else if (atom_equals(node%children(i)%children(1), 'source-lineage')) then
+                if (present(source_lineage)) call read_pair(node%children(i), 'source-lineage', &
+                    source_lineage, ok, message)
+            else if (atom_equals(node%children(i)%children(1), 'byte-start')) then
+                if (present(source_byte_start)) call read_pair(node%children(i), 'byte-start', &
+                    source_byte_start, ok, message)
+            else if (atom_equals(node%children(i)%children(1), 'byte-length')) then
+                if (present(source_byte_length)) call read_pair(node%children(i), 'byte-length', &
+                    source_byte_length, ok, message)
             end if
             if (.not. ok .and. len_trim(message) /= 0) return
         end do

@@ -23,12 +23,18 @@ module standardir_grammar_targetnorm
         type(standardir_target_expression_t), allocatable :: children(:)
     end type standardir_target_expression_t
 
+    type, public :: standardir_target_provenance_t
+        type(standardir_source_ref_t) :: source
+        integer :: alternative = 0
+    end type standardir_target_provenance_t
+
     type, public :: standardir_target_rule_t
         character(len=128) :: id = ''
         integer :: alternative = 0
         character(len=128) :: lhs = ''
         type(standardir_target_expression_t) :: expression
         type(standardir_source_ref_t) :: source
+        type(standardir_target_provenance_t), allocatable :: provenance(:)
         integer :: origin = 0
         integer :: resolution = 0
     end type standardir_target_rule_t
@@ -105,6 +111,9 @@ contains
         value%alternative = rule%alternative
         value%lhs = trim(rule%lhs)
         value%source = rule%source
+        allocate (value%provenance(1))
+        value%provenance(1)%source = rule%source
+        value%provenance(1)%alternative = rule%alternative
         value%origin = rule%origin
         value%resolution = rule%resolution
         call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
@@ -606,6 +615,8 @@ contains
                 expression = concatenate_present(source(j)%expression, tail)
                 candidate%expression = expression
                 candidate%source = source(j)%source
+                call merge_provenance(source(j)%provenance, values(i)%provenance, &
+                    candidate%provenance)
                 candidate%alternative = source(j)%alternative
                 candidate%origin = source(j)%origin
                 candidate%resolution = source(j)%resolution
@@ -617,6 +628,53 @@ contains
         ok = .true.
         message = ''
     end subroutine substitute_leading_reference
+
+    subroutine merge_provenance(left, right, merged)
+        type(standardir_target_provenance_t), allocatable, intent(in) :: left(:), right(:)
+        type(standardir_target_provenance_t), allocatable, intent(out) :: merged(:)
+        integer :: i
+
+        allocate (merged(0))
+        if (allocated(left)) then
+            do i = 1, size(left)
+                call append_provenance(merged, left(i))
+            end do
+        end if
+        if (allocated(right)) then
+            do i = 1, size(right)
+                call append_provenance(merged, right(i))
+            end do
+        end if
+    end subroutine merge_provenance
+
+    subroutine append_provenance(values, value)
+        type(standardir_target_provenance_t), allocatable, intent(inout) :: values(:)
+        type(standardir_target_provenance_t), intent(in) :: value
+        type(standardir_target_provenance_t), allocatable :: expanded(:)
+        integer :: i, n
+
+        do i = 1, size(values)
+            if (same_provenance(values(i), value)) return
+        end do
+        n = size(values)
+        allocate (expanded(n + 1))
+        if (n > 0) expanded(:n) = values
+        expanded(n + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_provenance
+
+    logical function same_provenance(left, right)
+        type(standardir_target_provenance_t), intent(in) :: left, right
+        type(standardir_source_ref_t) :: a, b
+
+        a = left%source
+        b = right%source
+        same_provenance = left%alternative == right%alternative .and. &
+            trim(a%document) == trim(b%document) .and. trim(a%clause) == trim(b%clause) .and. &
+            trim(a%rule) == trim(b%rule) .and. a%page == b%page .and. &
+            a%end_page == b%end_page .and. a%byte_start == b%byte_start .and. &
+            a%byte_length == b%byte_length .and. trim(a%source_hash) == trim(b%source_hash)
+    end function same_provenance
 
     subroutine eliminate_direct_group(values, suppressed, group, lhs, names, nullable, ok, message)
         type(standardir_target_rule_t), allocatable, intent(inout) :: values(:)

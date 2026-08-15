@@ -1,6 +1,7 @@
 module standardir_grammar_sx_adapter_support
     !! Raw syntax header, source, and SX field helpers for the adapter.
 
+    use, intrinsic :: iso_fortran_env, only: int64
     use fortsx, only: sx_atom, sx_list, sx_node_t
     use standardir_export, only: standardir_source_ref_t, standardir_validate_source_ref
     use standardir_grammar_producer, only: standardir_grammar_origin_differential, &
@@ -71,6 +72,7 @@ contains
         character(len=*), intent(out) :: message
 
         integer :: i, value
+        integer(int64) :: int64_value
         logical :: have_document, have_clause, have_rule, have_page, have_hash
         character(len=128) :: label, text
 
@@ -112,12 +114,24 @@ contains
                     have_hash = .true.
                 end select
             case ('page', 'end-page', 'byte-start', 'byte-length')
-                call pair_integer(node%children(i), value, ok, message)
-                if (.not. ok) return
-                if (trim(label) == 'page') then
+                if (trim(label) == 'page' .or. trim(label) == 'end-page') then
+                    call pair_integer(node%children(i), value, ok, message)
+                    if (.not. ok) return
+                else
+                    call pair_integer64(node%children(i), int64_value, ok, message)
+                    if (.not. ok) return
+                end if
+                select case (trim(label))
+                case ('page')
                     source%page = value
                     have_page = .true.
-                end if
+                case ('end-page')
+                    source%end_page = value
+                case ('byte-start')
+                    source%byte_start = int64_value
+                case ('byte-length')
+                    source%byte_length = int64_value
+                end select
             case default
                 message = 'unsupported source field: '//trim(label)
                 return
@@ -232,6 +246,28 @@ contains
         end if
         ok = .true.
     end subroutine pair_integer
+
+    subroutine pair_integer64(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer(int64), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: ios
+
+        value = 0_int64
+        ok = .false.
+        message = ''
+        if (node%child_count /= 2 .or. node%children(2)%kind /= sx_atom) then
+            message = 'source integer field is malformed'
+            return
+        end if
+        read (node%children(2)%atom, *, iostat=ios) value
+        if (ios /= 0) then
+            message = 'source integer field is not an integer'
+            return
+        end if
+        ok = .true.
+    end subroutine pair_integer64
 
     logical function is_pair(node, label)
         type(sx_node_t), intent(in) :: node

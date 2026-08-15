@@ -201,6 +201,7 @@ contains
                 return
             end if
             count = size(one)
+            one(:)%source = sources(i)
             staged(cursor + 1:cursor + count) = one
             cursor = cursor + count
             deallocate (one)
@@ -279,8 +280,12 @@ contains
         value%alternative = alternative
         value%lhs = trim(lhs)
         value%root = first
-        value%source = standardir_source_ref_t(trim(document), trim(clause), trim(source_rule), &
-            page, trim(source_hash))
+        value%source = standardir_source_ref_t()
+        value%source%document = trim(document)
+        value%source%clause = trim(clause)
+        value%source%rule = trim(source_rule)
+        value%source%page = page
+        value%source%source_hash = trim(source_hash)
         value%origin = origin
         value%resolution = resolution
         call standardir_grammar_validate(value, ok, message)

@@ -1,6 +1,7 @@
 module standardir_export
     !! Typed, source-backed StandardIR records for frontend consumers.
 
+    use, intrinsic :: iso_fortran_env, only: int64
     use fortsx, only: sx_atom, sx_list, sx_node_t
     use standardir, only: standardir_syntax_t
     use schema_value_runtime, only: schema_runtime_close_list, schema_runtime_finish, &
@@ -27,6 +28,9 @@ module standardir_export
         character(len=128) :: clause = ''
         character(len=128) :: rule = ''
         integer :: page = 0
+        integer :: end_page = 0
+        integer(int64) :: byte_start = 0
+        integer(int64) :: byte_length = 0
         character(len=128) :: source_hash = ''
     end type standardir_source_ref_t
 

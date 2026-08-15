@@ -249,7 +249,12 @@ contains
         type(standardir_source_ref_t), intent(out) :: value
         character(len=*), intent(in) :: document, clause, rule, source_hash
         integer, intent(in) :: page
-        value = standardir_source_ref_t(document, clause, rule, page, source_hash)
+        value = standardir_source_ref_t()
+        value%document = document
+        value%clause = clause
+        value%rule = rule
+        value%page = page
+        value%source_hash = source_hash
     end subroutine make_source
 
     subroutine make_rule(value)
@@ -277,7 +282,12 @@ contains
             standardir_grammar_repeat, 'statement', 1, .true., 9, 1)
         value%nodes%values(9) = standardir_grammar_node_t( &
             standardir_grammar_reference, 'body', 1, .false., 0, 0)
-        value%source = standardir_source_ref_t('J3-24-007', '5', 'R501', 45, 'fixture')
+        value%source = standardir_source_ref_t()
+        value%source%document = 'J3-24-007'
+        value%source%clause = '5'
+        value%source%rule = 'R501'
+        value%source%page = 45
+        value%source%source_hash = 'fixture'
         value%origin = standardir_grammar_origin_mechanical
         value%resolution = standardir_grammar_resolution_unresolved
     end subroutine make_rule

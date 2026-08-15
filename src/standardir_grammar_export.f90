@@ -9,7 +9,7 @@ module standardir_grammar_export
         standardir_grammar_repeat, standardir_grammar_rule_t, &
         standardir_grammar_sequence, standardir_grammar_token
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
-        standardir_target_expression_t, standardir_target_rule_t
+        standardir_target_expression_t, standardir_target_provenance_t, standardir_target_rule_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
         standardir_max_syntax_groups
     use standardir_treesitter, only: standardir_emit_treesitter_group
@@ -105,10 +105,6 @@ contains
         ok = .false.
         message = ''
         do i = 1, group_count
-            do j = 1, size(suppressed)
-                call suppressed_provenance(unit, suppressed(j), groups(i)%lhs, format, ok, message)
-                if (.not. ok) return
-            end do
             do j = 1, groups(i)%count
                 index = groups(i)%indices(j)
                 call emit_source_rule_annotation(unit, nodes(index), format, ok, message)
@@ -277,7 +273,7 @@ contains
         character(len=*), intent(out) :: message
         character(len=32) :: alternative
 
-        call make_list(node, 7)
+        call make_list(node, 11)
         call make_atom(node%children(1), 'source')
         call make_pair(node%children(2), 'document', trim(rule%source%document), ok, message)
         if (.not. ok) return
@@ -290,7 +286,15 @@ contains
         if (.not. ok) return
         call make_pair(node%children(6), 'page', integer_text(rule%source%page), ok, message)
         if (.not. ok) return
-        call make_pair(node%children(7), 'source-sha256', trim(rule%source%source_hash), ok, message)
+        call make_pair(node%children(7), 'end-page', integer_text(rule%source%end_page), ok, message)
+        if (.not. ok) return
+        call make_pair(node%children(8), 'byte-start', integer64_text(rule%source%byte_start), ok, message)
+        if (.not. ok) return
+        call make_pair(node%children(9), 'byte-length', integer64_text(rule%source%byte_length), ok, message)
+        if (.not. ok) return
+        call make_pair(node%children(10), 'source-sha256', trim(rule%source%source_hash), ok, message)
+        if (.not. ok) return
+        call make_pair(node%children(11), 'source-lineage', provenance_text(rule%provenance), ok, message)
     end subroutine make_target_source
 
     subroutine emit_source_rule_annotation(unit, node, format, ok, message)
@@ -299,13 +303,17 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        character(len=256) :: source_rule, source_alternative
+        character(len=256) :: source_rule, source_alternative, source_lineage
+        character(len=64) :: source_start, source_length
         integer :: i
 
         ok = .false.
         message = ''
         source_rule = ''
         source_alternative = ''
+        source_lineage = ''
+        source_start = ''
+        source_length = ''
         if (node%child_count /= 5 .or. node%children(5)%kind /= sx_list .or. &
             node%children(5)%child_count < 6) then
             message = 'canonical grammar source is malformed'
@@ -323,6 +331,12 @@ contains
                 source_rule = trim(node%children(5)%children(i)%children(2)%atom)
             else if (trim(node%children(5)%children(i)%children(1)%atom) == 'alternative') then
                 source_alternative = trim(node%children(5)%children(i)%children(2)%atom)
+            else if (trim(node%children(5)%children(i)%children(1)%atom) == 'source-lineage') then
+                source_lineage = trim(node%children(5)%children(i)%children(2)%atom)
+            else if (trim(node%children(5)%children(i)%children(1)%atom) == 'byte-start') then
+                source_start = trim(node%children(5)%children(i)%children(2)%atom)
+            else if (trim(node%children(5)%children(i)%children(1)%atom) == 'byte-length') then
+                source_length = trim(node%children(5)%children(i)%children(2)%atom)
             end if
         end do
         if (len_trim(source_rule) == 0) then
@@ -334,21 +348,62 @@ contains
             write (unit, '(a)', advance='no') '(* source-rule='//trim(source_rule)
             if (len_trim(source_alternative) > 0) write (unit, '(a)', advance='no') &
                 ' source-alternative='//trim(source_alternative)
+            if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
+                ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
+                ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)') ' *)'
         case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
             write (unit, '(a)', advance='no') '// source-rule='//trim(source_rule)
             if (len_trim(source_alternative) > 0) write (unit, '(a)', advance='no') &
                 ' source-alternative='//trim(source_alternative)
+            if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
+                ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
+                ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)')
         case (standardir_grammar_format_bison)
             write (unit, '(a)', advance='no') '/* source-rule='//trim(source_rule)
             if (len_trim(source_alternative) > 0) write (unit, '(a)', advance='no') &
                 ' source-alternative='//trim(source_alternative)
+            if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
+                ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
+                ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)') ' */'
         end select
         ok = .true.
         message = ''
     end subroutine emit_source_rule_annotation
+
+    function provenance_text(values) result(text)
+        type(standardir_target_provenance_t), allocatable, intent(in) :: values(:)
+        character(len=4096) :: text
+        character(len=256) :: item
+        integer :: i
+
+        text = ''
+        if (.not. allocated(values)) then
+            text = 'none'
+            return
+        end if
+        do i = 1, size(values)
+            write (item, '(a,":",i0,"@",i0,"+",i0)') trim(values(i)%source%rule), &
+                values(i)%alternative, values(i)%source%byte_start, values(i)%source%byte_length
+            if (len_trim(text) > 0) text = trim(text)//','
+            text = trim(text)//trim(item)
+        end do
+        if (len_trim(text) == 0) text = 'none'
+    end function provenance_text
+
+    function integer64_text(value) result(text)
+        use, intrinsic :: iso_fortran_env, only: int64
+        integer(int64), intent(in) :: value
+        character(len=64) :: text
+
+        write (text, '(i0)') value
+        text = trim(text)
+    end function integer64_text
 
     subroutine copy_output(source_unit, target_unit, ok, message)
         integer, intent(in) :: source_unit, target_unit
