@@ -13,22 +13,22 @@ program test_standardir_lexical_layout
 
     call standardir_layout_reset(layout)
     text = '(statement-boundary (source-form free-form) (terminator end-of-line) '// &
-        '(source (source-ref (document J3-24-007) (clause 4.1.4) (rule R-statement-boundary) '// &
+        '(source (source-ref (document J3-24-007) (clause 4.1.4) (locator statement-ending) '// &
         '(page 45) (source-hash '//hash//'))) (origin mechanical))'
     call add(text)
     text = '(statement-boundary (source-form free-form) (terminator semicolon) '// &
-        '(source (source-ref (document J3-24-007) (clause 4.1.4) (rule R-statement-boundary) '// &
+        '(source (source-ref (document J3-24-007) (clause 4.1.4) (locator semicolon-separator) '// &
         '(page 45) (source-hash '//hash//'))) (origin mechanical))'
     call add(text)
     text = '(continuation (source-form free-form) (signal trailing-ampersand) '// &
-        '(source (source-ref (document J3-24-007) (clause 6.3.2.5) (rule R-continuation) '// &
+        '(source (source-ref (document J3-24-007) (clause 6.3.2.4) (locator trailing-ampersand) '// &
         '(page 72) (source-hash '//hash//'))) (origin mechanical))'
     call add(text)
-    text = '(keyword-name-policy (source-form free-form) (policy not-reserved) '// &
-        '(source (source-ref (document J3-24-007) (clause 5.5.2) (rule R-keyword-policy) '// &
+    text = '(keyword-name-policy (source-form all) (policy not-reserved) '// &
+        '(source (source-ref (document J3-24-007) (clause 5.5.2) (locator keyword-name) '// &
         '(page 65) (source-hash '//hash//'))) (origin mechanical))'
     call add(text)
-    call require(layout%count == 4, 'three layout record families were not retained')
+    call require(layout%count == 4, 'four lexical layout facts were not retained')
     call require(trim(layout%records(4)%policy) == 'not-reserved', &
         'keyword-not-reserved fact was not retained')
     call standardir_layout_validate(layout, ok, message)
@@ -39,18 +39,31 @@ program test_standardir_lexical_layout
     call standardir_layout_write(layout, unit, ok, message)
     call require(ok, message)
     rewind (unit); line = ''; read (unit, '(a)', iostat=ios) line
-    call require(index(line, 'lexical-layout-header') > 0, 'JSONL header missing')
+    call require(trim(line) == '{"kind":"lexical-layout-header","contract":"lexical-layout","version":1}', &
+        'JSONL v1 header is incorrect')
+    call require(index(line, '"contract":"lexical-layout"') > 0 .and. index(line, '"version":1') > 0, &
+        'JSONL header does not identify lexical-layout v1')
     do; read (unit, '(a)', iostat=ios) line; if (ios /= 0) exit; end do
     close (unit)
+    call standardir_layout_add(node, layout, ok, message)
+    call require(.not. ok, 'duplicate fact was accepted')
 
     text = '(keyword-name-policy (source-form free-form) (policy reserved) '// &
-        '(source (source-ref (document D) (clause C) (rule R) (page 1) (source-hash '//hash//'))) '// &
+        '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
         '(origin mechanical))'
     call reject(text, 'invalid enum was accepted')
+    text = '(statement-boundary (source-form narrow-form) (terminator end-of-line) '// &
+        '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
+        '(origin mechanical))'
+    call reject(text, 'invalid source-form was accepted')
     text = '(statement-boundary (source-form free-form) (terminator end-of-line) (bogus x) '// &
-        '(source (source-ref (document D) (clause C) (rule R) (page 1) (source-hash '//hash//'))) '// &
+        '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
         '(origin mechanical))'
     call reject(text, 'unknown field was accepted')
+    text = '(statement-boundary (source-form free-form) (terminator end-of-line) '// &
+        '(source (source-ref (document D) (clause C) (rule R) (page 1) (source-hash '//hash//'))) '// &
+        '(origin mechanical))'
+    call reject(text, 'historical rule provenance was accepted')
     print '(a)', 'StandardIR lexical layout test passed'
 
 contains

@@ -11,7 +11,7 @@ module standardir_lexical_layout
     type, public :: standardir_layout_source_t
         character(len=standardir_layout_max_text) :: document = ''
         character(len=standardir_layout_max_text) :: clause = ''
-        character(len=standardir_layout_max_text) :: rule = ''
+        character(len=standardir_layout_max_text) :: locator = ''
         integer :: page = 0
         character(len=64) :: source_hash = ''
     end type standardir_layout_source_t
@@ -56,11 +56,13 @@ contains
         if (.not. ok) return
         do i = 1, layout%count
             if (same_fact(layout%records(i), record)) then
+                ok = .false.
                 message = 'duplicate lexical layout fact'
                 return
             end if
         end do
         if (layout%count >= size(layout%records)) then
+            ok = .false.
             message = 'too many lexical layout facts'
             return
         end if
@@ -100,7 +102,7 @@ contains
 
         call standardir_layout_validate(layout, ok, message)
         if (.not. ok) return
-        write (unit, '(a)', iostat=ios) '{"kind":"lexical-layout-header","format":1}'
+        write (unit, '(a)', iostat=ios) '{"kind":"lexical-layout-header","contract":"lexical-layout","version":1}'
         ok = ios == 0
         do i = 1, layout%count
             if (.not. ok) exit
@@ -116,7 +118,7 @@ contains
         character(len=*), intent(out) :: message
         character(len=32) :: labels(7)
         integer :: i, j, slot, label_count
-        character(len=standardir_layout_max_text) :: label, value
+        character(len=32) :: label, value
 
         record = standardir_layout_record_t(); labels = ''; label_count = 0
         ok = node%kind == sx_list .and. node%child_count >= 2
@@ -200,7 +202,7 @@ contains
             select case (label)
             case ('document'); value = 1
             case ('clause'); value = 2
-            case ('rule'); value = 3
+            case ('locator'); value = 3
             case ('page'); value = 4
             case ('source-hash'); value = 5
             case default; message = 'unknown source-ref field'; return
@@ -210,7 +212,7 @@ contains
             select case (value)
             case (1); source%document = text
             case (2); source%clause = text
-            case (3); source%rule = text
+            case (3); source%locator = text
             case (4); read (text, *, iostat=ios) source%page
             case (5); source%source_hash = text
             end select
@@ -232,7 +234,9 @@ contains
         case ('statement-boundary')
             if (.not. valid_enum(record%terminator, 'terminator')) then; message = 'invalid terminator'; return; end if
         case ('continuation')
-            if (.not. valid_enum(record%signal, 'continuation-signal')) then; message = 'invalid continuation signal'; return; end if
+            if (.not. valid_enum(record%signal, 'continuation-signal')) then
+                message = 'invalid continuation signal'; return
+            end if
         case ('keyword-name-policy')
             if (.not. valid_enum(record%policy, 'keyword-policy')) then; message = 'invalid keyword policy'; return; end if
         end select
@@ -243,7 +247,7 @@ contains
         type(standardir_layout_source_t), intent(in) :: source
         integer :: i, code
         valid_source = len_trim(source%document) > 0 .and. len_trim(source%clause) > 0 .and. &
-            len_trim(source%rule) > 0 .and. source%page > 0 .and. len_trim(source%source_hash) == 64
+            len_trim(source%locator) > 0 .and. source%page > 0 .and. len_trim(source%source_hash) == 64
         if (.not. valid_source) return
         do i = 1, 64
             code = iachar(source%source_hash(i:i))
@@ -268,9 +272,12 @@ contains
     logical function valid_enum(value, name)
         character(len=*), intent(in) :: value, name
         select case (trim(name))
-        case ('source-form'); valid_enum = trim(value) == 'free-form' .or. trim(value) == 'fixed-form'
-        case ('terminator'); valid_enum = trim(value) == 'end-of-line' .or. trim(value) == 'semicolon' .or. trim(value) == 'comment'
-        case ('continuation-signal'); valid_enum = trim(value) == 'trailing-ampersand' .or. trim(value) == 'leading-ampersand' .or. trim(value) == 'fixed-form-marker'
+        case ('source-form'); valid_enum = trim(value) == 'all' .or. trim(value) == 'free-form' .or. &
+                trim(value) == 'fixed-form'
+        case ('terminator'); valid_enum = trim(value) == 'end-of-line' .or. trim(value) == 'semicolon' .or. &
+                trim(value) == 'comment'
+        case ('continuation-signal'); valid_enum = trim(value) == 'trailing-ampersand' .or. &
+                trim(value) == 'leading-ampersand' .or. trim(value) == 'fixed-form-marker'
         case ('keyword-policy'); valid_enum = trim(value) == 'not-reserved'
         case default; valid_enum = .false.
         end select
@@ -308,7 +315,7 @@ contains
         if (trim(a%policy) /= trim(b%policy)) return
         if (trim(a%source%document) /= trim(b%source%document)) return
         if (trim(a%source%clause) /= trim(b%source%clause)) return
-        if (trim(a%source%rule) /= trim(b%source%rule)) return
+        if (trim(a%source%locator) /= trim(b%source%locator)) return
         if (a%source%page /= b%source%page) return
         if (trim(a%source%source_hash) /= trim(b%source%source_hash)) return
         if (trim(a%origin) /= trim(b%origin)) return
@@ -323,15 +330,32 @@ contains
         character(len=2048) :: line
         select case (trim(record%kind))
         case ('statement-boundary')
-            write (line, '(a)') '{"kind":"statement-boundary","source_form":"'//json_escape(record%source_form)//'","terminator":"'//json_escape(record%terminator)//'","source":{"document":"'//json_escape(record%source%document)//'","clause":"'//json_escape(record%source%clause)//'","rule":"'//json_escape(record%source%rule)//'","page":'//trim(itoa(record%source%page))//',"source_hash":"'//json_escape(record%source%source_hash)//'"},"origin":"'//json_escape(record%origin)//'"}'
+            write (line, '(a)') '{"kind":"statement-boundary","source_form":"'// &
+                json_escape(record%source_form)//'","terminator":"'//json_escape(record%terminator)// &
+                '","source":'//source_json(record%source)//',"origin":"'//json_escape(record%origin)//'"}'
         case ('continuation')
-            write (line, '(a)') '{"kind":"continuation","source_form":"'//json_escape(record%source_form)//'","signal":"'//json_escape(record%signal)//'","source":{"document":"'//json_escape(record%source%document)//'","clause":"'//json_escape(record%source%clause)//'","rule":"'//json_escape(record%source%rule)//'","page":'//trim(itoa(record%source%page))//',"source_hash":"'//json_escape(record%source%source_hash)//'"},"origin":"'//json_escape(record%origin)//'"}'
+            write (line, '(a)') '{"kind":"continuation","source_form":"'// &
+                json_escape(record%source_form)//'","signal":"'//json_escape(record%signal)// &
+                '","source":'//source_json(record%source)//',"origin":"'//json_escape(record%origin)//'"}'
         case ('keyword-name-policy')
-            write (line, '(a)') '{"kind":"keyword-name-policy","source_form":"'//json_escape(record%source_form)//'","policy":"'//json_escape(record%policy)//'","source":{"document":"'//json_escape(record%source%document)//'","clause":"'//json_escape(record%source%clause)//'","rule":"'//json_escape(record%source%rule)//'","page":'//trim(itoa(record%source%page))//',"source_hash":"'//json_escape(record%source%source_hash)//'"},"origin":"'//json_escape(record%origin)//'"}'
+            write (line, '(a)') '{"kind":"keyword-name-policy","source_form":"'// &
+                json_escape(record%source_form)//'","policy":"'//json_escape(record%policy)// &
+                '","source":'//source_json(record%source)//',"origin":"'//json_escape(record%origin)//'"}'
         end select
         write (unit, '(a)', iostat=ios) trim(line)
         ok = ios == 0
     end subroutine write_record
+
+    function source_json(source) result(text)
+        type(standardir_layout_source_t), intent(in) :: source
+        character(len=:), allocatable :: text
+        character(len=1024) :: buffer
+        write (buffer, '(a)') '{"document":"'//json_escape(source%document)// &
+            '","clause":"'//json_escape(source%clause)//'","locator":"'// &
+            json_escape(source%locator)//'","page":'//trim(itoa(source%page))// &
+            ',"source_hash":"'//json_escape(source%source_hash)//'"}'
+        text = trim(buffer)
+    end function source_json
 
     function itoa(value) result(text)
         integer, intent(in) :: value
