@@ -364,8 +364,9 @@ contains
                 call standardir_read_pair(node%children(i), 'codepoint', codepoint, ok, message)
             else if (standardir_atom_equals(node%children(i)%children(1), 'source')) then
                 call standardir_read_source(node%children(i), document, clause, page, source_hash, &
-                    ok, message)
+                    ok, message, reject_unknown=.true.)
             else
+                ok = .false.
                 message = 'unknown lexical fact field'
                 return
             end if

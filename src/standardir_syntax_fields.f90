@@ -50,12 +50,13 @@ contains
     end subroutine standardir_read_syntax_header
 
     subroutine standardir_read_source(node, document, clause, page, source_hash, ok, message, &
-            source_lineage, source_byte_start, source_byte_length)
+            source_lineage, source_byte_start, source_byte_length, reject_unknown)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length
+        logical, intent(in), optional :: reject_unknown
         integer :: i
 
         document = ''
@@ -93,14 +94,43 @@ contains
             else if (standardir_atom_equals(node%children(i)%children(1), 'source-sha256')) then
                 call standardir_read_pair(node%children(i), 'source-sha256', source_hash, ok, message)
             else if (standardir_atom_equals(node%children(i)%children(1), 'source-lineage')) then
-                if (present(source_lineage)) call standardir_read_pair(node%children(i), 'source-lineage', &
-                    source_lineage, ok, message)
+                if (present(source_lineage)) then
+                    call standardir_read_pair(node%children(i), 'source-lineage', source_lineage, ok, message)
+                else if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unsupported child'
+                        return
+                    end if
+                end if
             else if (standardir_atom_equals(node%children(i)%children(1), 'byte-start')) then
-                if (present(source_byte_start)) call standardir_read_pair(node%children(i), 'byte-start', &
-                    source_byte_start, ok, message)
+                if (present(source_byte_start)) then
+                    call standardir_read_pair(node%children(i), 'byte-start', source_byte_start, ok, message)
+                else if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unsupported child'
+                        return
+                    end if
+                end if
             else if (standardir_atom_equals(node%children(i)%children(1), 'byte-length')) then
-                if (present(source_byte_length)) call standardir_read_pair(node%children(i), 'byte-length', &
-                    source_byte_length, ok, message)
+                if (present(source_byte_length)) then
+                    call standardir_read_pair(node%children(i), 'byte-length', source_byte_length, ok, message)
+                else if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unsupported child'
+                        return
+                    end if
+                end if
+            else
+                if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unknown child'
+                        return
+                    end if
+                end if
             end if
             if (.not. ok .and. len_trim(message) /= 0) return
         end do
