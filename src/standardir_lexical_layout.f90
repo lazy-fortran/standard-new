@@ -20,6 +20,7 @@ module standardir_lexical_layout
         character(len=32) :: kind = ''
         character(len=32) :: source_form = ''
         character(len=32) :: terminator = ''
+        character(len=32) :: suffix = ''
         character(len=32) :: signal = ''
         character(len=32) :: policy = ''
         type(standardir_layout_source_t) :: source
@@ -102,7 +103,7 @@ contains
 
         call standardir_layout_validate(layout, ok, message)
         if (.not. ok) return
-        write (unit, '(a)', iostat=ios) '{"kind":"lexical-layout-header","contract":"lexical-layout","version":1}'
+        write (unit, '(a)', iostat=ios) '{"kind":"lexical-layout-header","contract":"lexical-layout","version":2}'
         ok = ios == 0
         do i = 1, layout%count
             if (.not. ok) exit
@@ -156,6 +157,7 @@ contains
             select case (label)
             case ('source-form'); record%source_form = value
             case ('terminator'); record%terminator = value
+            case ('suffix'); record%suffix = value
             case ('signal'); record%signal = value
             case ('policy'); record%policy = value
             case ('origin'); record%origin = value
@@ -233,6 +235,8 @@ contains
         select case (trim(record%kind))
         case ('statement-boundary')
             if (.not. valid_enum(record%terminator, 'terminator')) then; message = 'invalid terminator'; return; end if
+        case ('statement-class-suffix')
+            if (len_trim(record%suffix) == 0) then; message = 'invalid statement-class suffix'; return; end if
         case ('continuation')
             if (.not. valid_enum(record%signal, 'continuation-signal')) then
                 message = 'invalid continuation signal'; return
@@ -259,8 +263,8 @@ contains
 
     logical function valid_kind(value)
         character(len=*), intent(in) :: value
-        valid_kind = trim(value) == 'statement-boundary' .or. trim(value) == 'continuation' .or. &
-            trim(value) == 'keyword-name-policy'
+        valid_kind = trim(value) == 'statement-boundary' .or. trim(value) == 'statement-class-suffix' .or. &
+            trim(value) == 'continuation' .or. trim(value) == 'keyword-name-policy'
     end function valid_kind
 
     logical function valid_origin(value)
@@ -291,18 +295,25 @@ contains
         select case (trim(label))
         case ('source-form'); index = 1
         case ('terminator'); index = 2
-        case ('signal'); index = 3
-        case ('policy'); index = 4
-        case ('source'); index = 5
-        case ('origin'); index = 6
+        case ('suffix'); index = 3
+        case ('signal'); index = 4
+        case ('policy'); index = 5
+        case ('source'); index = 6
+        case ('origin'); index = 7
         case default; ok = .false.
         end select
         if (trim(kind) == 'statement-boundary' .and. index == 3) ok = .false.
         if (trim(kind) == 'statement-boundary' .and. index == 4) ok = .false.
+        if (trim(kind) == 'statement-boundary' .and. index == 5) ok = .false.
+        if (trim(kind) == 'statement-class-suffix' .and. index == 2) ok = .false.
+        if (trim(kind) == 'statement-class-suffix' .and. index == 4) ok = .false.
+        if (trim(kind) == 'statement-class-suffix' .and. index == 5) ok = .false.
         if (trim(kind) == 'continuation' .and. index == 2) ok = .false.
-        if (trim(kind) == 'continuation' .and. index == 4) ok = .false.
+        if (trim(kind) == 'continuation' .and. index == 3) ok = .false.
+        if (trim(kind) == 'continuation' .and. index == 5) ok = .false.
         if (trim(kind) == 'keyword-name-policy' .and. index == 2) ok = .false.
         if (trim(kind) == 'keyword-name-policy' .and. index == 3) ok = .false.
+        if (trim(kind) == 'keyword-name-policy' .and. index == 4) ok = .false.
     end subroutine field_index
 
     logical function same_fact(a, b)
@@ -311,6 +322,7 @@ contains
         if (trim(a%kind) /= trim(b%kind)) return
         if (trim(a%source_form) /= trim(b%source_form)) return
         if (trim(a%terminator) /= trim(b%terminator)) return
+        if (trim(a%suffix) /= trim(b%suffix)) return
         if (trim(a%signal) /= trim(b%signal)) return
         if (trim(a%policy) /= trim(b%policy)) return
         if (trim(a%source%document) /= trim(b%source%document)) return
@@ -333,6 +345,11 @@ contains
             write (line, '(a)') '{"kind":"statement-boundary","source_form":"'// &
                 json_escape(record%source_form)//'","terminator":"'//json_escape(record%terminator)// &
                 '","source":'//source_json(record%source)//',"origin":"'//json_escape(record%origin)//'"}'
+        case ('statement-class-suffix')
+            write (line, '(a)') '{"kind":"statement-class-suffix","source_form":"'// &
+                json_escape(record%source_form)//'","suffix":"'//json_escape(record%suffix)// &
+                '","source":'//source_json(record%source)//',"origin":"'// &
+                json_escape(record%origin)//'"}'
         case ('continuation')
             write (line, '(a)') '{"kind":"continuation","source_form":"'// &
                 json_escape(record%source_form)//'","signal":"'//json_escape(record%signal)// &

@@ -28,9 +28,19 @@ program test_standardir_lexical_layout
         '(source (source-ref (document J3-24-007) (clause 5.5.2) (locator keyword-name) '// &
         '(page 65) (source-hash '//hash//'))) (origin mechanical))'
     call add(text)
-    call require(layout%count == 4, 'four lexical layout facts were not retained')
+    text = '(statement-class-suffix (source-form all) (suffix -stmt) '// &
+        '(source (source-ref (document J3-24-007) (clause 4.1.4) (locator statement-class-suffix) '// &
+        '(page 45) (source-hash '//hash//'))) (origin mechanical))'
+    call add(text)
+    call require(layout%count == 5, 'five lexical layout facts were not retained')
     call require(trim(layout%records(4)%policy) == 'not-reserved', &
         'keyword-not-reserved fact was not retained')
+    call require(trim(layout%records(4)%source_form) == 'all', &
+        'form-independent fact did not retain source-form all')
+    call require(trim(layout%records(5)%suffix) == '-stmt', &
+        'statement-class suffix fact was not retained')
+    call require(trim(layout%records(5)%source%locator) == 'statement-class-suffix', &
+        'locator provenance was not retained')
     call standardir_layout_validate(layout, ok, message)
     call require(ok, message)
 
@@ -39,14 +49,23 @@ program test_standardir_lexical_layout
     call standardir_layout_write(layout, unit, ok, message)
     call require(ok, message)
     rewind (unit); line = ''; read (unit, '(a)', iostat=ios) line
-    call require(trim(line) == '{"kind":"lexical-layout-header","contract":"lexical-layout","version":1}', &
-        'JSONL v1 header is incorrect')
-    call require(index(line, '"contract":"lexical-layout"') > 0 .and. index(line, '"version":1') > 0, &
-        'JSONL header does not identify lexical-layout v1')
+    call require(trim(line) == '{"kind":"lexical-layout-header","contract":"lexical-layout","version":2}', &
+        'JSONL v2 header is incorrect')
+    call require(index(line, '"contract":"lexical-layout"') > 0 .and. index(line, '"version":2') > 0, &
+        'JSONL header does not identify lexical-layout v2')
     do; read (unit, '(a)', iostat=ios) line; if (ios /= 0) exit; end do
     close (unit)
     call standardir_layout_add(node, layout, ok, message)
     call require(.not. ok, 'duplicate fact was accepted')
+
+    text = '(statement-class-suffix (source-form all) '// &
+        '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
+        '(origin mechanical))'
+    call reject(text, 'invalid suffix was accepted')
+    text = '(statement-class-suffix (source-form all) (suffix -stmt) (terminator end-of-line) '// &
+        '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
+        '(origin mechanical))'
+    call reject(text, 'invalid statement-class field was accepted')
 
     text = '(keyword-name-policy (source-form free-form) (policy reserved) '// &
         '(source (source-ref (document D) (clause C) (locator R) (page 1) (source-hash '//hash//'))) '// &
