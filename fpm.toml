@@ -222,6 +222,11 @@ source-dir = "test"
 main = "test_standardir_grammar_export.f90"
 
 [[test]]
+name = "test_standardir_grammar_transformation_witness"
+source-dir = "test"
+main = "test_standardir_grammar_transformation_witness.f90"
+
+[[test]]
 name = "test_standardir_grammar_sx_adapter"
 source-dir = "test"
 main = "test_standardir_grammar_sx_adapter.f90"

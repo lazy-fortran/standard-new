@@ -12,6 +12,8 @@ program sxgrammar
         standardir_grammar_format_antlr4, standardir_grammar_format_bison, &
         standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter, &
         standardir_target_role_family_config_t
+    use standardir_grammar_transformation_witness, only: &
+        standardir_grammar_emit_transformation_witness
     use standardir_grammar_producer, only: standardir_grammar_rule_t
     use standardir_lexical, only: standardir_lexical_add, standardir_lexical_facts_t, &
         standardir_lexical_reset
@@ -24,7 +26,7 @@ program sxgrammar
     implicit none
 
     character(len=4096) :: syntax_path, classifications_path, roots_path, lexical_path
-    character(len=4096) :: format_text, output_path, message, line
+    character(len=4096) :: format_text, output_path, transformation_witness_path, message, line
     character(len=128) :: selected_root
     type(standardir_target_role_family_config_t) :: role_family
     type(sx_node_t), allocatable :: nodes(:)
@@ -40,11 +42,12 @@ program sxgrammar
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     integer :: i, j
-    logical :: ok, selected_mode, role_family_mode, source_node_found
+    logical :: ok, selected_mode, role_family_mode, transformation_witness_mode, source_node_found
 
     argc = command_argument_count()
     selected_mode = .false.
     role_family_mode = .false.
+    transformation_witness_mode = .false.
     selected_root = ''
     role_family = standardir_target_role_family_config_t()
     if (argc < 6) then
@@ -52,7 +55,8 @@ program sxgrammar
         print '(a)', 'usage: '//trim(syntax_path)// &
             ' <source.sx> <classifications.sx> <roots.sx> <lexical.sx|-> '// &
             '<ebnf|antlr|bison|treesitter> <output> '// &
-            '[--selected-root <root>] [--role-family <representative>]'
+            '[--selected-root <root>] [--role-family <representative>] '// &
+            '[--transformation-witness <path>]'
         stop 2
     end if
     call get_command_argument(1, syntax_path)
@@ -61,7 +65,8 @@ program sxgrammar
     call get_command_argument(4, lexical_path)
     call get_command_argument(5, format_text)
     call get_command_argument(6, output_path)
-    call parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, ok, message)
+    call parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, &
+        transformation_witness_path, transformation_witness_mode, ok, message)
     if (.not. ok) call fail(trim(message))
     call parse_format(format_text, format, ok, message)
     if (.not. ok) call fail(trim(message))
@@ -166,6 +171,11 @@ program sxgrammar
     if (.not. ok) call fail_output(output_unit, message)
     call emit_footer(output_unit, format)
     close (output_unit)
+    if (transformation_witness_mode) then
+        call emit_transformation_witness_file(transformation_witness_path, rules, selected_mode, &
+            selected_root, start_names, role_family_mode, role_family, ok, message)
+        if (.not. ok) call fail(trim(message))
+    end if
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
         semantic_skipped, ' semantic-only records; closed ', lexical_closed, ' lexical facts'
     call print_skipped_names(semantic_skipped_names)
@@ -514,6 +524,50 @@ contains
         end if
     end subroutine emit_footer
 
+    subroutine emit_transformation_witness_file(path, rules, selected_mode, selected_root, roots, &
+            role_family_mode, role_family, ok, message)
+        character(len=*), intent(in) :: path
+        type(standardir_grammar_rule_t), intent(in) :: rules(:)
+        logical, intent(in) :: selected_mode, role_family_mode
+        character(len=*), intent(in) :: selected_root
+        character(len=*), intent(in) :: roots(:)
+        type(standardir_target_role_family_config_t), intent(in) :: role_family
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: unit, ios
+
+        ok = .false.
+        message = ''
+        open (newunit=unit, file=trim(path), status='replace', action='write', iostat=ios)
+        if (ios /= 0) then
+            message = 'cannot open transformation witness output'
+            return
+        end if
+        if (selected_mode) then
+            if (role_family_mode) then
+                call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
+                    selected_root=selected_root, role_family=role_family)
+            else
+                call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
+                    selected_root=selected_root)
+            end if
+        else
+            if (role_family_mode) then
+                call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
+                    roots=roots, role_family=role_family)
+            else
+                call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
+                    roots=roots)
+            end if
+        end if
+        if (.not. ok) then
+            close (unit, status='delete')
+            return
+        end if
+        close (unit)
+    end subroutine emit_transformation_witness_file
+
     subroutine parse_format(text, format, ok, message)
         character(len=*), intent(in) :: text
         integer, intent(out) :: format
@@ -538,10 +592,11 @@ contains
         end select
     end subroutine parse_format
 
-    subroutine parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, ok, message)
+    subroutine parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, &
+            transformation_witness_path, transformation_witness_mode, ok, message)
         integer, intent(in) :: argc
-        character(len=*), intent(out) :: selected_root
-        logical, intent(out) :: selected_mode, role_family_mode, ok
+        character(len=*), intent(out) :: selected_root, transformation_witness_path
+        logical, intent(out) :: selected_mode, role_family_mode, transformation_witness_mode, ok
         type(standardir_target_role_family_config_t), intent(out) :: role_family
         character(len=*), intent(out) :: message
 
@@ -550,6 +605,8 @@ contains
 
         selected_root = ''
         selected_mode = .false.
+        transformation_witness_path = ''
+        transformation_witness_mode = .false.
         role_family = standardir_target_role_family_config_t()
         role_family_mode = .false.
         ok = .false.
@@ -603,6 +660,22 @@ contains
                 role_family%enabled = .true.
                 role_family%representative = trim(value)
                 role_family_mode = .true.
+            case ('--transformation-witness')
+                if (transformation_witness_mode) then
+                    message = 'duplicate --transformation-witness'
+                    return
+                end if
+                if (i == argc) then
+                    message = 'missing value for --transformation-witness'
+                    return
+                end if
+                call get_command_argument(i + 1, value)
+                if (len_trim(value) == 0 .or. is_option(value)) then
+                    message = 'missing value for --transformation-witness'
+                    return
+                end if
+                transformation_witness_path = trim(value)
+                transformation_witness_mode = .true.
             case default
                 message = 'unknown option: '//trim(option)
                 return
