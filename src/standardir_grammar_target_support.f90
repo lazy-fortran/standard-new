@@ -1,56 +1,22 @@
 module standardir_grammar_target_support
     !! Generic target records and source-backed role-family factoring.
 
-    use standardir_export, only: standardir_source_ref_t
     use standardir_grammar_producer, only: standardir_grammar_reference
+    use standardir_grammar_target_records, only: append_expression, append_target, contains_expression, &
+        same_expression, standardir_target_expression_t, standardir_target_provenance_t, &
+        standardir_target_role_family_config_t, standardir_target_role_family_factored, &
+        standardir_target_role_family_rejected, standardir_target_role_family_witness_t, &
+        standardir_target_rule_t
+    use standardir_grammar_target_identity, only: same_provenance, same_provenance_list, same_roles, &
+        same_target_rule
     implicit none
     private
 
-    type, public :: standardir_target_expression_t
-        integer :: kind = 0
-        character(len=128) :: name = ''
-        integer :: minimum = 0
-        logical :: unbounded = .false.
-        type(standardir_target_expression_t), allocatable :: children(:)
-    end type standardir_target_expression_t
-
-    type, public :: standardir_target_provenance_t
-        type(standardir_source_ref_t) :: source
-        integer :: alternative = 0
-    end type standardir_target_provenance_t
-
-    type, public :: standardir_target_rule_t
-        character(len=128) :: id = ''
-        integer :: alternative = 0
-        character(len=128) :: lhs = ''
-        type(standardir_target_expression_t) :: expression
-        type(standardir_source_ref_t) :: source
-        type(standardir_target_provenance_t), allocatable :: provenance(:)
-        character(len=128), allocatable :: source_roles(:)
-        integer :: origin = 0
-        integer :: resolution = 0
-    end type standardir_target_rule_t
-
-    type, public :: standardir_target_role_family_config_t
-        logical :: enabled = .false.
-        character(len=128) :: representative = ''
-    end type standardir_target_role_family_config_t
-
-    integer, parameter, public :: standardir_target_role_family_factored = 1
-    integer, parameter, public :: standardir_target_role_family_rejected = 2
-
-    type, public :: standardir_target_role_family_witness_t
-        character(len=128) :: alias_role = ''
-        character(len=128) :: representative_role = ''
-        integer :: disposition = 0
-        character(len=256) :: reason = ''
-        character(len=128), allocatable :: source_roles(:)
-        type(standardir_target_provenance_t), allocatable :: alias_provenance(:)
-        type(standardir_target_provenance_t), allocatable :: representative_provenance(:)
-    end type standardir_target_role_family_witness_t
-
     public :: standardir_grammar_factor_role_family
     public :: standardir_grammar_validate_role_family_witness
+    public :: standardir_target_expression_t, standardir_target_provenance_t, standardir_target_rule_t
+    public :: standardir_target_role_family_config_t, standardir_target_role_family_factored
+    public :: standardir_target_role_family_rejected, standardir_target_role_family_witness_t
     public :: append_expression, append_name, append_target
     public :: collect_lhs_names, contains_expression
     public :: merge_provenance, merge_roles, same_expression, same_provenance
@@ -821,25 +787,6 @@ contains
         call move_alloc(expanded, values)
     end subroutine append_unique_role
 
-    logical function same_roles(left, right)
-        character(len=128), allocatable, intent(in) :: left(:), right(:)
-        integer :: i
-
-        same_roles = allocated(left) .eqv. allocated(right)
-        if (.not. same_roles) return
-        if (.not. allocated(left)) return
-        if (size(left) /= size(right)) then
-            same_roles = .false.
-            return
-        end if
-        do i = 1, size(left)
-            if (trim(left(i)) /= trim(right(i))) then
-                same_roles = .false.
-                return
-            end if
-        end do
-    end function same_roles
-
     logical function provenance_contained(values, expected)
         type(standardir_target_provenance_t), allocatable, intent(in) :: values(:), expected(:)
         integer :: i, j
@@ -858,25 +805,6 @@ contains
             end if
         end do
     end function provenance_contained
-
-    logical function same_provenance_list(left, right)
-        type(standardir_target_provenance_t), allocatable, intent(in) :: left(:), right(:)
-        integer :: i
-
-        same_provenance_list = allocated(left) .eqv. allocated(right)
-        if (.not. same_provenance_list) return
-        if (.not. allocated(left)) return
-        if (size(left) /= size(right)) then
-            same_provenance_list = .false.
-            return
-        end if
-        do i = 1, size(left)
-            if (.not. same_provenance(left(i), right(i))) then
-                same_provenance_list = .false.
-                return
-            end if
-        end do
-    end function same_provenance_list
 
     subroutine merge_provenance(left, right, merged)
         type(standardir_target_provenance_t), allocatable, intent(in) :: left(:), right(:)
@@ -912,40 +840,6 @@ contains
         call move_alloc(expanded, values)
     end subroutine append_provenance
 
-    logical function same_provenance(left, right)
-        type(standardir_target_provenance_t), intent(in) :: left, right
-        type(standardir_source_ref_t) :: a, b
-
-        a = left%source
-        b = right%source
-        same_provenance = left%alternative == right%alternative .and. &
-            trim(a%document) == trim(b%document) .and. trim(a%clause) == trim(b%clause) .and. &
-            trim(a%rule) == trim(b%rule) .and. a%page == b%page .and. &
-            a%end_page == b%end_page .and. a%byte_start == b%byte_start .and. &
-            a%byte_length == b%byte_length .and. trim(a%source_hash) == trim(b%source_hash)
-    end function same_provenance
-
-    logical function same_target_rule(left, right)
-        type(standardir_target_rule_t), intent(in) :: left, right
-
-        same_target_rule = trim(left%id) == trim(right%id) .and. left%alternative == right%alternative .and. &
-            trim(left%lhs) == trim(right%lhs) .and. same_source_ref(left%source, right%source) .and. &
-            same_expression(left%expression, right%expression) .and. &
-            same_provenance_list(left%provenance, right%provenance) .and. &
-            same_roles(left%source_roles, right%source_roles) .and. left%origin == right%origin .and. &
-            left%resolution == right%resolution
-    end function same_target_rule
-
-    logical function same_source_ref(left, right)
-        type(standardir_source_ref_t), intent(in) :: left, right
-
-        same_source_ref = trim(left%document) == trim(right%document) .and. &
-            trim(left%clause) == trim(right%clause) .and. trim(left%rule) == trim(right%rule) .and. &
-            left%page == right%page .and. left%end_page == right%end_page .and. &
-            left%byte_start == right%byte_start .and. left%byte_length == right%byte_length .and. &
-            trim(left%source_hash) == trim(right%source_hash)
-    end function same_source_ref
-
     subroutine collect_lhs_names(values, names, name_count)
         type(standardir_target_rule_t), intent(in) :: values(:)
         character(len=128), allocatable, intent(out) :: names(:)
@@ -974,64 +868,5 @@ contains
         expanded(n + 1) = trim(value)
         call move_alloc(expanded, names)
     end subroutine append_name
-
-    subroutine append_target(values, value)
-        type(standardir_target_rule_t), allocatable, intent(inout) :: values(:)
-        type(standardir_target_rule_t), intent(in) :: value
-        type(standardir_target_rule_t), allocatable :: expanded(:)
-        integer :: n
-
-        n = size(values)
-        allocate (expanded(n + 1))
-        if (n > 0) expanded(:n) = values
-        expanded(n + 1) = value
-        call move_alloc(expanded, values)
-    end subroutine append_target
-
-    subroutine append_expression(values, value)
-        type(standardir_target_expression_t), allocatable, intent(inout) :: values(:)
-        type(standardir_target_expression_t), intent(in) :: value
-        type(standardir_target_expression_t), allocatable :: expanded(:)
-        integer :: n
-
-        n = size(values)
-        allocate (expanded(n + 1))
-        if (n > 0) expanded(:n) = values
-        expanded(n + 1) = value
-        call move_alloc(expanded, values)
-    end subroutine append_expression
-
-    subroutine contains_expression(values, value, found)
-        type(standardir_target_expression_t), intent(in) :: values(:), value
-        logical, intent(out) :: found
-        integer :: i
-
-        found = .false.
-        do i = 1, size(values)
-            if (same_expression(values(i), value)) then
-                found = .true.
-                return
-            end if
-        end do
-    end subroutine contains_expression
-
-    recursive logical function same_expression(left, right) result(equal)
-        type(standardir_target_expression_t), intent(in) :: left, right
-        integer :: i
-
-        equal = .false.
-        if (left%kind /= right%kind .or. trim(left%name) /= trim(right%name)) return
-        if (left%minimum /= right%minimum .or. left%unbounded .neqv. right%unbounded) return
-        if (allocated(left%children) .neqv. allocated(right%children)) return
-        if (.not. allocated(left%children)) then
-            equal = .true.
-            return
-        end if
-        if (size(left%children) /= size(right%children)) return
-        do i = 1, size(left%children)
-            if (.not. same_expression(left%children(i), right%children(i))) return
-        end do
-        equal = .true.
-    end function same_expression
 
 end module standardir_grammar_target_support

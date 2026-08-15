@@ -4,6 +4,8 @@ module standardir_grammar_export
     use fortsx, only: sx_atom, sx_list, sx_node_t
     use standardir_bison, only: standardir_emit_bison_group
     use standardir_grammar, only: standardir_emit_antlr_group, standardir_emit_ebnf_group
+    use standardir_grammar_export_support, only: standardir_grammar_apply_role_family, &
+        standardir_grammar_validate_export_input
     use standardir_grammar_producer, only: standardir_grammar_choice, &
         standardir_grammar_optional, standardir_grammar_reference, &
         standardir_grammar_repeat, standardir_grammar_rule_t, &
@@ -60,15 +62,13 @@ contains
 
         type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
         type(standardir_target_rule_t), allocatable :: pruned(:)
-        type(standardir_target_rule_t), allocatable :: factored(:)
         type(standardir_target_reachability_witness_t), allocatable :: local_witness(:)
         type(standardir_target_role_family_witness_t), allocatable :: local_role_witness(:)
         type(sx_node_t), allocatable :: nodes(:), suppressed_nodes(:)
         type(standardir_group_t), allocatable :: groups(:)
-        integer :: group_count, i, j, ios, scratch
+        integer :: group_count, i, ios, scratch
         logical :: reachability_mode
         logical :: role_family_mode
-        character(len=128), allocatable :: protected_roots(:)
 
         ok = .false.
         message = ''
@@ -80,25 +80,9 @@ contains
             if (allocated(role_family_witness)) deallocate (role_family_witness)
             allocate (role_family_witness(0))
         end if
-        if (format < standardir_grammar_format_ebnf .or. &
-            format > standardir_grammar_format_tree_sitter) then
-            message = 'grammar export format is unsupported'
-            return
-        end if
-        if (size(rules) < 1) then
-            message = 'grammar export batch is empty'
-            return
-        end if
-        do i = 2, size(rules)
-            if (trim(rules(i)%lhs) /= trim(rules(i - 1)%lhs)) then
-                do j = 1, i - 1
-                    if (trim(rules(j)%lhs) == trim(rules(i)%lhs)) then
-                        message = 'grammar export batch interleaves LHS groups'
-                        return
-                    end if
-                end do
-            end if
-        end do
+        call standardir_grammar_validate_export_input(rules, format, standardir_grammar_format_ebnf, &
+            standardir_grammar_format_tree_sitter, ok, message)
+        if (.not. ok) return
 
         call standardir_grammar_normalize(rules, normalized, suppressed, ok, message)
         if (.not. ok) return
@@ -106,31 +90,10 @@ contains
             reachability_mode, ok, message)
         if (.not. ok) return
         if (present(reachability_witness)) reachability_witness = local_witness
-        role_family_mode = present(role_family)
-        if (role_family_mode) then
-            if (reachability_mode) then
-                if (present(selected_root)) then
-                    allocate (protected_roots(1))
-                    protected_roots(1) = trim(selected_root)
-                else
-                    allocate (protected_roots(size(roots)))
-                    protected_roots = roots
-                end if
-                call standardir_grammar_factor_role_family(normalized, role_family, factored, &
-                    local_role_witness, ok, message, protected_lhs=protected_roots)
-            else
-                call standardir_grammar_factor_role_family(normalized, role_family, factored, &
-                    local_role_witness, ok, message)
-            end if
-            if (.not. ok) return
-            call standardir_grammar_validate_role_family_witness(normalized, factored, local_role_witness, &
-                ok, message)
-            if (.not. ok) return
-            call move_alloc(factored, normalized)
-            if (present(role_family_witness)) role_family_witness = local_role_witness
-        else
-            allocate (local_role_witness(0))
-        end if
+        call standardir_grammar_apply_role_family(normalized, selected_root, roots, reachability_mode, &
+            role_family, role_family_mode, local_role_witness, ok, message)
+        if (.not. ok) return
+        if (present(role_family_witness)) role_family_witness = local_role_witness
         allocate (nodes(size(normalized)))
         do i = 1, size(normalized)
             call target_rule_to_syntax(normalized(i), nodes(i), ok, message)
