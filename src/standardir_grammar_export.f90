@@ -10,6 +10,8 @@ module standardir_grammar_export
         standardir_grammar_sequence, standardir_grammar_token
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
         standardir_target_expression_t, standardir_target_provenance_t, standardir_target_rule_t
+    use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
+        standardir_grammar_validate_reachability, standardir_target_reachability_witness_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
         standardir_max_syntax_groups
     use standardir_treesitter, only: standardir_emit_treesitter_group
@@ -25,23 +27,38 @@ module standardir_grammar_export
     public :: standardir_grammar_normalize
     public :: standardir_target_expression_t
     public :: standardir_target_rule_t
+    public :: standardir_target_reachability_witness_t
+    public :: standardir_grammar_select_reachable
+    public :: standardir_grammar_validate_reachability
 
 contains
 
 
-    subroutine standardir_grammar_export_batch(unit, rules, format, ok, message)
+    subroutine standardir_grammar_export_batch(unit, rules, format, ok, message, selected_root, &
+            roots, reachability_witness)
         integer, intent(in) :: unit, format
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=*), intent(in), optional :: selected_root
+        character(len=*), intent(in), optional :: roots(:)
+        type(standardir_target_reachability_witness_t), allocatable, intent(out), optional :: &
+            reachability_witness(:)
 
         type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
+        type(standardir_target_rule_t), allocatable :: pruned(:)
+        type(standardir_target_reachability_witness_t), allocatable :: local_witness(:)
         type(sx_node_t), allocatable :: nodes(:), suppressed_nodes(:)
         type(standardir_group_t), allocatable :: groups(:)
         integer :: group_count, i, j, ios, scratch
+        logical :: reachability_mode
 
         ok = .false.
         message = ''
+        if (present(reachability_witness)) then
+            if (allocated(reachability_witness)) deallocate (reachability_witness)
+            allocate (reachability_witness(0))
+        end if
         if (format < standardir_grammar_format_ebnf .or. &
             format > standardir_grammar_format_tree_sitter) then
             message = 'grammar export format is unsupported'
@@ -64,6 +81,10 @@ contains
 
         call standardir_grammar_normalize(rules, normalized, suppressed, ok, message)
         if (.not. ok) return
+        call apply_reachability(normalized, selected_root, roots, pruned, local_witness, &
+            reachability_mode, ok, message)
+        if (.not. ok) return
+        if (present(reachability_witness)) reachability_witness = local_witness
         allocate (nodes(size(normalized)))
         do i = 1, size(normalized)
             call target_rule_to_syntax(normalized(i), nodes(i), ok, message)
@@ -83,6 +104,13 @@ contains
             message = 'could not open grammar export scratch output'
             return
         end if
+        if (reachability_mode) then
+            call emit_reachability_witness(scratch, format, local_witness, ok, message)
+            if (.not. ok) then
+                close (scratch)
+                return
+            end if
+        end if
         call emit_groups(scratch, nodes, suppressed_nodes, groups, group_count, format, ok, message)
         if (.not. ok) then
             close (scratch)
@@ -92,6 +120,112 @@ contains
         call copy_output(scratch, unit, ok, message)
         close (scratch)
     end subroutine standardir_grammar_export_batch
+
+    subroutine apply_reachability(normalized, selected_root, roots, pruned, witness, mode, ok, message)
+        type(standardir_target_rule_t), allocatable, intent(inout) :: normalized(:)
+        character(len=*), intent(in), optional :: selected_root
+        character(len=*), intent(in), optional :: roots(:)
+        type(standardir_target_rule_t), allocatable, intent(out) :: pruned(:)
+        type(standardir_target_reachability_witness_t), allocatable, intent(out) :: witness(:)
+        logical, intent(out) :: mode, ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_target_rule_t), allocatable :: retained(:)
+        character(len=128), allocatable :: reachability_roots(:)
+
+        mode = present(selected_root) .or. present(roots)
+        ok = .false.
+        message = ''
+        if (present(selected_root) .and. present(roots)) then
+            message = 'grammar export cannot select a root and a root set together'
+            return
+        end if
+        if (.not. mode) then
+            allocate (pruned(0), witness(0))
+            ok = .true.
+            return
+        end if
+        if (present(selected_root)) then
+            if (len_trim(selected_root) == 0) then
+                message = 'grammar export selected root is empty'
+                return
+            end if
+            allocate (reachability_roots(1))
+            reachability_roots(1) = trim(selected_root)
+        else
+            if (size(roots) < 1) then
+                message = 'grammar export root set is empty'
+                return
+            end if
+            allocate (reachability_roots(size(roots)))
+            reachability_roots = roots
+        end if
+        call standardir_grammar_select_reachable(normalized, reachability_roots, retained, pruned, witness, &
+            ok, message)
+        if (.not. ok) return
+        call move_alloc(retained, normalized)
+    end subroutine apply_reachability
+
+    subroutine emit_reachability_witness(unit, format, values, ok, message)
+        integer, intent(in) :: unit, format
+        type(standardir_target_reachability_witness_t), intent(in) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=4096) :: lineage
+        integer :: i
+
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            lineage = provenance_text(values(i)%provenance)
+            select case (format)
+            case (standardir_grammar_format_ebnf)
+                write (unit, '(a)', advance='no') '(* target-disposition=omitted-unreachable'
+            case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                write (unit, '(a)', advance='no') '// target-disposition=omitted-unreachable'
+            case (standardir_grammar_format_bison)
+                write (unit, '(a)', advance='no') '/* target-disposition=omitted-unreachable'
+            case default
+                message = 'grammar reachability witness format is unsupported'
+                return
+            end select
+            call write_witness_field(unit, 'root', trim(values(i)%roots))
+            call write_witness_field(unit, 'lhs', trim(values(i)%lhs))
+            call write_witness_field(unit, 'rule', trim(values(i)%rule_id))
+            call write_witness_field(unit, 'reason', trim(values(i)%reason))
+            call write_witness_field(unit, 'document', trim(values(i)%source%document))
+            call write_witness_field(unit, 'clause', trim(values(i)%source%clause))
+            call write_witness_field(unit, 'source-rule', trim(values(i)%source%rule))
+            call write_witness_field(unit, 'source-alternative', integer_text(values(i)%alternative))
+            call write_witness_field(unit, 'page', integer_text(values(i)%source%page))
+            call write_witness_field(unit, 'end-page', integer_text(values(i)%source%end_page))
+            call write_witness_field(unit, 'byte-start', integer64_text(values(i)%source%byte_start))
+            call write_witness_field(unit, 'byte-length', integer64_text(values(i)%source%byte_length))
+            call write_witness_field(unit, 'source-sha256', trim(values(i)%source%source_hash))
+            call write_witness_field(unit, 'source-lineage', trim(lineage))
+            select case (format)
+            case (standardir_grammar_format_ebnf)
+                write (unit, '(a)') ' *)'
+            case (standardir_grammar_format_antlr4, standardir_grammar_format_tree_sitter)
+                write (unit, '(a)')
+            case (standardir_grammar_format_bison)
+                write (unit, '(a)') ' */'
+            end select
+        end do
+        ok = .true.
+        message = ''
+    end subroutine emit_reachability_witness
+
+    subroutine write_witness_field(unit, label, value)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: label, value
+
+        write (unit, '(a)', advance='no') ' '
+        write (unit, '(a)', advance='no') trim(label)
+        write (unit, '(a)', advance='no') '='
+        write (unit, '(a)', advance='no') trim(value)
+    end subroutine write_witness_field
 
     subroutine emit_groups(unit, nodes, suppressed, groups, group_count, format, ok, message)
         integer, intent(in) :: unit, group_count, format

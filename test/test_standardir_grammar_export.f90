@@ -14,6 +14,11 @@ program test_standardir_grammar_export
     type(standardir_grammar_rule_t) :: duplicate(2), same_occurrence(2), merged(2), different(2), &
         invalid_provenance(2), direct(2), multiple_direct(3), mutual(4), wrapped(1), unsupported(1)
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
+    type(standardir_target_rule_t), allocatable :: retained(:), pruned(:)
+    type(standardir_target_reachability_witness_t), allocatable :: reachability_witness(:)
+    type(standardir_grammar_rule_t) :: reachability(4)
+    character(len=128) :: selected_roots(1)
+    character(len=128) :: all_roots(2)
     integer :: format, unit, ios
     logical :: ok
     character(len=256) :: message, line
@@ -151,6 +156,30 @@ program test_standardir_grammar_export
     call require(ok .and. no_left_corner(normalized), &
         'nullable left recursion was not transformed: '//trim(message))
 
+    call make_reachability(reachability)
+    selected_roots(1) = 'root'
+    call standardir_grammar_normalize(reachability, normalized, suppressed, ok, message)
+    call require(ok, 'reachability fixture did not normalize: '//trim(message))
+    call standardir_grammar_select_reachable(normalized, selected_roots, retained, pruned, &
+        reachability_witness, ok, message)
+    call require(ok .and. size(retained) == 2 .and. size(pruned) == 2 .and. &
+        size(reachability_witness) == 2, 'selected-root reachability did not prune two rules: '//trim(message))
+    call require(trim(retained(1)%lhs) == 'root' .and. trim(retained(2)%lhs) == 'child' .and. &
+        trim(pruned(1)%lhs) == 'orphan' .and. trim(pruned(1)%source%source_hash) == 'HASH-ORPHAN' .and. &
+        trim(pruned(2)%lhs) == 'dead' .and. trim(pruned(2)%source%source_hash) == 'HASH-DEAD' .and. &
+        trim(reachability_witness(1)%provenance(1)%source%rule) == 'REACH-ORPHAN' .and. &
+        trim(reachability_witness(2)%provenance(1)%source%rule) == 'REACH-DEAD', &
+        'selected-root pruning lost rule order or source lineage')
+    call standardir_grammar_validate_reachability(retained, selected_roots, ok, message)
+    call require(ok, 'retained selected grammar failed its reachability check: '//trim(message))
+    retained(1)%expression%children(1)%kind = standardir_grammar_token
+    retained(1)%expression%children(1)%name = 'MUTATED'
+    call standardir_grammar_validate_reachability(retained, selected_roots, ok, message)
+    call require(.not. ok, 'reachability mutation control was accepted')
+    call verify_reachability_output(reachability)
+    all_roots = [character(len=128) :: 'root', 'orphan']
+    call verify_all_root_output(reachability, all_roots)
+
     print '(a)', 'StandardIR grammar export tests passed'
 
 contains
@@ -163,6 +192,19 @@ contains
         call make_simple(values(2), 'R-A2', 2, 'expr', 'ELSE', 'DOC-A', '5.2', 11, 'HASH-A2')
         call make_simple(values(3), 'R-B1', 1, 'term', 'X', 'DOC-B', '6.1', 20, 'HASH-B1')
     end subroutine make_rules
+
+    subroutine make_reachability(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_sequence_rule(values(1), 'REACH-ROOT', 1, 'root', 'child', 'X', &
+            'DOC-REACH', '1', 1, 'HASH-ROOT')
+        call make_simple(values(2), 'REACH-CHILD', 1, 'child', 'Y', 'DOC-REACH', '2', 2, &
+            'HASH-CHILD')
+        call make_simple(values(3), 'REACH-ORPHAN', 1, 'orphan', 'Z', 'DOC-REACH', '3', 3, &
+            'HASH-ORPHAN')
+        call make_sequence_rule(values(4), 'REACH-DEAD', 1, 'dead', 'missing', 'Q', 'DOC-REACH', '4', 4, &
+            'HASH-DEAD')
+    end subroutine make_reachability
 
     subroutine make_duplicate(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -427,6 +469,54 @@ contains
             'merged lineage is absent from downstream format output')
         close (unit)
     end subroutine verify_merged_lineage
+
+    subroutine verify_reachability_output(values)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+        type(standardir_target_reachability_witness_t), allocatable :: witness(:)
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open reachability scratch output')
+        call standardir_grammar_export_batch(unit, values, standardir_grammar_format_ebnf, local_ok, &
+            local_message, selected_root='root', reachability_witness=witness)
+        call require(local_ok, trim(local_message))
+        call require(size(witness) == 2, 'reachability witness did not report both pruned rules')
+        call read_text(unit, text)
+        call require(index(text, 'root ::= ') > 0 .and. index(text, 'child ::= ') > 0 .and. &
+            index(text, 'orphan ::= ') == 0 .and. index(text, 'dead ::= ') == 0, &
+            'selected export retained an unreachable target rule')
+        call require(index(text, 'target-disposition=omitted-unreachable root=root lhs=orphan') > 0 .and. &
+            index(text, 'target-disposition=omitted-unreachable root=root lhs=dead') > 0 .and. &
+            index(text, 'source-lineage=REACH-ORPHAN:1@') > 0 .and. &
+            index(text, 'source-lineage=REACH-DEAD:1@') > 0, &
+            'selected export omitted-rule witness is not source-backed')
+        close (unit)
+    end subroutine verify_reachability_output
+
+    subroutine verify_all_root_output(values, roots)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: roots(:)
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+        type(standardir_target_reachability_witness_t), allocatable :: witness(:)
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open all-root scratch output')
+        call standardir_grammar_export_batch(unit, values, standardir_grammar_format_ebnf, local_ok, &
+            local_message, roots=roots, reachability_witness=witness)
+        call require(local_ok, trim(local_message))
+        call require(size(witness) == 1, 'all-root export witness count is incorrect')
+        call read_text(unit, text)
+        call require(index(text, 'root ::= ') > 0 .and. index(text, 'child ::= ') > 0 .and. &
+            index(text, 'orphan ::= ') > 0 .and. index(text, 'dead ::= ') == 0, &
+            'all-root export did not retain every declared root')
+        close (unit)
+    end subroutine verify_all_root_output
 
     subroutine read_text(unit, text)
         integer, intent(in) :: unit

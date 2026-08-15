@@ -111,7 +111,12 @@ program sxgrammar
         call standardir_lexical_emit_bison_aliases(output_unit, lexical, ok, message)
         if (.not. ok) call fail_output(output_unit, message)
     end if
-    call standardir_grammar_export_batch(output_unit, rules, format, ok, message)
+    if (selected_mode) then
+        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, &
+            selected_root=selected_root)
+    else
+        call standardir_grammar_export_batch(output_unit, rules, format, ok, message, roots=start_names)
+    end if
     if (.not. ok) call fail_output(output_unit, message)
     select case (format)
     case (standardir_grammar_format_ebnf)
