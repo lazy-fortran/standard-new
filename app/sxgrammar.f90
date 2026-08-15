@@ -183,7 +183,7 @@ program sxgrammar
     close (output_unit)
     if (transformation_witness_mode) then
         call emit_transformation_witness_file(transformation_witness_path, rules, selected_mode, &
-            selected_root, start_names, role_family_mode, role_family, pre_lowering_witnesses, ok, message)
+            format, selected_root, start_names, role_family_mode, role_family, pre_lowering_witnesses, ok, message)
         if (.not. ok) call fail(trim(message))
     end if
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
@@ -528,10 +528,11 @@ contains
         end if
     end subroutine emit_footer
 
-    subroutine emit_transformation_witness_file(path, rules, selected_mode, selected_root, roots, &
+    subroutine emit_transformation_witness_file(path, rules, selected_mode, format, selected_root, roots, &
             role_family_mode, role_family, pre_lowering_witnesses, ok, message)
         character(len=*), intent(in) :: path
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
+        integer, intent(in) :: format
         logical, intent(in) :: selected_mode, role_family_mode
         character(len=*), intent(in) :: selected_root
         character(len=*), intent(in) :: roots(:)
@@ -553,18 +554,22 @@ contains
             if (role_family_mode) then
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
                     selected_root=selected_root, role_family=role_family, &
-                    pre_lowering_witnesses=pre_lowering_witnesses)
+                    pre_lowering_witnesses=pre_lowering_witnesses, &
+                    treesitter_lowering=format == standardir_grammar_format_tree_sitter)
             else
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    selected_root=selected_root, pre_lowering_witnesses=pre_lowering_witnesses)
+                    selected_root=selected_root, pre_lowering_witnesses=pre_lowering_witnesses, &
+                    treesitter_lowering=format == standardir_grammar_format_tree_sitter)
             end if
         else
             if (role_family_mode) then
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    roots=roots, role_family=role_family, pre_lowering_witnesses=pre_lowering_witnesses)
+                    roots=roots, role_family=role_family, pre_lowering_witnesses=pre_lowering_witnesses, &
+                    treesitter_lowering=format == standardir_grammar_format_tree_sitter)
             else
                 call standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-                    roots=roots, pre_lowering_witnesses=pre_lowering_witnesses)
+                    roots=roots, pre_lowering_witnesses=pre_lowering_witnesses, &
+                    treesitter_lowering=format == standardir_grammar_format_tree_sitter)
             end if
         end if
         if (.not. ok) then

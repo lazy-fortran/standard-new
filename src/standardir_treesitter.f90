@@ -14,11 +14,12 @@ module standardir_treesitter
 
 contains
 
-    subroutine standardir_emit_treesitter_entry(unit, source_root, ok, message)
+    subroutine standardir_emit_treesitter_entry(unit, source_root, ok, message, source_root_nullable)
         integer, intent(in) :: unit
         character(len=*), intent(in) :: source_root
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        logical, intent(in), optional :: source_root_nullable
 
         ok = .false.
         message = ''
@@ -26,7 +27,15 @@ contains
             message = 'tree-sitter entry source root is empty'
             return
         end if
-        write (unit, '(a)') 'standardir_start: $ => $.'//trim(treesitter_name(source_root))//','
+        if (present(source_root_nullable)) then
+            if (source_root_nullable) then
+                write (unit, '(a)') 'standardir_start: $ => optional($.'//trim(treesitter_name(source_root))//'),'
+            else
+                write (unit, '(a)') 'standardir_start: $ => $.'//trim(treesitter_name(source_root))//','
+            end if
+        else
+            write (unit, '(a)') 'standardir_start: $ => $.'//trim(treesitter_name(source_root))//','
+        end if
         ok = .true.
     end subroutine standardir_emit_treesitter_entry
 

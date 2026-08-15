@@ -20,6 +20,7 @@ module standardir_grammar_export
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
         standardir_target_role_family_witness_t, standardir_target_rule_t, &
         standardir_target_source_witness_t
+    use standardir_grammar_treesitter, only: standardir_grammar_lower_treesitter
     use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
     use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
@@ -83,6 +84,7 @@ contains
         integer :: group_count, i, ios, scratch
         logical :: reachability_mode
         logical :: role_family_mode
+        logical :: tree_sitter_entry_nullable
 
         ok = .false.
         message = ''
@@ -108,6 +110,17 @@ contains
             role_family, role_family_mode, local_role_witness, ok, message)
         if (.not. ok) return
         if (present(role_family_witness)) role_family_witness = local_role_witness
+        tree_sitter_entry_nullable = .false.
+        if (format == standardir_grammar_format_tree_sitter) then
+            if (present(selected_root)) then
+                call standardir_grammar_lower_treesitter(normalized, selected_root, &
+                    tree_sitter_entry_nullable, ok, message)
+            else
+                call standardir_grammar_lower_treesitter(normalized, &
+                    entry_nullable=tree_sitter_entry_nullable, ok=ok, message=message)
+            end if
+            if (.not. ok) return
+        end if
         allocate (nodes(size(normalized)))
         do i = 1, size(normalized)
             call target_rule_to_syntax(normalized(i), nodes(i), ok, message)
@@ -128,11 +141,13 @@ contains
             return
         end if
         if (present(selected_root)) then
-            call emit_selected_profile(scratch, format, selected_root, ok, message)
+            call emit_selected_profile(scratch, format, selected_root, tree_sitter_entry_nullable, ok, message)
             if (.not. ok) then
                 close (scratch)
                 return
             end if
+        else if (format == standardir_grammar_format_tree_sitter) then
+            call emit_all_root_treesitter_policy(scratch, normalized(1)%lhs, tree_sitter_entry_nullable)
         end if
         if (reachability_mode) then
             call emit_reachability_witness(scratch, format, local_witness, ok, message)
@@ -165,9 +180,10 @@ contains
         close (scratch)
     end subroutine standardir_grammar_export_batch
 
-    subroutine emit_selected_profile(unit, format, source_root, ok, message)
+    subroutine emit_selected_profile(unit, format, source_root, source_root_nullable, ok, message)
         integer, intent(in) :: unit, format
         character(len=*), intent(in) :: source_root
+        logical, intent(in) :: source_root_nullable
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -198,7 +214,11 @@ contains
         case (standardir_grammar_format_tree_sitter)
             write (unit, '(a)') '// profile format=tree-sitter entry=standardir_start source-root='// &
                 trim(source_root)//' eof=implicit-full-input;'
-            call standardir_emit_treesitter_entry(unit, source_root, ok, message)
+            if (source_root_nullable) then
+                write (unit, '(a)') '// target-disposition=selected-root-wrapper-optionalized '// &
+                    'source-root='//trim(source_root)//' reason=source-root-is-nullable'
+            end if
+            call standardir_emit_treesitter_entry(unit, source_root, ok, message, source_root_nullable)
             if (.not. ok) return
         case default
             message = 'selected profile format is unsupported'
@@ -207,6 +227,20 @@ contains
         ok = .true.
         message = ''
     end subroutine emit_selected_profile
+
+    subroutine emit_all_root_treesitter_policy(unit, first_lhs, first_nullable)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: first_lhs
+        logical, intent(in) :: first_nullable
+
+        if (first_nullable) then
+            write (unit, '(a)') '// tree-sitter-nullability-policy=all-root-first-emitted-rule-may-match-empty '// &
+                'start-lhs='//trim(first_lhs)//' entry-nullable=true'
+        else
+            write (unit, '(a)') '// tree-sitter-nullability-policy=all-root-first-emitted-rule-may-match-empty '// &
+                'start-lhs='//trim(first_lhs)//' entry-nullable=false'
+        end if
+    end subroutine emit_all_root_treesitter_policy
 
     subroutine apply_reachability(normalized, selected_root, roots, pruned, witness, mode, ok, message)
         type(standardir_target_rule_t), allocatable, intent(inout) :: normalized(:)

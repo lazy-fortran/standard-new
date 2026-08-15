@@ -16,6 +16,7 @@ module standardir_grammar_transformation_witness
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
         standardir_target_role_family_witness_t, standardir_target_rule_t, &
         standardir_target_source_witness_t
+    use standardir_grammar_treesitter, only: standardir_grammar_lower_treesitter
     implicit none
     private
 
@@ -26,7 +27,7 @@ module standardir_grammar_transformation_witness
 contains
 
     subroutine standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
-            selected_root, roots, role_family, pre_lowering_witnesses)
+            selected_root, roots, role_family, pre_lowering_witnesses, treesitter_lowering)
         integer, intent(in) :: unit
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         logical, intent(out) :: ok
@@ -35,6 +36,7 @@ contains
         character(len=*), intent(in), optional :: roots(:)
         type(standardir_target_role_family_config_t), intent(in), optional :: role_family
         type(standardir_target_source_witness_t), intent(in), optional :: pre_lowering_witnesses(:)
+        logical, intent(in), optional :: treesitter_lowering
 
         type(standardir_target_rule_t), allocatable :: normalized(:), pruned(:), before_role(:)
         type(standardir_target_rule_t), allocatable :: retained(:)
@@ -43,6 +45,7 @@ contains
         character(len=4096) :: profile
         character(len=128), allocatable :: profile_roots(:)
         logical :: reachability_mode, role_mode
+        logical :: entry_nullable
         integer :: i
 
         ok = .false.
@@ -91,6 +94,17 @@ contains
             message = ''
         end if
         if (.not. ok) return
+        if (present(treesitter_lowering)) then
+            if (treesitter_lowering) then
+                if (present(selected_root)) then
+                    call standardir_grammar_lower_treesitter(retained, selected_root, entry_nullable, ok, message)
+                else
+                    call standardir_grammar_lower_treesitter(retained, &
+                        entry_nullable=entry_nullable, ok=ok, message=message)
+                end if
+                if (.not. ok) return
+            end if
+        end if
         call standardir_grammar_validate_transformation_witness(retained, ok, message)
         if (.not. ok) return
 
@@ -373,9 +387,11 @@ contains
         else if (trim(hashes) == trim(value%target_expression_sha256)) then
             transformation = 'identity'
             if (len_trim(reason) == 0) reason = 'source-alternative-preservation'
+        else if (trim(reason) == 'tree-sitter-nullable-lowering') then
+            transformation = 'tree-sitter-nullable-lowering'
         else
             transformation = 'normalized'
-            reason = 'target-normalization'
+            if (len_trim(reason) == 0) reason = 'target-normalization'
         end if
         call write_row_start(unit, 'target', transformation, profile)
         call write_json_field(unit, 'source_alternative', alternatives)
