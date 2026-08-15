@@ -11,8 +11,8 @@ program test_standardir_grammar_export
     implicit none
 
     type(standardir_grammar_rule_t) :: rules(3), bad(3), cyclic(3), unresolved(3), interleaved(3)
-    type(standardir_grammar_rule_t) :: duplicate(2), direct(2), multiple_direct(3), mutual(4), &
-        wrapped(1), unsupported(1)
+    type(standardir_grammar_rule_t) :: duplicate(2), same_occurrence(2), merged(2), different(2), &
+        invalid_provenance(2), direct(2), multiple_direct(3), mutual(4), wrapped(1), unsupported(1)
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     integer :: format, unit, ios
     logical :: ok
@@ -62,6 +62,43 @@ program test_standardir_grammar_export
         'duplicate alternatives were not deterministically eliminated')
     call require(normalized(1)%alternative == 1 .and. suppressed(1)%alternative == 2, &
         'duplicate alternative provenance was not retained')
+
+    call make_same_occurrence(same_occurrence)
+    call standardir_grammar_normalize(same_occurrence, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 1 .and. size(suppressed) == 1 .and. &
+        size(normalized(1)%provenance) == 1, &
+        'same-body same-occurrence fixture was not merged once: '//trim(message))
+    call require(trim(normalized(1)%source%rule) == 'SAME-1' .and. &
+        trim(normalized(1)%provenance(1)%source%rule) == 'SAME-1', &
+        'same-body canonical primary source changed')
+
+    call make_merged(merged)
+    call standardir_grammar_normalize(merged, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 1 .and. size(suppressed) == 1 .and. &
+        size(normalized(1)%provenance) == 2, &
+        'same-body different-occurrence fixture did not merge lineage: '//trim(message))
+    call require(trim(normalized(1)%source%rule) == 'MERGE-1' .and. &
+        trim(normalized(1)%provenance(1)%source%rule) == 'MERGE-1' .and. &
+        trim(normalized(1)%provenance(2)%source%rule) == 'MERGE-2' .and. &
+        trim(normalized(1)%provenance(1)%source%source_hash) == 'HASH-M1' .and. &
+        trim(normalized(1)%provenance(2)%source%source_hash) == 'HASH-M2' .and. &
+        normalized(1)%provenance(1)%source%page == 2 .and. &
+        normalized(1)%provenance(2)%source%page == 3 .and. &
+        normalized(1)%provenance(1)%source%byte_start == 101 .and. &
+        normalized(1)%provenance(2)%source%byte_start == 202, &
+        'merged lineage or canonical primary source is not deterministic')
+    do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
+        call verify_merged_lineage(merged, format)
+    end do
+
+    call make_different(different)
+    call standardir_grammar_normalize(different, normalized, suppressed, ok, message)
+    call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 0 .and. &
+        size(normalized(1)%provenance) == 1 .and. size(normalized(2)%provenance) == 1, &
+        'different normalized bodies were incorrectly merged: '//trim(message))
+
+    call make_invalid_provenance(invalid_provenance)
+    call verify_failure(invalid_provenance, standardir_grammar_format_ebnf, 'invalid source provenance')
 
     call make_wrapped(wrapped(1))
     call standardir_grammar_normalize(wrapped, normalized, suppressed, ok, message)
@@ -134,6 +171,40 @@ contains
         call make_simple(values(2), 'DUP-2', 2, 'duplicate', 'X', 'DOC-D', '2', 2, 'HASH-D2')
         values(2)%source = values(1)%source
     end subroutine make_duplicate
+
+    subroutine make_same_occurrence(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'SAME-1', 1, 'same', 'X', 'DOC-SAME', '1', 1, 'HASH-SAME')
+        values(2) = values(1)
+        values(2)%id = 'SAME-2'
+    end subroutine make_same_occurrence
+
+    subroutine make_merged(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'MERGE-1', 1, 'merged', 'X', 'DOC-M1', '2.1', 2, 'HASH-M1')
+        call make_simple(values(2), 'MERGE-2', 2, 'merged', 'X', 'DOC-M2', '2.2', 3, 'HASH-M2')
+        values(1)%source%byte_start = 101
+        values(1)%source%byte_length = 7
+        values(2)%source%byte_start = 202
+        values(2)%source%byte_length = 8
+    end subroutine make_merged
+
+    subroutine make_different(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'DIFF-1', 1, 'different', 'X', 'DOC-D1', '3.1', 4, 'HASH-D1')
+        call make_simple(values(2), 'DIFF-2', 2, 'different', 'Y', 'DOC-D2', '3.2', 5, 'HASH-D2')
+    end subroutine make_different
+
+    subroutine make_invalid_provenance(values)
+        type(standardir_grammar_rule_t), intent(out) :: values(:)
+
+        call make_simple(values(1), 'INVALID-1', 1, 'invalid', 'X', 'DOC-I1', '4.1', 6, 'HASH-I1')
+        call make_simple(values(2), 'INVALID-2', 2, 'invalid', 'X', 'DOC-I2', '4.2', 7, 'HASH-I2')
+        values(2)%source%source_hash = ''
+    end subroutine make_invalid_provenance
 
     subroutine make_direct(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
@@ -338,6 +409,24 @@ contains
             'left-recursion source mapping is absent from target output')
         close (unit)
     end subroutine verify_transform_output
+
+    subroutine verify_merged_lineage(values, format)
+        type(standardir_grammar_rule_t), intent(in) :: values(:)
+        integer, intent(in) :: format
+        character(len=65536) :: text
+        character(len=256) :: local_message
+        integer :: unit, ios
+        logical :: local_ok
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open merged-lineage scratch output')
+        call standardir_grammar_export_batch(unit, values, format, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call read_text(unit, text)
+        call require(index(text, 'source-lineage=MERGE-1:1@101+7,MERGE-2:2@202+8') > 0, &
+            'merged lineage is absent from downstream format output')
+        close (unit)
+    end subroutine verify_merged_lineage
 
     subroutine read_text(unit, text)
         integer, intent(in) :: unit
