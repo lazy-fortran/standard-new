@@ -79,6 +79,7 @@ program sxgrammar
     if (format == standardir_grammar_format_bison) then
         call standardir_lexical_emit_bison(output_unit, lexical, ok, message)
         if (.not. ok) call fail_output(output_unit, message)
+        write (output_unit, '(a)') '%glr-parser'
         write (output_unit, '(a)') '%start standardir_start'
         write (output_unit, '(a)') '%%'
         call standardir_emit_bison_start(output_unit, start_names, ok, message)
