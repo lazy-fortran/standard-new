@@ -481,6 +481,7 @@ contains
         end if
         do i = first, last - 1
             call expression_parts(values(i)%expression, candidate_parts)
+            if (allocated(matching)) deallocate (matching)
             allocate (matching(0))
             do j = i, last
                 call expression_parts(values(j)%expression, parts)
