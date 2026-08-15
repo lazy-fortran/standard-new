@@ -119,7 +119,8 @@ contains
         type(standardir_group_t) :: groups(standardir_max_syntax_groups)
         integer :: group_count, i
 
-        write (unit, '(a)') 'grammar Fortran2023;'
+        ! No validated profile is available here; keep the generated identity neutral.
+        write (unit, '(a)') 'grammar StandardIR;'
         write (unit, '(a)')
         call standardir_composite_validate(composite, ok, message)
         if (.not. ok) return
@@ -167,9 +168,10 @@ contains
         type(standardir_group_t) :: groups(standardir_max_syntax_groups)
         integer :: group_count, i
 
+        ! No validated profile is available here; keep the generated identity neutral.
         write (unit, '(a)') '// Generated from composite StandardIR'
         write (unit, '(a)') 'module.exports = grammar({'
-        write (unit, '(a)') '  name: "fortran2023",'
+        write (unit, '(a)') '  name: "standardir",'
         write (unit, '(a)') '  rules: {'
         call standardir_composite_validate(composite, ok, message)
         if (.not. ok) return

@@ -35,7 +35,7 @@ program sxtreesitter
 
     write (output_unit, '(a)') '// Generated from StandardIR syntax'
     write (output_unit, '(a)') 'module.exports = grammar({'
-    write (output_unit, '(a)') '  name: ''fortran2023'','
+    write (output_unit, '(a)') '  name: ''standardir'','
     write (output_unit, '(a)') '  rules: {'
     records = 0
     do

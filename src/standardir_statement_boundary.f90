@@ -86,6 +86,10 @@ contains
             message = 'statement boundary candidate lacks source lineage'
             return
         end if
+        if (.not. valid_source_hash(value%source_hash)) then
+            message = 'statement boundary candidate has an invalid source hash'
+            return
+        end if
         if (.not. positive_decimal(value%source_page)) then
             message = 'statement boundary candidate has an invalid source page'
             return
@@ -181,6 +185,58 @@ contains
         end do
     end function nonnegative_decimal
 
+    logical function decimal_after(left, right)
+        character(len=*), intent(in) :: left, right
+        character(len=len_trim(left)) :: left_text
+        character(len=len_trim(right)) :: right_text
+        integer :: left_start, right_start, left_length, right_length
+
+        left_text = trim(left)
+        right_text = trim(right)
+        left_start = 1
+        right_start = 1
+        left_length = len(left_text)
+        right_length = len(right_text)
+        do while (left_start < left_length)
+            if (left_text(left_start:left_start) /= '0') exit
+            left_start = left_start + 1
+        end do
+        do while (right_start < right_length)
+            if (right_text(right_start:right_start) /= '0') exit
+            right_start = right_start + 1
+        end do
+        left_length = left_length - left_start + 1
+        right_length = right_length - right_start + 1
+        if (left_length > right_length) then
+            decimal_after = .true.
+        else if (left_length < right_length) then
+            decimal_after = .false.
+        else
+            decimal_after = left_text(left_start:) > right_text(right_start:)
+        end if
+    end function decimal_after
+
+    logical function valid_source_hash(value)
+        character(len=*), intent(in) :: value
+        integer :: i
+
+        valid_source_hash = len_trim(value) == 64
+        if (.not. valid_source_hash) return
+        do i = 1, 64
+            if (.not. is_hex_digit(value(i:i))) then
+                valid_source_hash = .false.
+                return
+            end if
+        end do
+    end function valid_source_hash
+
+    logical function is_hex_digit(value)
+        character(len=1), intent(in) :: value
+
+        is_hex_digit = (value >= '0' .and. value <= '9') .or. &
+            (value >= 'a' .and. value <= 'f') .or. (value >= 'A' .and. value <= 'F')
+    end function is_hex_digit
+
     logical function is_digit(value)
         character(len=1), intent(in) :: value
 
@@ -252,11 +308,17 @@ contains
             site_after = .true.
         else if (trim(left%candidate%source_rule) < trim(right%candidate%source_rule)) then
             return
-        else if (trim(left%candidate%source_byte_start) > trim(right%candidate%source_byte_start)) then
-            site_after = .true.
-        else if (trim(left%candidate%source_byte_start) < trim(right%candidate%source_byte_start)) then
-            return
-        else if (trim(left%candidate%expression_path) > trim(right%candidate%expression_path)) then
+        else
+            if (decimal_after(left%candidate%source_byte_start, &
+                right%candidate%source_byte_start)) then
+                site_after = .true.
+            else if (decimal_after(right%candidate%source_byte_start, &
+                    left%candidate%source_byte_start)) then
+                return
+            end if
+        end if
+        if (site_after) return
+        if (trim(left%candidate%expression_path) > trim(right%candidate%expression_path)) then
             site_after = .true.
         else if (trim(left%candidate%expression_path) < trim(right%candidate%expression_path)) then
             return

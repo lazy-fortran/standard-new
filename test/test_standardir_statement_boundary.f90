@@ -79,6 +79,30 @@ program test_standardir_statement_boundary
         'missing source lineage was accepted')
 
     broken(1) = candidates(1)
+    broken(1)%source_hash = repeat('a', 63)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call require(.not. ok .and. index(trim(message), 'invalid source hash') > 0, &
+        'short source hash was accepted')
+
+    broken(1)%source_hash = repeat('g', 64)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call require(.not. ok .and. index(trim(message), 'invalid source hash') > 0, &
+        'non-hex source hash was accepted')
+
+    broken(1) = candidates(1)
+    deallocate (broken)
+    allocate (broken(2))
+    broken(1) = candidates(1)
+    broken(2) = candidates(1)
+    broken(1)%source_byte_start = '100'
+    broken(2)%source_byte_start = '20'
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call require(ok, 'distinct source occurrences were rejected')
+    call require(trim(plan%sites(1)%candidate%source_byte_start) == '20' .and. &
+        trim(plan%sites(2)%candidate%source_byte_start) == '100', &
+        'source byte offsets were not sorted numerically')
+
+    broken(1) = candidates(1)
     broken(1)%status = 'unsupported'
     call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
     call require(.not. ok .and. index(trim(message), 'not supported') > 0, &

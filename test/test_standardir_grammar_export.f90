@@ -1470,7 +1470,9 @@ contains
                 call require(index(selected_text, 'standardir_start ::= start ;') > 0, &
                     'EBNF selected profile wrapper is missing')
             case (2)
-                call require(index(selected_text, 'standardir_start : r_start EOF ;') > 0 .and. &
+                call require(index(selected_text, 'grammar StandardIR;') > 0 .and. &
+                    index(selected_text, 'fortran2023') == 0 .and. &
+                    index(selected_text, 'standardir_start : r_start EOF ;') > 0 .and. &
                     index(selected_text, 'standardir_start : r_start EOF ;') < &
                     index(selected_text, new_line('a')//'r_start'//new_line('a')), &
                     'ANTLR4 selected profile entry is missing or not first')
@@ -1479,7 +1481,9 @@ contains
                     index(selected_text, 'standardir_start:') > 0, &
                     'Bison selected profile wrapper is missing')
             case (4)
-                call require(index(selected_text, 'standardir_start: $ => $.r_start,') > 0 .and. &
+                call require(index(selected_text, 'name: ''standardir'',') > 0 .and. &
+                    index(selected_text, 'fortran2023') == 0 .and. &
+                    index(selected_text, 'standardir_start: $ => $.r_start,') > 0 .and. &
                     index(selected_text, 'standardir_start: $ => $.r_start,') < &
                     index(selected_text, 'r_start: $ =>'), &
                     'tree-sitter selected profile entry is missing or not first')

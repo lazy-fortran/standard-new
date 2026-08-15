@@ -32,7 +32,7 @@ program sxantlr
         call fail('cannot open ANTLR output')
     end if
 
-    write (output_unit, '(a)') 'grammar Fortran2023;'
+    write (output_unit, '(a)') 'grammar StandardIR;'
     write (output_unit, '(a)')
     records = 0
     do

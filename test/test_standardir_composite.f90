@@ -72,6 +72,10 @@ program test_standardir_composite
     call standardir_composite_emit_antlr(unit, composite, ok, message)
     close (unit)
     if (.not. ok) call fail(trim(message))
+    call require_contains('build/test_standardir_composite.g4', 'grammar StandardIR;', &
+        'ANTLR grammar identity is not neutral')
+    call require_not_contains('build/test_standardir_composite.g4', 'Fortran2023', &
+        'ANTLR grammar retained the old identity')
     call require_contains('build/test_standardir_composite.g4', "EN_DASH : '-' ;", &
         'ANTLR en dash export differs')
     call require_contains('build/test_standardir_composite.g4', &
@@ -104,6 +108,10 @@ program test_standardir_composite
     call standardir_composite_emit_treesitter(unit, composite, ok, message)
     close (unit)
     if (.not. ok) call fail(trim(message))
+    call require_contains('build/test_standardir_composite.js', 'name: "standardir",', &
+        'tree-sitter grammar identity is not neutral')
+    call require_not_contains('build/test_standardir_composite.js', 'fortran2023', &
+        'tree-sitter grammar retained the old identity')
     call require_contains('build/test_standardir_composite.js', &
         "EN_DASH: $ => '-',", 'tree-sitter en dash export differs')
     call require_contains('build/test_standardir_composite.js', &
@@ -145,6 +153,23 @@ contains
         close (read_unit)
         call fail(failure)
     end subroutine require_contains
+
+    subroutine require_not_contains(path, unexpected, failure)
+        character(len=*), intent(in) :: path, unexpected, failure
+        integer :: read_unit, read_status
+
+        open (newunit=read_unit, file=path, action='read', iostat=read_status)
+        if (read_status /= 0) call fail('could not read output')
+        do
+            read (read_unit, '(a)', iostat=read_status) line
+            if (read_status /= 0) exit
+            if (index(line, unexpected) > 0) then
+                close (read_unit)
+                call fail(failure)
+            end if
+        end do
+        close (read_unit)
+    end subroutine require_not_contains
 
     subroutine fail(text)
         character(len=*), intent(in) :: text

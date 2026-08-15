@@ -10,13 +10,11 @@ this repository contains only the code and the specifications.
 
 ## State
 
-Early. `fortpdf` extracts Poppler's UTF-8 text and glyph rectangles, and the
-small command-line tools produce raw layout, canonical text, provenance-
-bearing production records, a StandardIR SX projection and deterministic
-canonical EBNF and ANTLR4 grammar exports. The parser retains multi-token
-sequences, optional/repeated groups, terminal tokens and source-clause
-provenance. Semantic rules are not implemented yet. `ROADMAP.md` in the
-laboratory carries the phase gates.
+Early. Current tools generate projections from caller-supplied StandardIR
+records: layout, canonical text, provenance-bearing SX, grammar projections
+and lexical facts. The complete normative corpus is not committed here.
+Semantic storage is not semantic coverage; semantic rules are not implemented
+yet. `ROADMAP.md` in the laboratory carries the phase gates.
 
 ## Build
 
@@ -48,8 +46,8 @@ Requires `poppler-glib`, `gobject-2.0` and `glib-2.0`, reached through
 
 ## The normative document
 
-Not committed here. It is pinned by URL and SHA-256 in the laboratory and
-fetched into a gitignored cache:
+The complete normative corpus is not committed here. It is pinned by URL and
+SHA-256 in the laboratory and fetched into a gitignored cache:
 
 ```sh
 cd ../lazy-fortran-new && scripts/fetch.sh j3-24-007

@@ -489,14 +489,14 @@ contains
         case (standardir_grammar_format_ebnf)
             write (unit, '(a)') '(* origin=MECHANICAL; generated from closed source-backed StandardIR *)'
         case (standardir_grammar_format_antlr4)
-            write (unit, '(a)') 'grammar Fortran2023;'
+            write (unit, '(a)') 'grammar StandardIR;'
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
         case (standardir_grammar_format_bison)
             write (unit, '(a)') '/* origin=MECHANICAL; generated from closed source-backed StandardIR */'
         case (standardir_grammar_format_tree_sitter)
             write (unit, '(a)') '// origin=MECHANICAL; generated from closed source-backed StandardIR'
             write (unit, '(a)') 'module.exports = grammar({'
-            write (unit, '(a)') '  name: ''fortran2023'','
+            write (unit, '(a)') '  name: ''standardir'','
             write (unit, '(a)') '  rules: {'
         end select
     end subroutine emit_header
