@@ -272,6 +272,11 @@ source-dir = "test"
 main = "test_standardir_statement_sequence.f90"
 
 [[test]]
+name = "test_standardir_statement_boundary"
+source-dir = "test"
+main = "test_standardir_statement_boundary.f90"
+
+[[test]]
 name = "test_sxstatementsequence_cli"
 source-dir = "test"
 main = "test_sxstatementsequence_cli.f90"
