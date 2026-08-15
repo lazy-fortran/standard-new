@@ -262,6 +262,11 @@ source-dir = "test"
 main = "test_standardir_lexical_layout.f90"
 
 [[test]]
+name = "test_standardir_statement_sequence"
+source-dir = "test"
+main = "test_standardir_statement_sequence.f90"
+
+[[test]]
 name = "test_standardir_export"
 source-dir = "test"
 main = "test_standardir_export.f90"
