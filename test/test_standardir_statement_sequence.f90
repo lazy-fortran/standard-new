@@ -31,7 +31,7 @@ program test_standardir_statement_sequence
         'optional ELSE sequence boundary was not retained')
     call require(has_derivation(values, 'case-construct', 'block,case-stmt'), &
         'compound derivation names were not sorted')
-    call require(has_path(values, 'execution-part', 'rhs/3'), &
+    call require(has_path(values, 'execution-part', 'rhs/2'), &
         'direct repeat path was not deterministic')
     call require(has_lineage(values, 'execution-part', 'DOC', '5', hash), &
         'candidate source lineage was not retained')

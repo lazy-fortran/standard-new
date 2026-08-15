@@ -25,8 +25,19 @@ program test_sxstatementsequence_cli
     call read_line(output_path, 1, line)
     call require(trim(line) == expected_header, 'TSV header is not stable')
     call read_line(output_path, 2, line)
-    call require(index(trim(line), 'R3'//achar(9)//'execution-part'//achar(9)//'DOC') == 1, &
-        'CLI did not retain the expected source-backed candidate')
+    call require(index(trim(line), 'R3'//achar(9)//'execution-part'//achar(9)//'DOC') == 1 .and. &
+        index(trim(line), 'first-plus-repeat'//achar(9)//'rhs/2'//achar(9)) > 0, &
+        'CLI did not retain the canonical root expression path')
+    call read_line(output_path, 3, line)
+    call require(index(trim(line), 'repeat-item'//achar(9)//'rhs/2'//achar(9)) > 0, &
+        'CLI did not retain the canonical repeated root path')
+    call read_line(output_path, 4, line)
+    call require(index(trim(line), 'R4'//achar(9)//'wrapper'//achar(9)//'DOC') == 1 .and. &
+        index(trim(line), 'sequence-internal'//achar(9)//'rhs/1'//achar(9)) > 0, &
+        'CLI did not retain the canonical nested sequence path')
+    call read_line(output_path, 5, line)
+    call require(index(trim(line), 'repeat-item'//achar(9)//'rhs/2/1'//achar(9)) > 0, &
+        'CLI did not retain the canonical nested repeat path')
 
     command = 'fo exec --no-build sxstatementsequence '//standardir_path//' '// &
         layout_path//' '//output_path
@@ -49,6 +60,9 @@ contains
         write (unit, '(a)') syntax('R3', 'execution-part', &
             '(seq (ref execution-part-construct) '// &
             '(repeat (ref execution-part-construct) 0 unbounded))', '3', '30')
+        write (unit, '(a)') syntax('R4', 'wrapper', &
+            '(seq (ref save-stmt) (optional (repeat (ref execution-part-construct) '// &
+            '0 unbounded)))', '4', '40')
         close (unit)
 
         open (newunit=unit, file=layout_path, status='replace', action='write', iostat=ios)

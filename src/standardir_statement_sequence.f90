@@ -417,7 +417,7 @@ contains
                     if (contains_any_name(node%children(j), reachable)) prefix_statement = .true.
                 end do
                 if (prefix_statement) then
-                    call append_candidate(values, rule, trim(path)//'/'//itoa(i), trim(item_name), &
+                    call append_candidate(values, rule, trim(path)//'/'//itoa(i - 1), trim(item_name), &
                         standardir_sequence_first_plus_repeat, derivation)
                 end if
                 if (allocated(positions)) deallocate (positions)
@@ -427,7 +427,7 @@ contains
 
         if (node%kind == sx_list) then
             do i = 2, node%child_count
-                call visit_expression(node%children(i), trim(path)//'/'//itoa(i), rule, statement_classes, &
+                call visit_expression(node%children(i), trim(path)//'/'//itoa(i - 1), rule, statement_classes, &
                     reachable, nullable, values, unsupported_found, ok, message)
                 if (.not. ok) return
             end do
