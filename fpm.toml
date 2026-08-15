@@ -116,6 +116,11 @@ name = "sxlexercontract"
 source-dir = "app"
 main = "sxlexercontract.f90"
 
+[[executable]]
+name = "sxlexicallayout"
+source-dir = "app"
+main = "sxlexicallayout.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -250,6 +255,11 @@ main = "test_standardir_lexical_lookup.f90"
 name = "test_standardir_lexer_contract"
 source-dir = "test"
 main = "test_standardir_lexer_contract.f90"
+
+[[test]]
+name = "test_standardir_lexical_layout"
+source-dir = "test"
+main = "test_standardir_lexical_layout.f90"
 
 [[test]]
 name = "test_standardir_export"
