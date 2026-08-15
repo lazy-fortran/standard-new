@@ -672,10 +672,27 @@ contains
                 exit
             end do
         end if
-        if (quoted) write (unit, '(a)', advance='no') '"'
-        write (unit, '(a)', advance='no') trim(value)
-        if (quoted) write (unit, '(a)', advance='no') '"'
+        if (quoted) then
+            call emit_ebnf_literal(unit, trim(value))
+        else
+            write (unit, '(a)', advance='no') trim(value)
+        end if
     end subroutine emit_leaf
+
+    subroutine emit_ebnf_literal(unit, value)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: value
+
+        integer :: i
+
+        write (unit, '(a)', advance='no') '"'
+        do i = 1, len(value)
+            if (value(i:i) == '"' .or. value(i:i) == achar(92)) &
+                write (unit, '(a)', advance='no') achar(92)
+            write (unit, '(a)', advance='no') value(i:i)
+        end do
+        write (unit, '(a)', advance='no') '"'
+    end subroutine emit_ebnf_literal
 
     subroutine read_pair(node, label, value, ok, message)
         type(sx_node_t), intent(in) :: node

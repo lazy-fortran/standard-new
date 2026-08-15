@@ -25,6 +25,12 @@ program test_standardir_grammar
         'source-canonical-text-sha256=abcdef *)'
     character(len=*), parameter :: expected_rule = &
         'program ::= program-unit { program-unit } ;'
+    character(len=*), parameter :: escaped_input = &
+        '(syntax R503 (lhs quoted) (rhs (seq (token "\"\\") (token ordinary))) (source '// &
+        '(document J3-24-007) (clause 5-15) (rule R503) (page 53) '// &
+        '(source-sha256 abcdef)))'
+    character(len=*), parameter :: expected_escaped_rule = &
+        'quoted ::= "\"\\" "ordinary" ;'
     character(len=*), parameter :: expected_antlr_comment = &
         '// rule=R501 document=J3-24-007 clause=5-15 page=53 source-canonical-text-sha256=abcdef'
     character(len=*), parameter :: expected_antlr_name = 'r_program'
@@ -66,6 +72,25 @@ program test_standardir_grammar
     read (unit, '(a)', iostat=ios) line
     close (unit)
     if (ios /= 0 .or. trim(line) /= expected_rule) call fail('EBNF differs')
+
+    call sx_parse(escaped_input, node, ok, message)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar_escaped.ebnf', &
+        status='replace', action='write', iostat=ios)
+    if (ios /= 0) call fail('cannot open escaped EBNF fixture')
+    call standardir_emit_ebnf(unit, node, ok, message)
+    close (unit)
+    if (.not. ok) call fail(trim(message))
+    open (newunit=unit, file='build/test_standardir_grammar_escaped.ebnf', &
+        action='read', iostat=ios)
+    if (ios /= 0) call fail('cannot read escaped EBNF fixture')
+    read (unit, '(a)', iostat=ios) line
+    read (unit, '(a)', iostat=ios) line
+    close (unit)
+    if (ios /= 0 .or. trim(line) /= expected_escaped_rule) &
+        call fail('EBNF literal escaping differs')
+    call sx_parse(input, node, ok, message)
+    if (.not. ok) call fail(trim(message))
 
     open (newunit=unit, file='build/test_standardir_grammar.g4', status='replace', &
         action='write', iostat=ios)
