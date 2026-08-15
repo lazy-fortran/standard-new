@@ -132,6 +132,7 @@ contains
 
         call make_simple(values(1), 'DUP-1', 1, 'duplicate', 'X', 'DOC-D', '1', 1, 'HASH-D1')
         call make_simple(values(2), 'DUP-2', 2, 'duplicate', 'X', 'DOC-D', '2', 2, 'HASH-D2')
+        values(2)%source = values(1)%source
     end subroutine make_duplicate
 
     subroutine make_direct(values)

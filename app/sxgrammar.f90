@@ -28,6 +28,7 @@ program sxgrammar
     type(sx_node_t) :: node
     character(len=256), allocatable :: start_names(:)
     character(len=128), allocatable :: semantic_skipped_names(:)
+    character(len=512), allocatable :: semantic_skipped_details(:)
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     logical :: ok
@@ -61,7 +62,7 @@ program sxgrammar
 
     call standardir_grammar_close_sx(nodes, records, classifications, classification_count, &
         roots, root_count, lexical, rules, semantic_skipped, lexical_closed, ok, message, &
-        semantic_skipped_names)
+        semantic_skipped_names, semantic_skipped_details)
     if (.not. ok) call fail(trim(message))
     if (.not. allocated(rules)) call fail('closure returned no grammar rule array')
     if (size(rules) < 1) call fail('closure returned no exportable grammar rules')
@@ -105,6 +106,7 @@ program sxgrammar
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
         semantic_skipped, ' semantic-only records; closed ', lexical_closed, ' lexical facts'
     call print_skipped_names(semantic_skipped_names)
+    call print_skipped_details(semantic_skipped_details)
 
 contains
 
@@ -226,6 +228,15 @@ contains
             print '(a)', 'root-disposition skipped-semantic-only '//trim(names(i))
         end do
     end subroutine print_skipped_names
+
+    subroutine print_skipped_details(details)
+        character(len=*), intent(in) :: details(:)
+        integer :: i
+
+        do i = 1, size(details)
+            print '(a)', 'root-disposition-detail skipped-semantic-only '//trim(details(i))
+        end do
+    end subroutine print_skipped_details
 
     subroutine read_classification_file(path, values, count, ok, message)
         character(len=*), intent(in) :: path

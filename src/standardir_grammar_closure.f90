@@ -29,7 +29,7 @@ contains
 
     subroutine standardir_grammar_close_sx(nodes, node_count, classifications, &
             classification_count, roots, root_count, lexical, rules, semantic_skipped, &
-            lexical_closed, ok, message, semantic_skipped_names)
+            lexical_closed, ok, message, semantic_skipped_names, semantic_skipped_details)
         type(sx_node_t), intent(in) :: nodes(:)
         integer, intent(in) :: node_count
         type(closure_classification_t), intent(in) :: classifications(:)
@@ -42,6 +42,7 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=128), allocatable, intent(out), optional :: semantic_skipped_names(:)
+        character(len=512), allocatable, intent(out), optional :: semantic_skipped_details(:)
 
         type(closure_input_record_t), allocatable :: input(:)
         type(closure_classification_t), allocatable :: effective_classifications(:)
@@ -51,14 +52,18 @@ contains
         type(sx_node_t), allocatable :: lexicalized_nodes(:)
         type(sx_node_t) :: expression
         character(len=128) :: rule, lhs, id
+        character(len=128) :: semantic_name
         integer :: i, j, input_index, count, effective_count
-        logical :: local_ok, skip
+        logical :: local_ok, skip, semantic_found
 
         if (allocated(rules)) deallocate (rules)
         semantic_skipped = 0
         lexical_closed = 0
         if (present(semantic_skipped_names)) then
             allocate (semantic_skipped_names(0))
+        end if
+        if (present(semantic_skipped_details)) then
+            allocate (semantic_skipped_details(0))
         end if
         ok = .false.
         message = ''
@@ -118,6 +123,13 @@ contains
                     if (present(semantic_skipped_names)) then
                         call append_skipped_name(semantic_skipped_names, input(input_index)%lhs)
                     end if
+                    if (present(semantic_skipped_details)) then
+                        semantic_found = find_semantic_reference_name(lexicalized_nodes(input_index), &
+                            effective_classifications, effective_count, semantic_name)
+                        if (.not. semantic_found) semantic_name = ''
+                        call append_skipped_detail(semantic_skipped_details, input(input_index)%lhs, &
+                            semantic_name, input(input_index)%source)
+                    end if
                     cycle
                 end if
                 call standardir_grammar_adapt_sx(lexicalized_nodes(input_index), &
@@ -134,6 +146,10 @@ contains
                     semantic_skipped = semantic_skipped + 1
                     if (present(semantic_skipped_names)) then
                         call append_skipped_name(semantic_skipped_names, result%records(i)%lhs)
+                    end if
+                    if (present(semantic_skipped_details)) then
+                        call append_skipped_detail(semantic_skipped_details, result%records(i)%lhs, '', &
+                            result%records(i)%source)
                     end if
                 case (closure_kind_lexical)
                     if (.not. lexical_contains(lexical, result%records(i)%lhs)) then
@@ -276,6 +292,27 @@ contains
         call move_alloc(expanded, names)
     end subroutine append_skipped_name
 
+    subroutine append_skipped_detail(details, name, dependency, source)
+        character(len=512), allocatable, intent(inout) :: details(:)
+        character(len=*), intent(in) :: name, dependency
+        type(standardir_source_ref_t), intent(in) :: source
+        character(len=512), allocatable :: expanded(:)
+        character(len=512) :: value
+        integer :: i, count
+
+        write (value, '(a," source-rule=",a," page=",i0," byte-start=",i0," byte-length=",i0)') &
+            trim(name), trim(source%rule), source%page, source%byte_start, source%byte_length
+        if (len_trim(dependency) > 0) value = trim(value)//' dependency='//trim(dependency)
+        do i = 1, size(details)
+            if (trim(details(i)) == trim(value)) return
+        end do
+        count = size(details)
+        allocate (expanded(count + 1))
+        if (count > 0) expanded(:count) = details
+        expanded(count + 1) = trim(value)
+        call move_alloc(expanded, details)
+    end subroutine append_skipped_detail
+
     recursive subroutine collect_references(node, record, source, ok, message)
         type(sx_node_t), intent(in) :: node
         type(closure_input_record_t), intent(inout) :: record
@@ -367,6 +404,35 @@ contains
             end if
         end do
     end function find_input
+
+    recursive logical function find_semantic_reference_name(node, classifications, &
+            classification_count, name) result(found)
+        type(sx_node_t), intent(in) :: node
+        type(closure_classification_t), intent(in) :: classifications(:)
+        integer, intent(in) :: classification_count
+        character(len=*), intent(out) :: name
+        integer :: i, fact
+
+        found = .false.
+        name = ''
+        if (node%kind /= sx_list .or. node%child_count < 1) return
+        if (node%children(1)%kind /= sx_atom) return
+        if (trim(node%children(1)%atom) == 'ref' .and. node%child_count == 2 .and. &
+            node%children(2)%kind == sx_atom) then
+            fact = find_classification(classifications, classification_count, node%children(2)%atom)
+            if (fact > 0 .and. classifications(fact)%kind == closure_kind_semantic_only) then
+                name = trim(node%children(2)%atom)
+                found = .true.
+                return
+            end if
+        end if
+        do i = 2, node%child_count
+            if (find_semantic_reference_name(node%children(i), classifications, classification_count, name)) then
+                found = .true.
+                return
+            end if
+        end do
+    end function find_semantic_reference_name
 
     recursive logical function contains_semantic_reference(node, classifications, &
             classification_count) result(found)

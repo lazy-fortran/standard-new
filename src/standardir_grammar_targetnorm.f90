@@ -434,6 +434,7 @@ contains
         character(len=*), intent(out) :: message
 
         type(standardir_target_rule_t), allocatable :: unique(:)
+        type(standardir_target_provenance_t), allocatable :: merged(:)
         integer :: i, j
         logical :: duplicate
 
@@ -442,8 +443,11 @@ contains
             duplicate = .false.
             do j = 1, size(unique)
                 if (trim(unique(j)%lhs) == trim(values(i)%lhs) .and. &
-                    same_expression(unique(j)%expression, values(i)%expression)) then
+                    same_expression(unique(j)%expression, values(i)%expression) .and. &
+                    same_target_occurrence(unique(j), values(i))) then
                     duplicate = .true.
+                    call merge_provenance(unique(j)%provenance, values(i)%provenance, merged)
+                    call move_alloc(merged, unique(j)%provenance)
                     exit
                 end if
             end do
@@ -457,6 +461,19 @@ contains
         ok = .true.
         message = ''
     end subroutine deduplicate_rules
+
+    logical function same_target_occurrence(left, right)
+        type(standardir_target_rule_t), intent(in) :: left, right
+        type(standardir_source_ref_t) :: a, b
+
+        a = left%source
+        b = right%source
+        same_target_occurrence = trim(a%document) == trim(b%document) .and. &
+            trim(a%clause) == trim(b%clause) .and. &
+            trim(a%rule) == trim(b%rule) .and. a%page == b%page .and. &
+            a%end_page == b%end_page .and. a%byte_start == b%byte_start .and. &
+            a%byte_length == b%byte_length .and. trim(a%source_hash) == trim(b%source_hash)
+    end function same_target_occurrence
 
     subroutine rules_for_lhs(values, lhs, selected)
         type(standardir_target_rule_t), intent(in) :: values(:)
