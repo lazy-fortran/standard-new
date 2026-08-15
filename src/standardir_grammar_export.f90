@@ -16,6 +16,7 @@ module standardir_grammar_export
         standardir_target_provenance_t, standardir_target_role_family_config_t, &
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
         standardir_target_role_family_witness_t, standardir_target_rule_t
+    use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
         standardir_grammar_validate_reachability, standardir_target_reachability_witness_t
     use standardir_grouping, only: standardir_group_t, standardir_group_syntax, &
@@ -34,6 +35,7 @@ module standardir_grammar_export
     public :: standardir_grammar_factor_role_family
     public :: standardir_grammar_validate_role_family_witness
     public :: standardir_target_expression_t
+    public :: standardir_target_provenance_t
     public :: standardir_target_role_family_config_t
     public :: standardir_target_role_family_factored
     public :: standardir_target_role_family_rejected
@@ -42,6 +44,7 @@ module standardir_grammar_export
     public :: standardir_target_reachability_witness_t
     public :: standardir_grammar_select_reachable
     public :: standardir_grammar_validate_reachability
+    public :: standardir_grammar_source_expression_sha256
 
 contains
 
@@ -190,13 +193,14 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        character(len=4096) :: lineage
+        character(len=4096) :: lineage, expression_hashes
         integer :: i
 
         ok = .false.
         message = ''
         do i = 1, size(values)
             lineage = provenance_text(values(i)%provenance)
+            expression_hashes = provenance_expression_text(values(i)%provenance)
             select case (format)
             case (standardir_grammar_format_ebnf)
                 write (unit, '(a)', advance='no') '(* target-disposition=omitted-unreachable'
@@ -222,6 +226,7 @@ contains
             call write_witness_field(unit, 'byte-length', integer64_text(values(i)%source%byte_length))
             call write_witness_field(unit, 'source-sha256', trim(values(i)%source%source_hash))
             call write_witness_field(unit, 'source-lineage', trim(lineage))
+            call write_witness_field(unit, 'source-expression-sha256', trim(expression_hashes))
             select case (format)
             case (standardir_grammar_format_ebnf)
                 write (unit, '(a)') ' *)'
@@ -242,12 +247,14 @@ contains
         character(len=*), intent(out) :: message
 
         integer :: i
-        character(len=4096) :: roles
+        character(len=4096) :: roles, alias_hashes, representative_hashes
 
         ok = .false.
         message = ''
         do i = 1, size(values)
             roles = role_text(values(i)%source_roles)
+            alias_hashes = provenance_expression_text(values(i)%alias_provenance)
+            representative_hashes = provenance_expression_text(values(i)%representative_provenance)
             select case (format)
             case (standardir_grammar_format_ebnf)
                 write (unit, '(a)', advance='no') '(* target-role-family'
@@ -265,8 +272,11 @@ contains
             call write_witness_field(unit, 'reason', trim(values(i)%reason))
             call write_witness_field(unit, 'source-roles', trim(roles))
             call write_witness_field(unit, 'alias-lineage', trim(provenance_text(values(i)%alias_provenance)))
+            call write_witness_field(unit, 'source-expression-sha256', trim(alias_hashes))
             call write_witness_field(unit, 'representative-lineage', &
                 trim(provenance_text(values(i)%representative_provenance)))
+            call write_witness_field(unit, 'representative-source-expression-sha256', &
+                trim(representative_hashes))
             select case (format)
             case (standardir_grammar_format_ebnf)
                 write (unit, '(a)') ' *)'
@@ -477,7 +487,7 @@ contains
         character(len=*), intent(out) :: message
         character(len=32) :: alternative
 
-        call make_list(node, 11)
+        call make_list(node, 12)
         call make_atom(node%children(1), 'source')
         call make_pair(node%children(2), 'document', trim(rule%source%document), ok, message)
         if (.not. ok) return
@@ -498,7 +508,10 @@ contains
         if (.not. ok) return
         call make_pair(node%children(10), 'source-sha256', trim(rule%source%source_hash), ok, message)
         if (.not. ok) return
-        call make_pair(node%children(11), 'source-lineage', provenance_text(rule%provenance), ok, message)
+        call make_pair(node%children(11), 'source-expression-sha256', &
+            provenance_expression_text(rule%provenance), ok, message)
+        if (.not. ok) return
+        call make_pair(node%children(12), 'source-lineage', provenance_text(rule%provenance), ok, message)
     end subroutine make_target_source
 
     subroutine emit_source_rule_annotation(unit, node, format, ok, message)
@@ -507,7 +520,7 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        character(len=256) :: source_rule, source_alternative, source_lineage
+        character(len=256) :: source_rule, source_alternative, source_lineage, source_expression_hashes
         character(len=64) :: source_start, source_length
         integer :: i
 
@@ -516,6 +529,7 @@ contains
         source_rule = ''
         source_alternative = ''
         source_lineage = ''
+        source_expression_hashes = ''
         source_start = ''
         source_length = ''
         if (node%child_count /= 5 .or. node%children(5)%kind /= sx_list .or. &
@@ -535,6 +549,8 @@ contains
                 source_rule = trim(node%children(5)%children(i)%children(2)%atom)
             else if (trim(node%children(5)%children(i)%children(1)%atom) == 'alternative') then
                 source_alternative = trim(node%children(5)%children(i)%children(2)%atom)
+            else if (trim(node%children(5)%children(i)%children(1)%atom) == 'source-expression-sha256') then
+                source_expression_hashes = trim(node%children(5)%children(i)%children(2)%atom)
             else if (trim(node%children(5)%children(i)%children(1)%atom) == 'source-lineage') then
                 source_lineage = trim(node%children(5)%children(i)%children(2)%atom)
             else if (trim(node%children(5)%children(i)%children(1)%atom) == 'byte-start') then
@@ -554,6 +570,8 @@ contains
                 ' source-alternative='//trim(source_alternative)
             if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
                 ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_expression_hashes) > 0) write (unit, '(a)', advance='no') &
+                ' source-expression-sha256='//trim(source_expression_hashes)
             if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
                 ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)') ' *)'
@@ -563,6 +581,8 @@ contains
                 ' source-alternative='//trim(source_alternative)
             if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
                 ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_expression_hashes) > 0) write (unit, '(a)', advance='no') &
+                ' source-expression-sha256='//trim(source_expression_hashes)
             if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
                 ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)')
@@ -572,6 +592,8 @@ contains
                 ' source-alternative='//trim(source_alternative)
             if (len_trim(source_lineage) > 0) write (unit, '(a)', advance='no') &
                 ' source-lineage='//trim(source_lineage)
+            if (len_trim(source_expression_hashes) > 0) write (unit, '(a)', advance='no') &
+                ' source-expression-sha256='//trim(source_expression_hashes)
             if (len_trim(source_start) > 0) write (unit, '(a)', advance='no') &
                 ' source-byte-start='//trim(source_start)//' source-byte-length='//trim(source_length)
             write (unit, '(a)') ' */'
@@ -605,6 +627,33 @@ contains
         end do
         if (len_trim(text) == 0) text = 'none'
     end function provenance_text
+
+    function provenance_expression_text(values) result(text)
+        type(standardir_target_provenance_t), allocatable, intent(in) :: values(:)
+        character(len=4096) :: text
+        integer :: i, length, position
+
+        text = ''
+        if (.not. allocated(values)) then
+            text = 'none'
+            return
+        end if
+        position = 1
+        do i = 1, size(values)
+            if (i > 1) then
+                text(position:position) = ','
+                position = position + 1
+            end if
+            length = len_trim(values(i)%source_expression_sha256)
+            if (length == 0) then
+                text = 'none'
+                return
+            end if
+            text(position:position + length - 1) = trim(values(i)%source_expression_sha256)
+            position = position + length
+        end do
+        if (len_trim(text) == 0) text = 'none'
+    end function provenance_expression_text
 
     function role_text(values) result(text)
         character(len=128), allocatable, intent(in) :: values(:)

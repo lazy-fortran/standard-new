@@ -12,6 +12,7 @@ module standardir_grammar_sx_adapter
         standardir_grammar_validate
     use standardir_grammar_sx_adapter_support, only: read_syntax, trim_expression, &
         validate_metadata
+    use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     implicit none
     private
 
@@ -215,6 +216,8 @@ contains
         allocate (value%nodes%values(count))
         cursor = 0
         call append_expression(expression, value%nodes%values, cursor, first, ok, message, 1)
+        if (.not. ok) return
+        call standardir_grammar_source_expression_sha256(expression, value%source_expression_sha256, ok, message)
         if (.not. ok) return
         value%id = trim(rule)
         value%alternative = alternative

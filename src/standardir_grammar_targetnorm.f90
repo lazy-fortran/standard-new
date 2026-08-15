@@ -14,6 +14,7 @@ module standardir_grammar_targetnorm
         standardir_target_role_family_rejected, standardir_target_role_family_witness_t, &
         standardir_target_rule_t, standardir_grammar_factor_role_family, &
         standardir_grammar_validate_role_family_witness
+    use standardir_grammar_target_fingerprint, only: standardir_target_expression_sha256
     implicit none
     private
 
@@ -89,6 +90,7 @@ contains
         type(standardir_target_rule_t), intent(out) :: value
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=64) :: source_expression_sha256
 
         call standardir_grammar_validate(rule, ok, message)
         if (.not. ok) return
@@ -104,11 +106,23 @@ contains
         allocate (value%provenance(1))
         value%provenance(1)%source = rule%source
         value%provenance(1)%alternative = rule%alternative
+        call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
+        if (.not. ok) return
+        call standardir_target_expression_sha256(value%expression, source_expression_sha256, ok, message)
+        if (.not. ok) return
+        if (len_trim(rule%source_expression_sha256) > 0 .and. &
+            trim(rule%source_expression_sha256) /= trim(source_expression_sha256)) then
+            message = 'source-expression fingerprint does not match the canonical source expression'
+            ok = .false.
+            return
+        end if
+        value%provenance(1)%source_expression_sha256 = source_expression_sha256
         allocate (value%source_roles(1))
         value%source_roles(1) = trim(rule%lhs)
         value%origin = rule%origin
         value%resolution = rule%resolution
-        call build_target_expression(rule, rule%root, 0, value%expression, ok, message)
+        ok = .true.
+        message = ''
     end subroutine rule_to_target
 
     recursive subroutine build_target_expression(rule, index, depth, expression, ok, message)

@@ -473,6 +473,7 @@ contains
         expected%source = rule%source
         expected%alternative = rule%alternative
         do i = 1, size(lineage)
+            expected%source_expression_sha256 = lineage(i)%source_expression_sha256
             if (same_provenance(lineage(i), expected)) then
                 rule_source_in_lineage = .true.
                 return

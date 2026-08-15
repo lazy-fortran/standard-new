@@ -16,6 +16,7 @@ module standardir_grammar_target_records
     type, public :: standardir_target_provenance_t
         type(standardir_source_ref_t) :: source
         integer :: alternative = 0
+        character(len=64) :: source_expression_sha256 = ''
     end type standardir_target_provenance_t
 
     type, public :: standardir_target_rule_t

@@ -20,8 +20,9 @@ program test_standardir_grammar_producer
         '(grammar-node repeat statement 1 true 9 1) '// &
         '(grammar-node reference body 1 false 0 0))) '// &
         '(source (source-ref (document J3-24-007) (clause 5) (rule R501) '// &
-        '(page 45) (source-hash fixture))) (origin mechanical) '// &
-        '(resolution unresolved))'
+        '(page 45) (source-hash fixture))) '// &
+        '(source-expression-sha256 8ab641a677fa6b5720dd98f705866b92a4e0cf537a018a5a86e56296a4970d61) '// &
+        '(origin mechanical) (resolution unresolved))'
     type(standardir_grammar_rule_t) :: value, round_trip, malformed
     type(sx_node_t) :: node
     character(len=2048) :: actual
@@ -288,6 +289,8 @@ contains
         value%source%rule = 'R501'
         value%source%page = 45
         value%source%source_hash = 'fixture'
+        value%source_expression_sha256 = &
+            '8ab641a677fa6b5720dd98f705866b92a4e0cf537a018a5a86e56296a4970d61'
         value%origin = standardir_grammar_origin_mechanical
         value%resolution = standardir_grammar_resolution_unresolved
     end subroutine make_rule

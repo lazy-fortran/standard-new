@@ -18,6 +18,7 @@ contains
         a = left%source
         b = right%source
         same_provenance = left%alternative == right%alternative .and. &
+            trim(left%source_expression_sha256) == trim(right%source_expression_sha256) .and. &
             trim(a%document) == trim(b%document) .and. trim(a%clause) == trim(b%clause) .and. &
             trim(a%rule) == trim(b%rule) .and. a%page == b%page .and. &
             a%end_page == b%end_page .and. a%byte_start == b%byte_start .and. &

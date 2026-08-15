@@ -11,6 +11,7 @@ module standardir_grammar_producer
         schema_runtime_read_int, schema_runtime_write_atom, schema_runtime_write_bool, &
         schema_runtime_write_int, schema_runtime_write_name, schema_runtime_write_space
     use standardir_export, only: standardir_source_ref_t
+    use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     use standardir, only: standardir_emit, standardir_max_alternatives, standardir_syntax_t
     implicit none
     private
@@ -55,6 +56,7 @@ module standardir_grammar_producer
         integer :: root = 0
         type(standardir_grammar_nodes_t) :: nodes
         type(standardir_source_ref_t) :: source
+        character(len=64) :: source_expression_sha256 = ''
         integer :: origin = 0
         integer :: resolution = 0
     end type standardir_grammar_rule_t
@@ -280,6 +282,11 @@ contains
         value%alternative = alternative
         value%lhs = trim(lhs)
         value%root = first
+        call standardir_grammar_source_expression_sha256(expression, value%source_expression_sha256, ok, message)
+        if (.not. ok) then
+            call clear_rule(value)
+            return
+        end if
         value%source = standardir_source_ref_t()
         value%source%document = trim(document)
         value%source%clause = trim(clause)
@@ -496,6 +503,8 @@ contains
         call schema_runtime_write_space(unit, ok, message)
         call standardir_write_source_inner(value%source, unit, ok, message)
         if (.not. ok) return
+        call write_pair_name(unit, 'source-expression-sha256', value%source_expression_sha256, ok, message)
+        if (.not. ok) return
         call write_pair_origin(unit, value%origin, ok, message)
         if (.not. ok) return
         call write_pair_resolution(unit, value%resolution, ok, message)
@@ -511,7 +520,7 @@ contains
         character(len=*), intent(out) :: message
 
         call clear_rule(value)
-        call expect_list(node, 'syntax-rule', 9, ok, message)
+        call expect_list(node, 'syntax-rule', 10, ok, message)
         if (.not. ok) return
         call read_pair_name(node%children(2), 'id', value%id, ok, message)
         if (.not. ok) return
@@ -529,9 +538,12 @@ contains
         end if
         call read_source(node%children(7)%children(2), value%source, ok, message)
         if (.not. ok) return
-        call read_pair_origin(node%children(8), value%origin, ok, message)
+        call read_pair_name(node%children(8), 'source-expression-sha256', &
+            value%source_expression_sha256, ok, message)
         if (.not. ok) return
-        call read_pair_resolution(node%children(9), value%resolution, ok, message)
+        call read_pair_origin(node%children(9), value%origin, ok, message)
+        if (.not. ok) return
+        call read_pair_resolution(node%children(10), value%resolution, ok, message)
         if (.not. ok) return
         call standardir_grammar_validate(value, ok, message)
     end subroutine standardir_grammar_read
@@ -542,6 +554,7 @@ contains
         value%alternative = 0
         value%lhs = ''
         value%root = 0
+        value%source_expression_sha256 = ''
         if (allocated(value%nodes%values)) deallocate (value%nodes%values)
         value%origin = 0
         value%resolution = 0

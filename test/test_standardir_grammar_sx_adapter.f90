@@ -10,6 +10,7 @@ program test_standardir_grammar_sx_adapter
     use standardir_grammar_export, only: standardir_grammar_normalize, &
         standardir_target_rule_t
     use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
+    use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     implicit none
 
     character(len=*), parameter :: syntax_text = &
@@ -36,8 +37,10 @@ program test_standardir_grammar_sx_adapter
     character(len=256) :: message
     type(sx_node_t) :: node
     type(standardir_grammar_rule_t), allocatable :: values(:)
+    type(standardir_grammar_rule_t), allocatable :: wrong_values(:)
     type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
     logical :: ok
+    character(len=64) :: expected_fingerprint
     integer :: i, position, depth
 
     call sx_parse(syntax_text, node, ok, message)
@@ -53,6 +56,10 @@ program test_standardir_grammar_sx_adapter
         trim(values(1)%source%clause) == 'C' .and. &
         trim(values(1)%source%rule) == 'RULE-A' .and. values(1)%source%page == 42 .and. &
         trim(values(1)%source%source_hash) == 'HASH', 'source provenance differs')
+    call standardir_grammar_source_expression_sha256(node%children(4)%children(2)%children(2), &
+        expected_fingerprint, ok, message)
+    call require(ok .and. trim(values(1)%source_expression_sha256) == trim(expected_fingerprint), &
+        'source-expression fingerprint is not the canonical SX hash')
     call require(values(1)%nodes%values(1)%kind == standardir_grammar_sequence .and. &
         values(1)%nodes%values(1)%child_count == 2 .and. &
         values(1)%nodes%values(2)%kind == standardir_grammar_reference .and. &
@@ -68,6 +75,12 @@ program test_standardir_grammar_sx_adapter
         values(2)%nodes%values(2)%unbounded .and. &
         values(2)%nodes%values(3)%kind == standardir_grammar_reference, &
         'optional/repeat structure differs')
+    wrong_values = values
+    wrong_values(1)%source_expression_sha256 = repeat('0', 64)
+    call standardir_grammar_normalize(wrong_values, normalized, suppressed, ok, message)
+    call require(.not. ok .and. index(message, 'source-expression fingerprint') > 0, &
+        'wrong source-expression fingerprint was accepted')
+    deallocate (wrong_values)
     call standardir_grammar_normalize(values, normalized, suppressed, ok, message)
     call require(ok .and. size(normalized) == 2 .and. size(suppressed) == 0, &
         'normalization collapsed distinct source alternatives: '//trim(message))

@@ -268,6 +268,10 @@ program test_standardir_grammar_export
     broken_witness(1)%alias_provenance(1)%source%rule = 'MUTATED-ALIAS'
     call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
     call require(.not. ok, 'mutated alias lineage was accepted')
+    broken_witness = role_witness
+    broken_witness(1)%alias_provenance(1)%source_expression_sha256 = repeat('0', 64)
+    call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
+    call require(.not. ok, 'mutated source-expression fingerprint was accepted')
 
     role_reordered = role_fixture
     role_reordered(6) = role_fixture(7)
@@ -1202,6 +1206,8 @@ contains
 
         call require(index(text, 'rule=R-A1') > 0, 'first rule provenance is missing')
         call require(index(text, 'source-lineage=SRC-A1:') > 0, 'source rule lineage is missing')
+        call require(index(text, 'source-expression-sha256=') > 0, &
+            'source-expression fingerprint is missing')
         call require(index(text, 'document=DOC-A') > 0 .and. index(text, 'clause=5.1') > 0, &
             'first source provenance is missing')
         call require(index(text, 'source-canonical-text-sha256=HASH-A1') > 0, &
