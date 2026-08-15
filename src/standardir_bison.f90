@@ -144,14 +144,14 @@ contains
             call standardir_read_syntax_header(nodes(index), rule, lhs, document, clause, page, &
                 source_hash, ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
-            call emit_bison_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
-                source_byte_start, source_byte_length)
             if (i == 1) then
                 write (unit, '(a)', advance='no') trim(bison_name(group%lhs))//':'
             else
                 write (unit, '(a)', advance='no') '  |'
             end if
             write (unit, '(a)', advance='no') new_line('a')//'    '
+            call emit_bison_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+                source_byte_start, source_byte_length)
             if (len_trim(top_symbols(i)) > 0) then
                 write (unit, '(a)', advance='no') trim(top_symbols(i))
             else

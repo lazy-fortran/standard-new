@@ -125,13 +125,13 @@ contains
             call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
                 ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
-            call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
-                source_byte_start, source_byte_length)
             if (i == 1) then
                 write (unit, '(a)', advance='no') trim(lhs)//' ::= '
             else
                 write (unit, '(a)', advance='no') ' | '
             end if
+            call emit_ebnf_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+                source_byte_start, source_byte_length)
             call emit_expression(unit, nodes(index)%children(4), ok, message)
             if (.not. ok) return
         end do
@@ -158,22 +158,19 @@ contains
             message = 'cannot emit an empty ANTLR group'
             return
         end if
+        write (unit, '(a)') trim(antlr_name(group%lhs))
         do i = 1, group%count
             index = group%indices(i)
             call read_syntax_header(nodes(index), rule, lhs, document, clause, page, source_hash, &
                 ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
-            call emit_antlr_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
-                source_byte_start, source_byte_length)
-        end do
-        write (unit, '(a)') trim(antlr_name(group%lhs))
-        do i = 1, group%count
-            index = group%indices(i)
             if (i == 1) then
                 write (unit, '(a)', advance='no') '    : '
             else
                 write (unit, '(a)', advance='no') '    | '
             end if
+            call emit_antlr_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
+                source_byte_start, source_byte_length)
             call emit_antlr_expression(unit, nodes(index)%children(4), ok, message)
             if (.not. ok) return
             write (unit, '(a)')

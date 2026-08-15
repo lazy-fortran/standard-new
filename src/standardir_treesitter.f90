@@ -75,19 +75,16 @@ contains
             message = 'cannot emit an empty tree-sitter group'
             return
         end if
+        write (unit, '(a)', advance='no') trim(treesitter_name(group%lhs))//': $ => '
+        if (group%count > 1) write (unit, '(a)', advance='no') 'choice('
         do i = 1, group%count
             index = group%indices(i)
             call standardir_read_syntax_header(nodes(index), rule, lhs, document, clause, page, &
                 source_hash, ok, message, source_lineage, source_byte_start, source_byte_length)
             if (.not. ok) return
+            if (i > 1) write (unit, '(a)', advance='no') ', '
             call emit_provenance(unit, rule, document, clause, page, source_hash, source_lineage, &
                 source_byte_start, source_byte_length)
-        end do
-        write (unit, '(a)', advance='no') trim(treesitter_name(group%lhs))//': $ => '
-        if (group%count > 1) write (unit, '(a)', advance='no') 'choice('
-        do i = 1, group%count
-            index = group%indices(i)
-            if (i > 1) write (unit, '(a)', advance='no') ', '
             call emit_expression(unit, nodes(index)%children(4), ok, message)
             if (.not. ok) return
         end do

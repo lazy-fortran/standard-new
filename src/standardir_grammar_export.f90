@@ -100,16 +100,11 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        integer :: i, j, index
+        integer :: i
 
         ok = .false.
         message = ''
         do i = 1, group_count
-            do j = 1, groups(i)%count
-                index = groups(i)%indices(j)
-                call emit_source_rule_annotation(unit, nodes(index), format, ok, message)
-                if (.not. ok) return
-            end do
             select case (format)
             case (standardir_grammar_format_ebnf)
                 call standardir_emit_ebnf_group(unit, nodes, groups(i), ok, message)

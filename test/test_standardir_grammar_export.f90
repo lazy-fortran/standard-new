@@ -333,9 +333,8 @@ contains
         call require(local_ok, trim(local_message))
         call read_text(unit, text)
         call require(index(text, trim(marker)) > 0, 'left-recursion helper is absent from target output')
-        call require(index(text, 'source-rule=REC-1') > 0 .and. &
-            index(text, 'source-rule=REC-2') > 0 .and. &
-            index(text, 'source-alternative=1') > 0, &
+        call require(index(text, 'source-lineage=REC-1:') > 0 .and. &
+            index(text, 'source-lineage=REC-2:') > 0, &
             'left-recursion source mapping is absent from target output')
         close (unit)
     end subroutine verify_transform_output
@@ -379,7 +378,7 @@ contains
         end do
 
         call require(index(text, 'rule=R-A1') > 0, 'first rule provenance is missing')
-        call require(index(text, 'source-rule=SRC-A1') > 0, 'source rule annotation is missing')
+        call require(index(text, 'source-lineage=SRC-A1:') > 0, 'source rule lineage is missing')
         call require(index(text, 'document=DOC-A') > 0 .and. index(text, 'clause=5.1') > 0, &
             'first source provenance is missing')
         call require(index(text, 'source-canonical-text-sha256=HASH-A1') > 0, &
