@@ -30,6 +30,8 @@ program test_standardir_grammar_export
     integer :: format, unit, ios
     logical :: ok
     character(len=256) :: message, line
+    integer, parameter :: max_language_words = 256
+    integer, parameter :: max_language_depth = 8
 
     call make_rules(rules)
     do format = standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter
@@ -228,6 +230,8 @@ program test_standardir_grammar_export
         'role-family witness did not deterministically reject the multi-alternative alias')
     call standardir_grammar_validate_role_family_witness(role_retained, role_factored, role_witness, ok, message)
     call require(ok, 'complete role-family witness failed validation: '//trim(message))
+    call verify_role_target_mutations(role_retained, role_factored, role_witness)
+    call verify_role_language(role_retained, role_factored)
     broken_witness = role_witness
     deallocate (broken_witness(1)%alias_provenance)
     call standardir_grammar_validate_role_family_witness(role_retained, role_factored, broken_witness, ok, message)
@@ -653,6 +657,237 @@ contains
         end do
         same_roles = .true.
     end function same_roles
+
+    subroutine verify_role_target_mutations(before, after, witness)
+        type(standardir_target_rule_t), intent(in) :: before(:), after(:)
+        type(standardir_target_role_family_witness_t), intent(in) :: witness(:)
+        type(standardir_target_rule_t), allocatable :: broken(:)
+        character(len=128) :: description
+        integer :: mutation
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        do mutation = 1, 10
+            broken = after
+            select case (mutation)
+            case (1)
+                broken(1)%id = 'MUTATED-ID'
+                description = 'target id'
+            case (2)
+                broken(1)%source%document = 'MUTATED-DOCUMENT'
+                description = 'target source occurrence'
+            case (3)
+                broken(1)%alternative = broken(1)%alternative + 1
+                description = 'target alternative'
+            case (4)
+                broken(1)%origin = broken(1)%origin + 1
+                description = 'target origin'
+            case (5)
+                broken(1)%resolution = broken(1)%resolution + 1
+                description = 'target resolution'
+            case (6)
+                broken(2)%source_roles(1) = 'MUTATED-ROLE'
+                description = 'target source roles'
+            case (7)
+                broken(2)%lhs = 'MUTATED-REPRESENTATIVE'
+                description = 'target representative identity'
+            case (8)
+                broken(2)%provenance(1)%source%rule = 'MUTATED-PROVENANCE'
+                description = 'target full provenance'
+            case (9)
+                broken(1)%expression%children(1)%name = 'MUTATED-EXPRESSION'
+                description = 'target expression name'
+            case (10)
+                broken(1)%expression%children(1)%kind = standardir_grammar_token
+                description = 'target expression kind'
+            end select
+            call standardir_grammar_validate_role_family_witness(before, broken, witness, local_ok, local_message)
+            call require(.not. local_ok, 'accepted mutation of '//trim(description))
+        end do
+    end subroutine verify_role_target_mutations
+
+    subroutine verify_role_language(before, after)
+        type(standardir_target_rule_t), intent(in) :: before(:), after(:)
+        character(len=32), allocatable :: before_words(:), after_words(:)
+        integer :: before_count, after_count
+        logical :: local_ok
+        character(len=256) :: local_message
+
+        call evaluate_language(before, 'start', before_words, before_count, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call evaluate_language(after, 'start', after_words, after_count, local_ok, local_message)
+        call require(local_ok, trim(local_message))
+        call require(before_count == 12 .and. after_count == 12, &
+            'bounded language oracle produced an unexpected finite language size')
+        call require(same_language(before_words, before_count, after_words, after_count), &
+            'role-family factoring changed the bounded accepted language')
+        call require(language_contains(before_words, before_count, 'XXX') .and. &
+            language_contains(after_words, after_count, 'XXX') .and. &
+            language_contains(before_words, before_count, 'XYZ') .and. &
+            language_contains(after_words, after_count, 'XYZ'), &
+            'bounded language oracle lost an accepted sentence')
+        call require(.not. language_contains(before_words, before_count, 'XX') .and. &
+            .not. language_contains(after_words, after_count, 'XX') .and. &
+            .not. language_contains(before_words, before_count, 'XXXX') .and. &
+            .not. language_contains(after_words, after_count, 'XXXX'), &
+            'bounded language oracle accepted a rejected sentence')
+    end subroutine verify_role_language
+
+    subroutine evaluate_language(values, lhs, words, word_count, ok, message)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs
+        character(len=32), allocatable, intent(out) :: words(:)
+        integer, intent(out) :: word_count
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        allocate (words(max_language_words))
+        words = ''
+        call evaluate_rule(values, trim(lhs), 0, words, word_count, ok)
+        if (.not. ok) then
+            message = 'bounded language oracle exceeded its finite bound'
+        else
+            message = ''
+        end if
+    end subroutine evaluate_language
+
+    recursive subroutine evaluate_rule(values, lhs, depth, words, word_count, ok)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: lhs
+        integer, intent(in) :: depth
+        character(len=32), intent(out) :: words(max_language_words)
+        integer, intent(out) :: word_count
+        logical, intent(out) :: ok
+        character(len=32) :: local_words(max_language_words)
+        integer :: i, local_count
+
+        words = ''
+        word_count = 0
+        ok = .true.
+        if (depth > max_language_depth) return
+        do i = 1, size(values)
+            if (trim(values(i)%lhs) /= trim(lhs)) cycle
+            call evaluate_expression(values(i)%expression, values, depth, local_words, local_count, ok)
+            if (.not. ok) return
+            call append_language_set(words, word_count, local_words, local_count, ok)
+            if (.not. ok) return
+        end do
+    end subroutine evaluate_rule
+
+    recursive subroutine evaluate_expression(expression, values, depth, words, word_count, ok)
+        type(standardir_target_expression_t), intent(in) :: expression
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        integer, intent(in) :: depth
+        character(len=32), intent(out) :: words(max_language_words)
+        integer, intent(out) :: word_count
+        logical, intent(out) :: ok
+        character(len=32) :: child_words(max_language_words), combined(max_language_words)
+        integer :: i, child_count, combined_count
+
+        words = ''
+        word_count = 0
+        ok = .true.
+        select case (expression%kind)
+        case (standardir_grammar_token)
+            call append_language_word(words, word_count, trim(expression%name), ok)
+        case (standardir_grammar_reference)
+            call evaluate_rule(values, trim(expression%name), depth + 1, words, word_count, ok)
+        case (standardir_grammar_sequence)
+            words(1) = ''
+            word_count = 1
+            do i = 1, size(expression%children)
+                call evaluate_expression(expression%children(i), values, depth, child_words, child_count, ok)
+                if (.not. ok) return
+                call combine_language(words, word_count, child_words, child_count, combined, combined_count, ok)
+                if (.not. ok) return
+                words = combined
+                word_count = combined_count
+            end do
+        case default
+            ok = .false.
+        end select
+    end subroutine evaluate_expression
+
+    subroutine combine_language(left, left_count, right, right_count, result, result_count, ok)
+        character(len=32), intent(in) :: left(:), right(:)
+        integer, intent(in) :: left_count, right_count
+        character(len=32), intent(out) :: result(max_language_words)
+        integer, intent(out) :: result_count
+        logical, intent(out) :: ok
+        integer :: i, j
+
+        result = ''
+        result_count = 0
+        ok = .true.
+        do i = 1, left_count
+            do j = 1, right_count
+                call append_language_word(result, result_count, trim(left(i))//trim(right(j)), ok)
+                if (.not. ok) return
+            end do
+        end do
+    end subroutine combine_language
+
+    subroutine append_language_set(values, value_count, additions, addition_count, ok)
+        character(len=32), intent(inout) :: values(max_language_words)
+        integer, intent(inout) :: value_count
+        character(len=32), intent(in) :: additions(max_language_words)
+        integer, intent(in) :: addition_count
+        logical, intent(inout) :: ok
+        integer :: i
+
+        do i = 1, addition_count
+            call append_language_word(values, value_count, additions(i), ok)
+            if (.not. ok) return
+        end do
+    end subroutine append_language_set
+
+    subroutine append_language_word(values, value_count, word, ok)
+        character(len=32), intent(inout) :: values(max_language_words)
+        integer, intent(inout) :: value_count
+        character(len=*), intent(in) :: word
+        logical, intent(inout) :: ok
+        integer :: i
+
+        do i = 1, value_count
+            if (trim(values(i)) == trim(word)) return
+        end do
+        if (value_count == max_language_words) then
+            ok = .false.
+            return
+        end if
+        value_count = value_count + 1
+        values(value_count) = trim(word)
+    end subroutine append_language_word
+
+    logical function same_language(left, left_count, right, right_count)
+        character(len=32), intent(in) :: left(:), right(:)
+        integer, intent(in) :: left_count, right_count
+        integer :: i
+
+        same_language = left_count == right_count
+        if (.not. same_language) return
+        do i = 1, left_count
+            if (.not. language_contains(right, right_count, left(i))) then
+                same_language = .false.
+                return
+            end if
+        end do
+    end function same_language
+
+    logical function language_contains(values, value_count, word)
+        character(len=32), intent(in) :: values(:)
+        integer, intent(in) :: value_count
+        character(len=*), intent(in) :: word
+        integer :: i
+
+        language_contains = .false.
+        do i = 1, value_count
+            if (trim(values(i)) == trim(word)) then
+                language_contains = .true.
+                return
+            end if
+        end do
+    end function language_contains
 
     subroutine verify_transform_output(values, format, marker)
         type(standardir_grammar_rule_t), intent(in) :: values(:)

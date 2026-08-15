@@ -266,9 +266,16 @@ contains
                     return
                 end if
             end do
+            if (i > 1 .and. trim(witness(i)%representative_role) /= &
+                trim(witness(1)%representative_role)) then
+                message = 'role-family witness uses multiple representatives'
+                return
+            end if
             call validate_witness_item(before, after, witness, i, ok, message)
             if (.not. ok) return
         end do
+        call validate_target_records(before, after, witness, ok, message)
+        if (.not. ok) return
         call validate_witness_coverage(before, after, witness, ok, message)
     end subroutine standardir_grammar_validate_role_family_witness
 
@@ -284,10 +291,7 @@ contains
             return
         end if
         do i = 1, size(before)
-            ok = trim(before(i)%lhs) == trim(after(i)%lhs) .and. &
-                same_expression(before(i)%expression, after(i)%expression) .and. &
-                same_provenance_list(before(i)%provenance, after(i)%provenance) .and. &
-                same_roles(before(i)%source_roles, after(i)%source_roles)
+            ok = same_target_rule(before(i), after(i))
             if (.not. ok) then
                 message = 'role-family identity changed a target record'
                 return
@@ -295,6 +299,75 @@ contains
         end do
         message = ''
     end subroutine validate_identity
+
+    subroutine validate_target_records(before, after, witness, ok, message)
+        type(standardir_target_rule_t), intent(in) :: before(:), after(:)
+        type(standardir_target_role_family_witness_t), intent(in) :: witness(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(standardir_target_rule_t), allocatable :: expected(:)
+        character(len=128), allocatable :: roles(:), merged_roles(:)
+        type(standardir_target_provenance_t), allocatable :: provenance(:), alias_provenance(:)
+        type(standardir_target_provenance_t), allocatable :: merged_provenance(:)
+        logical, allocatable :: removed(:)
+        type(standardir_target_rule_t) :: candidate
+        integer :: i, j, index
+        character(len=128) :: representative
+
+        ok = .false.
+        message = ''
+        representative = ''
+        allocate (expected(0), removed(size(before)), roles(0), provenance(0), alias_provenance(0))
+        removed = .false.
+        do i = 1, size(witness)
+            if (witness(i)%disposition /= standardir_target_role_family_factored) cycle
+            representative = trim(witness(i)%representative_role)
+            index = find_first_lhs(before, trim(witness(i)%alias_role))
+            if (index == 0) then
+                message = 'role-family witness names an absent source role'
+                return
+            end if
+            removed(index) = .true.
+        end do
+        if (len_trim(representative) > 0) then
+            call collect_representative_family(before, representative, roles, provenance)
+            do i = 1, size(before)
+                if (.not. removed(i)) cycle
+                call merge_roles(roles, before(i)%source_roles, merged_roles)
+                call move_alloc(merged_roles, roles)
+            end do
+        end if
+        do i = 1, size(before)
+            if (removed(i)) cycle
+            candidate = before(i)
+            if (len_trim(representative) > 0) then
+                call replace_aliases(candidate%expression, before, removed, representative)
+                if (trim(candidate%lhs) == representative) then
+                    call merge_roles(candidate%source_roles, roles, merged_roles)
+                    call move_alloc(merged_roles, candidate%source_roles)
+                    do j = 1, size(before)
+                        if (removed(j)) then
+                            call merge_provenance(alias_provenance, before(j)%provenance, merged_provenance)
+                            call move_alloc(merged_provenance, alias_provenance)
+                        end if
+                    end do
+                    call merge_provenance(candidate%provenance, alias_provenance, merged_provenance)
+                    call move_alloc(merged_provenance, candidate%provenance)
+                end if
+            end if
+            call append_target(expected, candidate)
+        end do
+        ok = size(expected) == size(after)
+        if (ok) then
+            do i = 1, size(expected)
+                if (.not. same_target_rule(expected(i), after(i))) then
+                    ok = .false.
+                    exit
+                end if
+            end do
+        end if
+        if (.not. ok) message = 'role-family factoring changed an unexpected target record'
+    end subroutine validate_target_records
 
     subroutine validate_witness_item(before, after, witness, item_index, ok, message)
         type(standardir_target_rule_t), intent(in) :: before(:), after(:)
@@ -803,6 +876,27 @@ contains
             a%end_page == b%end_page .and. a%byte_start == b%byte_start .and. &
             a%byte_length == b%byte_length .and. trim(a%source_hash) == trim(b%source_hash)
     end function same_provenance
+
+    logical function same_target_rule(left, right)
+        type(standardir_target_rule_t), intent(in) :: left, right
+
+        same_target_rule = trim(left%id) == trim(right%id) .and. left%alternative == right%alternative .and. &
+            trim(left%lhs) == trim(right%lhs) .and. same_source_ref(left%source, right%source) .and. &
+            same_expression(left%expression, right%expression) .and. &
+            same_provenance_list(left%provenance, right%provenance) .and. &
+            same_roles(left%source_roles, right%source_roles) .and. left%origin == right%origin .and. &
+            left%resolution == right%resolution
+    end function same_target_rule
+
+    logical function same_source_ref(left, right)
+        type(standardir_source_ref_t), intent(in) :: left, right
+
+        same_source_ref = trim(left%document) == trim(right%document) .and. &
+            trim(left%clause) == trim(right%clause) .and. trim(left%rule) == trim(right%rule) .and. &
+            left%page == right%page .and. left%end_page == right%end_page .and. &
+            left%byte_start == right%byte_start .and. left%byte_length == right%byte_length .and. &
+            trim(left%source_hash) == trim(right%source_hash)
+    end function same_source_ref
 
     subroutine collect_lhs_names(values, names, name_count)
         type(standardir_target_rule_t), intent(in) :: values(:)
