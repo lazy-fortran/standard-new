@@ -14,7 +14,7 @@ module standardir_statement_boundary_mapping
     character(len=6), parameter, public :: standardir_boundary_mapped = 'mapped'
     character(len=9), parameter, public :: standardir_boundary_ambiguous = 'ambiguous'
     character(len=11), parameter, public :: standardir_boundary_unsupported = 'unsupported'
-    character(len=9), parameter, public :: standardir_boundary_suppressed = 'suppressed'
+    character(len=10), parameter, public :: standardir_boundary_suppressed = 'suppressed'
 
     type, public :: standardir_statement_boundary_mapping_t
         type(standardir_statement_sequence_candidate_t) :: candidate

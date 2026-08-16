@@ -7,6 +7,7 @@ program test_sxstatementboundarymap_cli
     character(len=*), parameter :: candidate_path = 'build/sxstatementboundarymap.tsv'
     character(len=*), parameter :: output_path = 'build/sxstatementboundarymap-output.tsv'
     character(len=*), parameter :: missing_path = 'build/no-such-candidates.tsv'
+    character(len=*), parameter :: malformed_path = 'build/sxstatementboundarymap-malformed.tsv'
     character(len=*), parameter :: hash = repeat('a', 64)
     character(len=4096) :: command, line
     integer :: unit, ios, exit_status
@@ -24,16 +25,27 @@ program test_sxstatementboundarymap_cli
         'missing raw path was not retained as unsupported')
     call require(count_lines_containing(output_path, achar(9)//'suppressed'//achar(9)) == 1, &
         'suppressed candidate was not retained')
+    call require(count_lines(output_path) == 6, 'output row count changed')
     call read_matching(output_path, 'foo-stmt', line)
-    call require(index(line, 'mapped') > 0 .and. index(line, 'foo-stmt') > 0, &
-        'raw node provenance or alternative was lost')
+    call require(index(line, achar(9)//'mapped'//achar(9)//'3'//achar(9)//'1'//achar(9)// &
+        'foo-stmt'//achar(9)//'1'//achar(9)//'1') > 0, &
+        'R1505 alternative 1 raw provenance was lost')
+    call read_matching(output_path, 'bar-stmt', line)
+    call require(index(line, achar(9)//'mapped'//achar(9)//'5'//achar(9)//'1'//achar(9)// &
+        'bar-stmt'//achar(9)//'2'//achar(9)//'2') > 0, &
+        'R1505 alternative 2 raw provenance was lost')
     call read_matching(output_path, 'suppressed-item', line)
     call require(index(line, achar(9)//'DOC'//achar(9)) > 0, 'candidate provenance was not preserved')
 
-    command = 'fo exec --no-build sxstatementboundarymap '//sx_path//' '//missing_path//' '// &
+    call write_malformed_fixture()
+    command = 'fo exec --no-build sxstatementboundarymap '//sx_path//' '//malformed_path//' '// &
         'build/sxstatementboundarymap-negative.tsv'
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
-    call require(exit_status /= 0, 'CLI accepted a malformed candidate path')
+    call require(exit_status /= 0, 'CLI accepted a malformed expression path')
+    command = 'fo exec --no-build sxstatementboundarymap '//sx_path//' '//missing_path//' '// &
+        'build/sxstatementboundarymap-missing.tsv'
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
+    call require(exit_status /= 0, 'CLI accepted a missing candidate path')
     print '(a)', 'statement-boundary mapping CLI test passed'
 
 contains
@@ -59,6 +71,14 @@ contains
         write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/1/1', 'suppressed-item', 'suppressed')
         close (unit)
     end subroutine write_fixtures
+
+    subroutine write_malformed_fixture()
+        open (newunit=unit, file=malformed_path, status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not create malformed fixture')
+        write (unit, '(a)') header()
+        write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/0', 'bad-path', 'candidate')
+        close (unit)
+    end subroutine write_malformed_fixture
 
     function syntax(rule, lhs, rhs, page, byte_start) result(text)
         character(len=*), intent(in) :: rule, lhs, rhs, page, byte_start
@@ -103,6 +123,23 @@ contains
         end do
         close (unit)
     end function count_lines_containing
+
+    integer function count_lines(path) result(count)
+        character(len=*), intent(in) :: path
+        character(len=16384) :: value
+        integer :: line_status
+
+        count = 0
+        open (newunit=unit, file=path, action='read', iostat=ios)
+        call require(ios == 0, 'could not read CLI output')
+        do
+            read (unit, '(a)', iostat=line_status) value
+            if (line_status < 0) exit
+            call require(line_status == 0, 'could not read CLI output line')
+            count = count + 1
+        end do
+        close (unit)
+    end function count_lines
 
     subroutine read_matching(path, needle, value)
         character(len=*), intent(in) :: path, needle
