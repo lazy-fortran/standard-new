@@ -102,7 +102,8 @@ contains
         end do
         call deduplicate_rules(working, suppressed, ok, message)
         if (.not. ok) return
-        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
+        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, working, &
+            'rule-deduplicate')
         suppressed_before = size(suppressed)
         call eliminate_left_recursion(working, suppressed, names, name_count, nullable, ok, message)
         if (.not. ok) then
@@ -116,7 +117,8 @@ contains
         if (trace_requested) call mark_left_recursion_trace(trace_values, suppressed, suppressed_before + 1)
         call deduplicate_rules(working, suppressed, ok, message)
         if (.not. ok) return
-        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
+        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, working, &
+            'rule-deduplicate')
         call reject_remaining_left_recursion(working, names, name_count, nullable, ok, message)
         if (.not. ok) then
             if (trace_requested) then
@@ -789,9 +791,10 @@ contains
         end do
     end subroutine mark_left_recursion_trace
 
-    subroutine mark_suppressed_trace(trace, suppressed, operation)
+    subroutine mark_suppressed_trace(trace, suppressed, retained, operation)
         type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
         type(standardir_target_rule_t), allocatable, intent(in) :: suppressed(:)
+        type(standardir_target_rule_t), intent(in) :: retained(:)
         character(len=*), intent(in) :: operation
         integer :: i, j
 
@@ -805,9 +808,28 @@ contains
                 trace(i)%disposition = standardir_correspondence_suppressed
                 trace(i)%transformation = trim(operation)
                 trace(i)%reason = 'duplicate target alternative was suppressed'
+                if (trim(operation) == 'rule-deduplicate') then
+                    call attach_retained_target(trace(i), suppressed(j), retained)
+                end if
             end do
         end do
     end subroutine mark_suppressed_trace
+
+    subroutine attach_retained_target(trace, suppressed, retained)
+        type(standardir_grammar_correspondence_trace_t), intent(inout) :: trace
+        type(standardir_target_rule_t), intent(in) :: suppressed, retained(:)
+        integer :: i
+
+        do i = 1, size(retained)
+            if (trim(retained(i)%lhs) /= trim(suppressed%lhs)) cycle
+            if (.not. same_expression(retained(i)%expression, suppressed%expression)) cycle
+            trace%retained_target_source = retained(i)%source
+            trace%retained_target_source_alternative = retained(i)%alternative
+            trace%retained_target_expression_path = 'rhs'
+            trace%retained_target_sequence_boundary_slot = 0
+            return
+        end do
+    end subroutine attach_retained_target
 
     subroutine set_trace_target_hash(trace, source, alternative, target_hash)
         type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)

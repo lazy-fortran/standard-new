@@ -22,6 +22,10 @@ module standardir_grammar_correspondence
         integer :: target_alternative = 0
         character(len=512) :: target_expression_path = ''
         integer :: target_sequence_boundary_slot = 0
+        type(standardir_source_ref_t) :: retained_target_source
+        integer :: retained_target_source_alternative = 0
+        character(len=512) :: retained_target_expression_path = ''
+        integer :: retained_target_sequence_boundary_slot = 0
         character(len=64) :: transformation = ''
         character(len=64) :: input_expression_sha256 = ''
         character(len=64) :: output_expression_sha256 = ''

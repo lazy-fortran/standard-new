@@ -2,7 +2,7 @@ module standardir_grammar_transformation_witness
     !! Emit the target lowering provenance as deterministic JSONL.
 
     use, intrinsic :: iso_fortran_env, only: int64
-    use standardir_export, only: standardir_validate_source_ref
+    use standardir_export, only: standardir_source_ref_t, standardir_validate_source_ref
     use standardir_grammar_correspondence, only: standardir_correspondence_ambiguous, &
         standardir_correspondence_mapped, standardir_correspondence_suppressed, &
         standardir_correspondence_unsupported, standardir_grammar_correspondence_trace_t
@@ -144,31 +144,132 @@ contains
             message = 'correspondence witness target sequence slot is invalid'
             return
         end if
+        call validate_retained_target(value, ok, message)
+        if (.not. ok) return
         if (len_trim(value%transformation) == 0) then
+            ok = .false.
             message = 'correspondence witness transformation is empty'
             return
         end if
         if (len_trim(value%input_expression_sha256) == 0 .or. &
             len_trim(value%output_expression_sha256) == 0) then
+            ok = .false.
             message = 'correspondence witness expression hash is incomplete'
             return
         end if
         if (len_trim(value%source_expression_sha256) == 0 .or. &
             len_trim(value%target_expression_sha256) == 0) then
+            ok = .false.
             message = 'correspondence witness source or target expression hash is incomplete'
             return
         end if
         if (.not. valid_correspondence_disposition(value%disposition)) then
+            ok = .false.
             message = 'correspondence witness disposition is invalid'
             return
         end if
         if (len_trim(value%reason) == 0) then
+            ok = .false.
             message = 'correspondence witness reason is empty'
             return
         end if
         ok = .true.
         message = ''
     end subroutine validate_correspondence_row
+
+    subroutine validate_retained_target(value, ok, message)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        logical :: present
+
+        ok = .false.
+        message = ''
+        present = len_trim(value%retained_target_source%document) > 0 .or. &
+            len_trim(value%retained_target_source%clause) > 0 .or. &
+            len_trim(value%retained_target_source%rule) > 0 .or. &
+            value%retained_target_source%page /= 0 .or. &
+            value%retained_target_source%end_page /= 0 .or. &
+            value%retained_target_source%byte_start /= 0_int64 .or. &
+            value%retained_target_source%byte_length /= 0_int64 .or. &
+            len_trim(value%retained_target_source%source_hash) > 0 .or. &
+            value%retained_target_source_alternative /= 0 .or. &
+            len_trim(value%retained_target_expression_path) > 0 .or. &
+            value%retained_target_sequence_boundary_slot /= 0
+        if (.not. present) then
+            if (trim(value%disposition) == standardir_correspondence_suppressed .and. &
+                trim(value%transformation) == 'rule-deduplicate') then
+                message = 'rule deduplication correspondence lacks retained target occurrence'
+                return
+            end if
+            ok = .true.
+            return
+        end if
+        call validate_correspondence_source(value%retained_target_source, 'retained target', ok, message)
+        if (.not. ok) return
+        if (value%retained_target_source_alternative < 1) then
+            ok = .false.
+            message = 'correspondence witness retained target alternative is invalid'
+            return
+        end if
+        if (len_trim(value%retained_target_expression_path) == 0) then
+            ok = .false.
+            message = 'correspondence witness retained target path is empty'
+            return
+        end if
+        call validate_target_path(value%retained_target_expression_path, ok, message)
+        if (.not. ok) return
+        if (value%retained_target_sequence_boundary_slot < 0) then
+            ok = .false.
+            message = 'correspondence witness retained target sequence slot is invalid'
+            return
+        end if
+        if (trim(value%disposition) == standardir_correspondence_suppressed .and. &
+            trim(value%transformation) == 'rule-deduplicate') then
+            if (trim(value%retained_target_expression_path) /= 'rhs') then
+                ok = .false.
+                message = 'rule deduplication retained target path is not the rule root'
+                return
+            end if
+            if (value%retained_target_sequence_boundary_slot /= 0) then
+                ok = .false.
+                message = 'rule deduplication retained target slot is not the rule root'
+                return
+            end if
+        end if
+        ok = .true.
+        message = ''
+    end subroutine validate_retained_target
+
+    subroutine validate_correspondence_source(value, label, ok, message)
+        type(standardir_source_ref_t), intent(in) :: value
+        character(len=*), intent(in) :: label
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call standardir_validate_source_ref(value, ok, message)
+        if (.not. ok) then
+            message = 'correspondence witness '//trim(label)//' source has incomplete provenance'
+            return
+        end if
+        if (value%end_page < 0) then
+            ok = .false.
+            message = 'correspondence witness '//trim(label)//' source end page is invalid'
+            return
+        end if
+        if (value%end_page > 0) then
+            if (value%end_page < value%page) then
+                ok = .false.
+                message = 'correspondence witness '//trim(label)//' source page range is invalid'
+                return
+            end if
+        end if
+        if (value%byte_start < 0_int64 .or. value%byte_length < 0_int64) then
+            ok = .false.
+            message = 'correspondence witness '//trim(label)//' source byte range is invalid'
+            return
+        end if
+    end subroutine validate_correspondence_source
 
     logical function valid_correspondence_disposition(value)
         character(len=*), intent(in) :: value
@@ -329,6 +430,72 @@ contains
             correspondence_less = comparison < 0
             return
         end if
+        comparison = compare_text(left%retained_target_source%document, &
+            right%retained_target_source%document)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%retained_target_source%clause, &
+            right%retained_target_source%clause)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%retained_target_source%rule, &
+            right%retained_target_source%rule)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%retained_target_source%page, &
+            right%retained_target_source%page)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%retained_target_source%end_page, &
+            right%retained_target_source%end_page)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_int64(left%retained_target_source%byte_start, &
+            right%retained_target_source%byte_start)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_int64(left%retained_target_source%byte_length, &
+            right%retained_target_source%byte_length)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%retained_target_source%source_hash, &
+            right%retained_target_source%source_hash)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%retained_target_source_alternative, &
+            right%retained_target_source_alternative)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%retained_target_expression_path, &
+            right%retained_target_expression_path)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%retained_target_sequence_boundary_slot, &
+            right%retained_target_sequence_boundary_slot)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
         comparison = compare_text(left%transformation, right%transformation)
         if (comparison /= 0) then
             correspondence_less = comparison < 0
@@ -399,6 +566,28 @@ contains
         call write_json_integer(unit, 'target_alternative', value%target_alternative)
         call write_json_field(unit, 'target_path', trim(value%target_expression_path))
         call write_json_integer(unit, 'target_sequence_slot', value%target_sequence_boundary_slot)
+        call write_json_field(unit, 'retained_target_source_document', &
+            trim(value%retained_target_source%document))
+        call write_json_field(unit, 'retained_target_source_clause', &
+            trim(value%retained_target_source%clause))
+        call write_json_field(unit, 'retained_target_source_rule', &
+            trim(value%retained_target_source%rule))
+        call write_json_integer(unit, 'retained_target_source_page', &
+            value%retained_target_source%page)
+        call write_json_integer(unit, 'retained_target_source_end_page', &
+            value%retained_target_source%end_page)
+        call write_json_int64(unit, 'retained_target_source_byte_start', &
+            value%retained_target_source%byte_start)
+        call write_json_int64(unit, 'retained_target_source_byte_length', &
+            value%retained_target_source%byte_length)
+        call write_json_field(unit, 'retained_target_source_hash', &
+            trim(value%retained_target_source%source_hash))
+        call write_json_integer(unit, 'retained_target_source_alternative', &
+            value%retained_target_source_alternative)
+        call write_json_field(unit, 'retained_target_path', &
+            trim(value%retained_target_expression_path))
+        call write_json_integer(unit, 'retained_target_sequence_slot', &
+            value%retained_target_sequence_boundary_slot)
         call write_json_field(unit, 'transformation', trim(value%transformation))
         call write_json_field(unit, 'source_expression_sha256', &
             trim(value%source_expression_sha256))

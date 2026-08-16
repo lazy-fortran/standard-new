@@ -21,6 +21,7 @@ program test_standardir_grammar_correspondence
     type(standardir_grammar_rule_t), allocatable :: rules(:)
     character(len=512) :: message
     logical :: ok
+    integer :: i
 
     call normalize_fixture('(syntax R1 (lhs lhs) (rhs (seq (ref A) (token X))) '// &
         '(source (document DOC) (clause C) (rule R1) (page 1) (source-sha256 HASH)))', &
@@ -75,6 +76,38 @@ program test_standardir_grammar_correspondence
         standardir_correspondence_suppressed, 51_int64)
     call require_emitted_row(rules, trace, 'R6', 'rhs/1', 'rhs/1', 1, 'choice-flatten', &
         standardir_correspondence_mapped, 61_int64)
+
+    call normalize_pair('(syntax KEEP (lhs shared) (rhs (token X)) '// &
+        '(source (document DOC) (clause C) (rule KEEP) (page 4) (end-page 5) '// &
+        '(byte-start 101) (byte-length 11) (source-sha256 HASH)))', &
+        '(syntax DUP (lhs shared) (rhs (token X)) '// &
+        '(source (document DOC) (clause C) (rule DUP) (page 6) (end-page 7) '// &
+        '(byte-start 202) (byte-length 22) (source-sha256 HASH)))', trace, ok, message, &
+        rules_out=rules)
+    call require(ok, 'rule deduplication fixture failed: '//trim(message))
+    call require_retained_target(trace, 'DUP', 'KEEP', 'rhs', 0, 4, 5, 101_int64, 11_int64)
+    call require_emitted_row(rules, trace, 'DUP', 'rhs', '', 0, 'rule-deduplicate', &
+        standardir_correspondence_suppressed, 202_int64)
+    bad_trace = trace
+    do i = 1, size(bad_trace)
+        if (trim(bad_trace(i)%source%rule) /= 'DUP') cycle
+        if (trim(bad_trace(i)%transformation) /= 'rule-deduplicate') cycle
+        bad_trace(i)%retained_target_source%rule = ''
+        exit
+    end do
+    call standardir_grammar_validate_correspondence_trace(bad_trace, ok, message)
+    call require(.not. ok .and. index(message, 'retained target') > 0, &
+        'missing retained target source was accepted')
+    bad_trace = trace
+    do i = 1, size(bad_trace)
+        if (trim(bad_trace(i)%source%rule) /= 'DUP') cycle
+        if (trim(bad_trace(i)%transformation) /= 'rule-deduplicate') cycle
+        bad_trace(i)%retained_target_expression_path = 'rhs/1'
+        exit
+    end do
+    call standardir_grammar_validate_correspondence_trace(bad_trace, ok, message)
+    call require(.not. ok .and. index(message, 'rule root') > 0, &
+        'non-root retained target path was accepted for rule deduplication')
 
     call normalize_fixture('(syntax R4 (lhs expr) (rhs (alt (seq (ref expr) (token X)) '// &
         '(token B))) (source (document DOC) (clause C) (rule R4) (page 1) '// &
@@ -227,6 +260,48 @@ contains
         call require(found, 'fail-closed correspondence disposition is missing')
     end subroutine require_disposition
 
+    subroutine require_retained_target(values, source_rule, retained_rule, path, slot, page, end_page, &
+            byte_start, byte_length)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: source_rule, retained_rule, path
+        integer, intent(in) :: slot, page, end_page
+        integer(int64), intent(in) :: byte_start, byte_length
+        integer :: i
+        logical :: found
+
+        found = .false.
+        do i = 1, size(values)
+            if (trim(values(i)%source%rule) /= trim(source_rule)) cycle
+            if (trim(values(i)%transformation) /= 'rule-deduplicate') cycle
+            if (trim(values(i)%disposition) /= standardir_correspondence_suppressed) cycle
+            call require(trim(values(i)%source%rule) /= &
+                trim(values(i)%retained_target_source%rule), &
+                'retained target source was confused with suppressed source')
+            call require(trim(values(i)%retained_target_source%rule) == trim(retained_rule), &
+                'retained target rule is incorrect')
+            call require(trim(values(i)%retained_target_source%document) == 'DOC', &
+                'retained target document is incorrect')
+            call require(trim(values(i)%retained_target_source%clause) == 'C', &
+                'retained target clause is incorrect')
+            call require(values(i)%retained_target_source%page == page .and. &
+                values(i)%retained_target_source%end_page == end_page, &
+                'retained target page span is incorrect')
+            call require(values(i)%retained_target_source%byte_start == byte_start .and. &
+                values(i)%retained_target_source%byte_length == byte_length, &
+                'retained target byte range is incorrect')
+            call require(trim(values(i)%retained_target_source%source_hash) == 'HASH', &
+                'retained target source hash is incorrect')
+            call require(values(i)%retained_target_source_alternative == 1, &
+                'retained target alternative is incorrect')
+            call require(trim(values(i)%retained_target_expression_path) == trim(path) .and. &
+                values(i)%retained_target_sequence_boundary_slot == slot, &
+                'retained target occurrence is incorrect')
+            found = .true.
+            exit
+        end do
+        call require(found, 'retained target relation is missing')
+    end subroutine require_retained_target
+
     subroutine require_emitted_row(rules, values, source_rule, source_path, target_path, slot, &
             operation, &
             disposition, expected_byte_start)
@@ -294,6 +369,28 @@ contains
         call require_json_text(line, 'target_path', expected%target_expression_path)
         call require_json_integer(line, 'target_sequence_slot', &
             expected%target_sequence_boundary_slot)
+        call require_json_text(line, 'retained_target_source_document', &
+            expected%retained_target_source%document)
+        call require_json_text(line, 'retained_target_source_clause', &
+            expected%retained_target_source%clause)
+        call require_json_text(line, 'retained_target_source_rule', &
+            expected%retained_target_source%rule)
+        call require_json_integer(line, 'retained_target_source_page', &
+            expected%retained_target_source%page)
+        call require_json_integer(line, 'retained_target_source_end_page', &
+            expected%retained_target_source%end_page)
+        call require_json_int64(line, 'retained_target_source_byte_start', &
+            expected%retained_target_source%byte_start)
+        call require_json_int64(line, 'retained_target_source_byte_length', &
+            expected%retained_target_source%byte_length)
+        call require_json_text(line, 'retained_target_source_hash', &
+            expected%retained_target_source%source_hash)
+        call require_json_integer(line, 'retained_target_source_alternative', &
+            expected%retained_target_source_alternative)
+        call require_json_text(line, 'retained_target_path', &
+            expected%retained_target_expression_path)
+        call require_json_integer(line, 'retained_target_sequence_slot', &
+            expected%retained_target_sequence_boundary_slot)
         call require_json_text(line, 'transformation', expected%transformation)
         call require_json_text(line, 'source_expression_sha256', expected%source_expression_sha256)
         call require_json_text(line, 'target_expression_sha256', expected%target_expression_sha256)
