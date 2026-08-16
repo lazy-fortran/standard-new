@@ -7,7 +7,8 @@ module standardir_statement_boundary_mapping
         standardir_grammar_rule_t, standardir_grammar_sequence, standardir_grammar_token, &
         standardir_grammar_validate
     use standardir_statement_boundary, only: standardir_statement_boundary_evidence_t, &
-        standardir_statement_boundary_plan_t, standardir_statement_boundary_site_t
+        standardir_statement_boundary_marker, standardir_statement_boundary_plan_t, &
+        standardir_statement_boundary_separator, standardir_statement_boundary_site_t
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
     implicit none
     private
@@ -22,6 +23,8 @@ module standardir_statement_boundary_mapping
         type(standardir_statement_boundary_evidence_t), allocatable :: evidence(:)
         character(len=16) :: disposition = ''
         character(len=256) :: reason = ''
+        character(len=18) :: marker = standardir_statement_boundary_marker
+        character(len=18) :: separator = standardir_statement_boundary_separator
         integer :: source_node_index = 0
         integer :: source_node_kind = 0
         character(len=128) :: source_node_name = ''
@@ -29,7 +32,7 @@ module standardir_statement_boundary_mapping
         integer, allocatable :: alternatives(:)
     end type standardir_statement_boundary_mapping_t
 
-    public :: standardir_statement_boundary_map
+    public :: standardir_statement_boundary_coalesce_mappings, standardir_statement_boundary_map
 
 contains
 
@@ -55,6 +58,8 @@ contains
             call copy_evidence(mappings(i), plan%sites(i))
             call map_site(mappings(i), rules)
         end do
+        call standardir_statement_boundary_coalesce_mappings(mappings, ok, message)
+        if (.not. ok) return
         ok = .true.
         message = ''
     end subroutine standardir_statement_boundary_map
@@ -72,7 +77,141 @@ contains
             value%evidence(1)%derivation = trim(site%candidate%derivation)
             value%evidence(1)%status = trim(site%candidate%status)
         end if
+        value%marker = site%marker
+        value%separator = site%separator
     end subroutine copy_evidence
+
+    subroutine standardir_statement_boundary_coalesce_mappings(values, ok, message)
+        type(standardir_statement_boundary_mapping_t), allocatable, intent(inout) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(standardir_statement_boundary_mapping_t), allocatable :: coalesced(:)
+        integer :: i, j, k, match
+
+        allocate (coalesced(0))
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            if (values(i)%source_node_kind <= 0) then
+                call append_mapping_value(coalesced, values(i))
+                cycle
+            end if
+            match = 0
+            do j = 1, size(coalesced)
+                if (same_structural_boundary(values(i), coalesced(j))) then
+                    match = j
+                    exit
+                end if
+            end do
+            if (match == 0) then
+                call append_mapping_value(coalesced, values(i))
+                cycle
+            end if
+            if (.not. same_mapping_result(values(i), coalesced(match))) then
+                message = 'statement boundary structural identity has conflicting source mappings'
+                deallocate (coalesced)
+                return
+            end if
+            if (.not. allocated(values(i)%evidence)) cycle
+            do k = 1, size(values(i)%evidence)
+                if (allocated(coalesced(match)%evidence)) then
+                    if (any_same_evidence(values(i)%evidence(k), coalesced(match)%evidence)) then
+                        message = 'statement boundary candidate evidence is duplicated or ambiguous'
+                        deallocate (coalesced)
+                        return
+                    end if
+                else
+                    allocate (coalesced(match)%evidence(0))
+                end if
+                call append_evidence(coalesced(match)%evidence, values(i)%evidence(k))
+            end do
+        end do
+        call move_alloc(coalesced, values)
+        ok = .true.
+    end subroutine standardir_statement_boundary_coalesce_mappings
+
+    logical function same_structural_boundary(left, right)
+        type(standardir_statement_boundary_mapping_t), intent(in) :: left, right
+
+        same_structural_boundary = left%source_node_kind == right%source_node_kind .and. &
+            trim(left%marker) == trim(right%marker) .and. trim(left%separator) == trim(right%separator) .and. &
+            trim(left%candidate%source_rule) == trim(right%candidate%source_rule) .and. &
+            trim(left%candidate%source_lhs) == trim(right%candidate%source_lhs) .and. &
+            trim(left%candidate%source_document) == trim(right%candidate%source_document) .and. &
+            trim(left%candidate%source_clause) == trim(right%candidate%source_clause) .and. &
+            trim(left%candidate%source_hash) == trim(right%candidate%source_hash) .and. &
+            trim(left%candidate%source_page) == trim(right%candidate%source_page) .and. &
+            trim(left%candidate%source_byte_start) == trim(right%candidate%source_byte_start) .and. &
+            trim(left%candidate%expression_path) == trim(right%candidate%expression_path)
+    end function same_structural_boundary
+
+    logical function same_mapping_result(left, right)
+        type(standardir_statement_boundary_mapping_t), intent(in) :: left, right
+
+        same_mapping_result = trim(left%disposition) == trim(right%disposition) .and. &
+            left%source_node_index == right%source_node_index .and. &
+            trim(left%source_node_name) == trim(right%source_node_name) .and. &
+            left%alternative == right%alternative .and. same_integer_array(left%alternatives, right%alternatives)
+    end function same_mapping_result
+
+    logical function same_integer_array(left, right)
+        integer, allocatable, intent(in) :: left(:), right(:)
+
+        same_integer_array = .false.
+        if (.not. allocated(left) .or. .not. allocated(right)) then
+            same_integer_array = .not. allocated(left) .and. .not. allocated(right)
+            return
+        end if
+        same_integer_array = size(left) == size(right)
+        if (same_integer_array .and. size(left) > 0) same_integer_array = all(left == right)
+    end function same_integer_array
+
+    logical function any_same_evidence(value, values)
+        type(standardir_statement_boundary_evidence_t), intent(in) :: value
+        type(standardir_statement_boundary_evidence_t), intent(in) :: values(:)
+        integer :: i
+
+        any_same_evidence = .false.
+        do i = 1, size(values)
+            if (same_evidence(value, values(i))) then
+                any_same_evidence = .true.
+                return
+            end if
+        end do
+    end function any_same_evidence
+
+    logical function same_evidence(left, right)
+        type(standardir_statement_boundary_evidence_t), intent(in) :: left, right
+
+        same_evidence = trim(left%kind) == trim(right%kind) .and. trim(left%item) == trim(right%item) .and. &
+            trim(left%derivation) == trim(right%derivation) .and. trim(left%status) == trim(right%status)
+    end function same_evidence
+
+    subroutine append_mapping_value(values, value)
+        type(standardir_statement_boundary_mapping_t), allocatable, intent(inout) :: values(:)
+        type(standardir_statement_boundary_mapping_t), intent(in) :: value
+        type(standardir_statement_boundary_mapping_t), allocatable :: expanded(:)
+        integer :: old_size
+
+        old_size = size(values)
+        allocate (expanded(old_size + 1))
+        if (old_size > 0) expanded(:old_size) = values
+        expanded(old_size + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_mapping_value
+
+    subroutine append_evidence(values, value)
+        type(standardir_statement_boundary_evidence_t), allocatable, intent(inout) :: values(:)
+        type(standardir_statement_boundary_evidence_t), intent(in) :: value
+        type(standardir_statement_boundary_evidence_t), allocatable :: expanded(:)
+        integer :: old_size
+
+        old_size = size(values)
+        allocate (expanded(old_size + 1))
+        if (old_size > 0) expanded(:old_size) = values
+        expanded(old_size + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_evidence
 
     subroutine map_site(value, rules)
         type(standardir_statement_boundary_mapping_t), intent(inout) :: value

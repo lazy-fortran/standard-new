@@ -32,7 +32,7 @@ program sxstatementboundarymap
     call read_candidates(candidates_path, candidates, ok, message)
     if (.not. ok) call fail(trim(message))
     call active_candidates(candidates, active)
-    call standardir_statement_boundary_build_plan(active, plan, ok, message)
+    call standardir_statement_boundary_build_plan(active, plan, ok, message, coalesce=.false.)
     if (.not. ok) call fail(trim(message))
     call standardir_statement_boundary_map_sx(plan, nodes, mappings, ok, message)
     if (.not. ok) call fail(trim(message))

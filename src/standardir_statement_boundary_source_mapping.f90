@@ -10,7 +10,8 @@ module standardir_statement_boundary_source_mapping
     use standardir_statement_boundary, only: standardir_statement_boundary_plan_t, &
         standardir_statement_boundary_site_t
     use standardir_statement_boundary_mapping, only: standardir_boundary_ambiguous, standardir_boundary_mapped, &
-        standardir_boundary_unsupported, standardir_statement_boundary_mapping_t
+        standardir_boundary_unsupported, standardir_statement_boundary_coalesce_mappings, &
+        standardir_statement_boundary_mapping_t
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
     implicit none
     private
@@ -62,6 +63,8 @@ contains
             end if
             call append_mapping(mappings, value)
         end do
+        call standardir_statement_boundary_coalesce_mappings(mappings, ok, message)
+        if (.not. ok) return
         ok = .true.
     end subroutine standardir_statement_boundary_map_sx
 
@@ -78,6 +81,8 @@ contains
             value%evidence(1)%derivation = trim(site%candidate%derivation)
             value%evidence(1)%status = trim(site%candidate%status)
         end if
+        value%marker = site%marker
+        value%separator = site%separator
     end subroutine copy_evidence
 
     logical function same_source(candidate, rule, lhs, source)

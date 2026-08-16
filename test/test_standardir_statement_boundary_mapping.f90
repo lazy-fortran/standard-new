@@ -10,7 +10,8 @@ program test_standardir_statement_boundary_mapping
         standardir_statement_boundary_plan_t
     use standardir_statement_boundary_mapping, only: standardir_boundary_ambiguous, &
         standardir_boundary_mapped, standardir_boundary_unsupported, &
-        standardir_statement_boundary_map, standardir_statement_boundary_mapping_t
+        standardir_statement_boundary_coalesce_mappings, standardir_statement_boundary_map, &
+        standardir_statement_boundary_mapping_t
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
     implicit none
 
@@ -22,6 +23,7 @@ program test_standardir_statement_boundary_mapping
     type(standardir_statement_boundary_plan_t) :: plan, broken
     type(standardir_statement_boundary_plan_t) :: coalesced_plan
     type(standardir_statement_boundary_mapping_t), allocatable :: mappings(:)
+    type(standardir_statement_boundary_mapping_t), allocatable :: identity_mappings(:)
     character(len=512) :: message
     logical :: ok
     integer :: index, plan_index
@@ -129,6 +131,21 @@ program test_standardir_statement_boundary_mapping
         trim(mappings(1)%evidence(2)%kind) == 'sequence-internal', &
         'mapping evidence order was not deterministic')
 
+    allocate (identity_mappings(2))
+    call make_mapping(identity_mappings(1), coalesced_candidates(1), standardir_grammar_repeat)
+    call make_mapping(identity_mappings(2), coalesced_candidates(2), standardir_grammar_sequence)
+    call standardir_statement_boundary_coalesce_mappings(identity_mappings, ok, message)
+    call require(ok .and. size(identity_mappings) == 2, &
+        'different source node kinds were silently coalesced')
+    deallocate (identity_mappings)
+
+    allocate (identity_mappings(2))
+    call make_mapping(identity_mappings(1), coalesced_candidates(1), standardir_grammar_repeat)
+    call make_mapping(identity_mappings(2), coalesced_candidates(2), standardir_grammar_repeat)
+    call standardir_statement_boundary_coalesce_mappings(identity_mappings, ok, message)
+    call require(ok .and. size(identity_mappings) == 1 .and. size(identity_mappings(1)%evidence) == 2, &
+        'equal source node kinds did not retain candidate evidence')
+
     print '(a)', 'StandardIR statement-boundary mapping test passed'
 
 contains
@@ -151,6 +168,26 @@ contains
         value%source_byte_start = trim(byte_start)
         value%status = 'candidate'
     end function candidate
+
+    subroutine make_mapping(value, source_candidate, source_node_kind)
+        type(standardir_statement_boundary_mapping_t), intent(out) :: value
+        type(standardir_statement_sequence_candidate_t), intent(in) :: source_candidate
+        integer, intent(in) :: source_node_kind
+
+        value = standardir_statement_boundary_mapping_t()
+        value%candidate = source_candidate
+        allocate (value%evidence(1), value%alternatives(1))
+        value%evidence(1)%kind = source_candidate%kind
+        value%evidence(1)%item = source_candidate%item
+        value%evidence(1)%derivation = source_candidate%derivation
+        value%evidence(1)%status = source_candidate%status
+        value%disposition = standardir_boundary_mapped
+        value%source_node_index = 2
+        value%source_node_kind = source_node_kind
+        value%source_node_name = 'node'
+        value%alternative = 1
+        value%alternatives(1) = 1
+    end subroutine make_mapping
 
     subroutine make_rules(values)
         type(standardir_grammar_rule_t), intent(out) :: values(:)
