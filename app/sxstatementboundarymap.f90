@@ -2,9 +2,6 @@ program sxstatementboundarymap
     !! Map source statement-boundary candidates to typed grammar nodes.
 
     use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse
-    use standardir_grammar_producer, only: standardir_grammar_origin_mechanical, &
-        standardir_grammar_resolution_resolved, standardir_grammar_rule_t
-    use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
     use standardir_statement_boundary, only: standardir_statement_boundary_build_plan, &
         standardir_statement_boundary_plan_t
     use standardir_statement_boundary_mapping, only: standardir_statement_boundary_mapping_t
@@ -14,7 +11,6 @@ program sxstatementboundarymap
 
     character(len=4096) :: standardir_path, candidates_path, output_path, message
     type(sx_node_t), allocatable :: nodes(:)
-    type(standardir_grammar_rule_t), allocatable :: rules(:)
     type(standardir_statement_sequence_candidate_t), allocatable :: candidates(:), active(:)
     type(standardir_statement_boundary_plan_t) :: plan
     type(standardir_statement_boundary_mapping_t), allocatable :: mappings(:)
@@ -32,8 +28,6 @@ program sxstatementboundarymap
     call refuse_existing_output(output_path)
 
     call read_syntax_file(standardir_path, nodes, ok, message)
-    if (.not. ok) call fail(trim(message))
-    call adapt_rules(nodes, rules, ok, message)
     if (.not. ok) call fail(trim(message))
     call read_candidates(candidates_path, candidates, ok, message)
     if (.not. ok) call fail(trim(message))
@@ -91,28 +85,6 @@ contains
         end if
         ok = .true.
     end subroutine read_syntax_file
-
-    subroutine adapt_rules(nodes, values, ok, message)
-        type(sx_node_t), intent(in) :: nodes(:)
-        type(standardir_grammar_rule_t), allocatable, intent(out) :: values(:)
-        logical, intent(out) :: ok
-        character(len=*), intent(out) :: message
-        type(standardir_grammar_rule_t), allocatable :: one(:)
-        integer :: i
-
-        allocate (values(0)); ok = .false.; message = ''
-        do i = 1, size(nodes)
-            call standardir_grammar_adapt_sx(nodes(i), standardir_grammar_origin_mechanical, &
-                standardir_grammar_resolution_resolved, one, ok, message, nodes(i))
-            if (.not. ok) then
-                message = 'cannot adapt StandardIR syntax record '//itoa(i)//': '//trim(message)
-                return
-            end if
-            call append_rules(values, one)
-        end do
-        ok = size(values) > 0
-        if (.not. ok) message = 'StandardIR SX adapted no grammar rules'
-    end subroutine adapt_rules
 
     subroutine read_candidates(path, values, ok, message)
         character(len=*), intent(in) :: path
@@ -297,18 +269,6 @@ contains
         if (old_size > 0) expanded(:old_size) = values
         expanded(old_size + 1) = value; call move_alloc(expanded, values)
     end subroutine append_node
-
-    subroutine append_rules(values, extra)
-        type(standardir_grammar_rule_t), allocatable, intent(inout) :: values(:)
-        type(standardir_grammar_rule_t), intent(in) :: extra(:)
-        type(standardir_grammar_rule_t), allocatable :: expanded(:)
-        integer :: old_size, extra_size
-
-        old_size = size(values); extra_size = size(extra); allocate (expanded(old_size + extra_size))
-        if (old_size > 0) expanded(:old_size) = values
-        if (extra_size > 0) expanded(old_size + 1:) = extra
-        call move_alloc(expanded, values)
-    end subroutine append_rules
 
     subroutine append_candidate(values, value)
         type(standardir_statement_sequence_candidate_t), allocatable, intent(inout) :: values(:)

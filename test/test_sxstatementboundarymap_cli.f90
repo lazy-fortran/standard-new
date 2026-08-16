@@ -21,11 +21,11 @@ program test_sxstatementboundarymap_cli
         'raw alternative paths were not mapped')
     call require(count_lines_containing(output_path, achar(9)//'ambiguous'//achar(9)) == 1, &
         'duplicate raw source occurrence was not ambiguous')
-    call require(count_lines_containing(output_path, achar(9)//'unsupported'//achar(9)) == 1, &
+    call require(count_lines_containing(output_path, achar(9)//'unsupported'//achar(9)) == 2, &
         'missing raw path was not retained as unsupported')
     call require(count_lines_containing(output_path, achar(9)//'suppressed'//achar(9)) == 1, &
         'suppressed candidate was not retained')
-    call require(count_lines(output_path) == 6, 'output row count changed')
+    call require(count_lines(output_path) == 7, 'output row count changed')
     call read_matching(output_path, 'foo-stmt', line)
     call require(index(line, achar(9)//'mapped'//achar(9)//'3'//achar(9)//'1'//achar(9)// &
         'foo-stmt'//achar(9)//'1'//achar(9)//'1') > 0, &
@@ -68,6 +68,7 @@ contains
         write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/2/1', 'bar-stmt', 'candidate')
         write (unit, '(a)') candidate('R1506', 'duplicate-part', '2', '20', 'rhs/1', 'duplicate-stmt', 'candidate')
         write (unit, '(a)') candidate('R1507', 'missing-part', '3', '30', 'rhs/9', 'missing-stmt', 'candidate')
+        write (unit, '(a)') candidate('R1507', 'missing-part', '3', '30', 'rhs/9', 'input-unsupported', 'unsupported')
         write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/1/1', 'suppressed-item', 'suppressed')
         close (unit)
     end subroutine write_fixtures
