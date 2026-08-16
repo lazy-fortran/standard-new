@@ -37,13 +37,14 @@ fo exec sxbison <standardir.sx> <grammar.y>
 fo exec sxtreesitter <standardir.sx> <grammar.js>
 ```
 
-For `pdfstandardir`, the clause argument names the source occurrence clause.
-For a numeric standard rule `R...`, the normative clause is derived from the
-rule number by removing its final two digits; it is emitted as `clause`, with
-`occurrence-clause` added when the occurrence differs. Source records retain
-document, rule, page span, byte span, hash and the optional production
-occurrence ordinal. Records without an ordinal remain valid for assumed or
-fixture syntax.
+For `pdfstandardir`, `occurrence_clause` on a production-start record names
+the source occurrence clause; the clause argument is retained as the fallback
+for legacy records that omit the field. For a numeric standard rule `R...`,
+the normative clause is derived from the rule number by removing its final two
+digits; it is emitted as `clause`, with `occurrence-clause` added when the
+occurrence differs. Source records retain document, rule, page span, byte
+span, hash and the optional production occurrence ordinal. Records without an
+ordinal remain valid for assumed or fixture syntax.
 
 The tree-sitter output is a grammar.js projection. It uses reversible
 StandardIR-safe rule identifiers and tree-sitter's `seq`, `choice`, `optional`,

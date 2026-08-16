@@ -12,12 +12,14 @@ module production_json
         character(len=32) :: operator = ''
         character(len=16384) :: text = ''
         character(len=4096) :: source_line = ''
+        character(len=128) :: occurrence_clause = ''
         integer :: page = 0
         integer(int64) :: byte_start = 0
         integer(int64) :: byte_length = 0
         integer :: occurrence = 0
         logical :: has_source_line = .false.
         logical :: has_occurrence = .false.
+        logical :: has_occurrence_clause = .false.
     end type production_record_t
 
     public :: production_json_parse
@@ -73,6 +75,8 @@ contains
             end if
         end if
         call json_field(line, 'source_line', record%source_line, record%has_source_line)
+        call json_field(line, 'occurrence_clause', record%occurrence_clause, &
+            record%has_occurrence_clause)
         ok = .true.
     end subroutine production_json_parse
 

@@ -13,6 +13,7 @@ program pdfproductions
         logical :: active = .false.
         character(len=16) :: rule = ''
         character(len=256) :: lhs = ''
+        character(len=128) :: occurrence_clause = ''
         integer :: sequence_index = 0
         integer :: occurrence = 0
     end type parser_state_t
@@ -192,12 +193,20 @@ contains
         character(len=4096) :: clean, rhs, operator
         character(len=16) :: rule
         character(len=256) :: lhs
+        character(len=128) :: heading_clause
         integer :: rule_number
-        logical :: found, boundary, layout_only
+        logical :: found, heading_found, boundary, layout_only
 
         ok = .false.
         message = ''
         call strip_line_number(line, clean)
+        call parse_occurrence_heading(clean, heading_clause, heading_found)
+        if (heading_found) then
+            state%occurrence_clause = trim(heading_clause)
+            state%active = .false.
+            ok = .true.
+            return
+        end if
         call parse_start(clean, found, rule_number, lhs, rhs)
         if (found) then
             write (rule, '("R",i0)') rule_number
@@ -208,7 +217,7 @@ contains
             state%occurrence = state%occurrence + 1
             call emit_record('production-start', state%rule, lhs, 'is', rhs, &
                 page, source_start, len(line), line, state%occurrence, output_unit, &
-                records, ok, message)
+                records, ok, message, state%occurrence_clause)
             return
         end if
 
@@ -285,6 +294,86 @@ contains
         if (is_position + 4 <= len_trim(after)) rhs = trim(after(is_position + 4:))
         found = len_trim(lhs) > 0 .and. len_trim(rhs) > 0
     end subroutine parse_start
+
+    subroutine parse_occurrence_heading(clean, clause, found)
+        character(len=*), intent(in) :: clean
+        character(len=*), intent(out) :: clause
+        logical, intent(out) :: found
+
+        character(len=4096) :: text
+        integer :: i, n, first_end, components
+
+        clause = ''
+        found = .false.
+        text = adjustl(clean)
+        n = len_trim(text)
+        if (n == 0) return
+        i = 1
+        call consume_digits(text, n, i)
+        if (i == 1) return
+        first_end = i - 1
+        components = 1
+        do while (i <= n)
+            if (text(i:i) /= '.') exit
+            i = i + 1
+            if (i > n) return
+            if (.not. is_digit(text(i:i))) return
+            call consume_digits(text, n, i)
+            components = components + 1
+        end do
+        if (components < 2) return
+        if (i > n) return
+        if (.not. is_space(text(i:i))) return
+        if (index(text(1:n), '. . .') > 0) return
+        do while (i <= n)
+            if (.not. is_space(text(i:i))) exit
+            i = i + 1
+        end do
+        if (i > n) return
+        if (.not. has_letter(text(i:n))) return
+        clause = text(1:first_end)
+        found = .true.
+    end subroutine parse_occurrence_heading
+
+    subroutine consume_digits(text, n, position)
+        character(len=*), intent(in) :: text
+        integer, intent(in) :: n
+        integer, intent(inout) :: position
+
+        do while (position <= n)
+            if (.not. is_digit(text(position:position))) exit
+            position = position + 1
+        end do
+    end subroutine consume_digits
+
+    logical function is_digit(value)
+        character(len=1), intent(in) :: value
+
+        is_digit = value >= '0' .and. value <= '9'
+    end function is_digit
+
+    logical function is_space(value)
+        character(len=1), intent(in) :: value
+
+        is_space = value == ' ' .or. value == achar(9)
+    end function is_space
+
+    logical function has_letter(text)
+        character(len=*), intent(in) :: text
+        integer :: i
+
+        has_letter = .false.
+        do i = 1, len_trim(text)
+            if (text(i:i) >= 'A' .and. text(i:i) <= 'Z') then
+                has_letter = .true.
+                return
+            end if
+            if (text(i:i) >= 'a' .and. text(i:i) <= 'z') then
+                has_letter = .true.
+                return
+            end if
+        end do
+    end function has_letter
 
     subroutine continuation(clean, boundary, layout_only, operator, rhs)
         character(len=*), intent(in) :: clean
@@ -379,7 +468,7 @@ contains
         is_prose_boundary = .false.
         n = len_trim(text)
         if (has_prefix(text, 'NOTE') .or. has_prefix(text, 'Table') .or. &
-            has_prefix(text, 'Examples')) then
+            has_prefix(text, 'Examples') .or. has_prefix(text, 'See ')) then
             is_prose_boundary = .true.
             return
         end if
@@ -441,7 +530,8 @@ contains
     end function has_prefix
 
     subroutine emit_record(kind, rule, lhs, operator, rhs, page, source_start, &
-            source_length, source_line, occurrence, output_unit, records, ok, message)
+            source_length, source_line, occurrence, output_unit, records, ok, message, &
+            occurrence_clause)
         character(len=*), intent(in) :: kind, rule, lhs, operator, rhs
         character(len=*), intent(in) :: source_line
         integer, intent(in) :: page, output_unit, source_length
@@ -450,6 +540,7 @@ contains
         integer, intent(inout) :: records
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=*), intent(in), optional :: occurrence_clause
 
         write (output_unit, '(a)', advance='no') '{"kind":'
         call json_string(output_unit, kind)
@@ -465,6 +556,12 @@ contains
         write (output_unit, '(a,i0)', advance='no') ',"byte_start":', source_start
         write (output_unit, '(a,i0)', advance='no') ',"byte_length":', source_length
         write (output_unit, '(a,i0)', advance='no') ',"occurrence":', occurrence
+        if (present(occurrence_clause)) then
+            if (len_trim(occurrence_clause) > 0) then
+                write (output_unit, '(a)', advance='no') ',"occurrence_clause":'
+                call json_string(output_unit, occurrence_clause)
+            end if
+        end if
         write (output_unit, '(a)', advance='no') ',"source_line":'
         call json_string_exact(output_unit, source_line)
         write (output_unit, '(a)', advance='no') ',"origin":"MECHANICAL"}'

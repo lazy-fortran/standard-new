@@ -20,11 +20,12 @@ program pdfstandardir
     character(len=64) :: clause
     character(len=16384) :: line, output_mode
     character(len=256) :: value, kind, rule, lhs, operator, text, message
+    character(len=128) :: occurrence_clause
     type(standardir_syntax_t) :: production
     integer(int64) :: byte_start, byte_length
     integer :: argc, input_unit, output_unit, ios, page, records, origin, resolution
     integer :: occurrence
-    logical :: found, active, ok, syntax_item_mode
+    logical :: found, occurrence_found, occurrence_clause_found, active, ok, syntax_item_mode
 
     argc = command_argument_count()
     if (argc /= 4 .and. argc /= 8) then
@@ -111,12 +112,20 @@ program pdfstandardir
             if (.not. ok) call fail_input(input_unit, output_unit, message)
             call required_int64(line, 'byte_length', byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
-            call optional_integer(line, 'occurrence', occurrence, found, ok, message)
+            call optional_integer(line, 'occurrence', occurrence, occurrence_found, ok, message)
+            if (.not. ok) call fail_input(input_unit, output_unit, message)
+            call optional_string(line, 'occurrence_clause', occurrence_clause, &
+                occurrence_clause_found, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
             call standardir_start(production, rule, lhs, page, byte_start, &
                 byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
-            if (found) production%occurrence = occurrence
+            if (occurrence_found) production%occurrence = occurrence
+            if (occurrence_clause_found) then
+                production%occurrence_clause = trim(occurrence_clause)
+            else
+                production%occurrence_clause = trim(clause)
+            end if
             call standardir_add(production, 'sequence', text, page, byte_start, &
                 byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
@@ -284,6 +293,23 @@ contains
         message = ''
         if (.not. ok) message = 'invalid JSON integer field '//trim(key)
     end subroutine optional_integer
+
+    subroutine optional_string(line, key, value, found, ok, message)
+        character(len=*), intent(in) :: line, key
+        character(len=*), intent(out) :: value
+        logical, intent(out) :: found, ok
+        character(len=*), intent(out) :: message
+
+        call json_field(line, key, value, found)
+        if (.not. found) then
+            ok = .true.
+            message = ''
+            return
+        end if
+        ok = len_trim(value) > 0
+        message = ''
+        if (.not. ok) message = 'invalid JSON string field '//trim(key)
+    end subroutine optional_string
 
     subroutine json_field(line, key, value, found)
         character(len=*), intent(in) :: line, key

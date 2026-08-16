@@ -36,6 +36,7 @@ module standardir
         integer(int64) :: first_byte = 0
         integer(int64) :: last_byte = 0
         integer :: occurrence = 0
+        character(len=128) :: occurrence_clause = ''
         character(len=16384) :: pending = ''
         logical :: incomplete = .false.
     end type standardir_syntax_t
@@ -55,6 +56,7 @@ contains
         production%first_byte = 0_int64
         production%last_byte = 0_int64
         production%occurrence = 0
+        production%occurrence_clause = ''
         production%pending = ''
         production%incomplete = .false.
     end subroutine standardir_reset
@@ -680,7 +682,7 @@ contains
         character(len=*), intent(inout) :: message
         character(len=*), intent(in), optional :: source_document
         character(len=32) :: page, last_page, start, length
-        character(len=128) :: normative_clause, document
+        character(len=128) :: normative_clause, document, occurrence_clause
         logical :: found
 
         write (page, '(i0)') production%first_page
@@ -689,13 +691,15 @@ contains
         write (length, '(i0)') production%last_byte - production%first_byte
         call standardir_normative_clause(production%rule, normative_clause, found)
         if (.not. found) normative_clause = trim(clause)
+        occurrence_clause = trim(production%occurrence_clause)
+        if (len_trim(occurrence_clause) == 0) occurrence_clause = trim(clause)
         document = 'J3-24-007'
         if (present(source_document)) document = trim(source_document)
         call piece(unit, ' (source (document '//trim(document)//') (clause '// &
             trim(normative_clause)//')', ok, message)
         if (.not. ok) return
-        if (trim(clause) /= trim(normative_clause)) then
-            call piece(unit, ' (occurrence-clause '//trim(clause)//')', ok, message)
+        if (trim(occurrence_clause) /= trim(normative_clause)) then
+            call piece(unit, ' (occurrence-clause '//trim(occurrence_clause)//')', ok, message)
             if (.not. ok) return
         end if
         call piece(unit, ' (rule '//trim(production%rule)//') (page '//trim(page)//') (end-page '// &

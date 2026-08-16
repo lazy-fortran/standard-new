@@ -201,7 +201,7 @@ contains
         character(len=*), intent(out) :: message
 
         type(standardir_syntax_item_t) :: value
-        character(len=128) :: normative_clause
+        character(len=128) :: normative_clause, occurrence_clause
         logical :: found
 
         ok = .false.
@@ -224,13 +224,18 @@ contains
         value%lhs = trim(production%lhs)
         value%source%document = trim(document)
         call standardir_normative_clause(production%rule, normative_clause, found)
+        occurrence_clause = trim(production%occurrence_clause)
+        if (len_trim(occurrence_clause) == 0) occurrence_clause = trim(clause)
         if (found) then
             value%source%clause = trim(normative_clause)
-            if (trim(clause) /= trim(normative_clause)) then
-                value%source%occurrence_clause = trim(clause)
+            if (trim(occurrence_clause) /= trim(normative_clause)) then
+                value%source%occurrence_clause = trim(occurrence_clause)
             end if
         else
             value%source%clause = trim(clause)
+            if (trim(occurrence_clause) /= trim(clause)) then
+                value%source%occurrence_clause = trim(occurrence_clause)
+            end if
         end if
         value%source%rule = trim(production%rule)
         value%source%page = production%first_page
