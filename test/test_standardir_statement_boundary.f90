@@ -34,7 +34,7 @@ program test_standardir_statement_boundary
         standardir_sequence_internal), 'sequence-internal witness was not audited')
     call require(.not. has_lhs(candidates, 'if-stmt'), 'nested action-stmt became a boundary')
 
-    call standardir_statement_boundary_build_plan(candidates, plan, ok, message)
+    call standardir_statement_boundary_build_plan(candidates, plan, ok, message, coalesce=.true.)
     call require(ok, message)
     call require(size(plan%sites) < size(candidates), &
         'same-location candidate evidence was not coalesced')
@@ -60,7 +60,7 @@ program test_standardir_statement_boundary
     allocate (broken(1))
     broken(1) = candidates(1)
     broken(1)%expression_path = 'rhs/0'
-    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'malformed expression path') > 0, &
         'malformed expression path was accepted')
 
@@ -68,12 +68,12 @@ program test_standardir_statement_boundary
     allocate (broken(2))
     broken(1) = candidates(1)
     broken(2) = candidates(1)
-    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'duplicated or ambiguous') > 0, &
         'duplicate source occurrence was accepted')
 
     broken(2)%item = 'conflicting-item'
-    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message, coalesce=.true.)
     call require(ok .and. size(plan%sites) == 1 .and. size(plan%sites(1)%evidence) == 2, &
         'different candidate evidence was not coalesced')
 
@@ -83,24 +83,24 @@ program test_standardir_statement_boundary
     broken(2) = candidates(1)
     broken(2)%item = 'conflicting-item'
     broken(3) = broken(2)
-    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'duplicated or ambiguous') > 0, &
         'duplicate of retained evidence was accepted')
 
     broken(1) = candidates(1)
     broken(1)%source_hash = ''
-    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'source lineage') > 0, &
         'missing source lineage was accepted')
 
     broken(1) = candidates(1)
     broken(1)%source_hash = repeat('a', 63)
-    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'invalid source hash') > 0, &
         'short source hash was accepted')
 
     broken(1)%source_hash = repeat('g', 64)
-    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'invalid source hash') > 0, &
         'non-hex source hash was accepted')
 
@@ -111,7 +111,7 @@ program test_standardir_statement_boundary
     broken(2) = candidates(1)
     broken(1)%source_byte_start = '100'
     broken(2)%source_byte_start = '20'
-    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message, coalesce=.true.)
     call require(ok, 'distinct source occurrences were rejected')
     call require(trim(plan%sites(1)%candidate%source_byte_start) == '20' .and. &
         trim(plan%sites(2)%candidate%source_byte_start) == '100', &
@@ -119,7 +119,7 @@ program test_standardir_statement_boundary
 
     broken(1) = candidates(1)
     broken(1)%status = 'unsupported'
-    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
+    call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message, coalesce=.true.)
     call require(.not. ok .and. index(trim(message), 'not supported') > 0, &
         'unsupported candidate status was accepted')
 

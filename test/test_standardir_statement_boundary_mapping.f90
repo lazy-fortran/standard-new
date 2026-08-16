@@ -38,7 +38,7 @@ program test_standardir_statement_boundary_mapping
     candidates(7) = candidate('R6', 'unique-stmt', 'rhs', '600', 'unique-stmt', 'repeat-item')
     candidates(8) = candidate('R7', 'malformed-stmt', 'rhs', '700', 'malformed-stmt', 'repeat-item')
 
-    call standardir_statement_boundary_build_plan(candidates, plan, ok, message)
+    call standardir_statement_boundary_build_plan(candidates, plan, ok, message, coalesce=.true.)
     call require(ok, message)
     call standardir_statement_boundary_map(plan, rules, mappings, ok, message)
     call require(ok, message)
@@ -118,7 +118,7 @@ program test_standardir_statement_boundary_mapping
     coalesced_candidates(2)%kind = 'sequence-internal'
     coalesced_candidates(2)%item = 'other-item'
     coalesced_candidates(2)%derivation = 'other-derivation'
-    call standardir_statement_boundary_build_plan(coalesced_candidates, coalesced_plan, ok, message)
+    call standardir_statement_boundary_build_plan(coalesced_candidates, coalesced_plan, ok, message, coalesce=.true.)
     call require(ok, message)
     call require(size(coalesced_plan%sites) == 1, 'mapping plan retained duplicate structural sites')
     call require(size(coalesced_plan%sites(1)%evidence) == 2, &

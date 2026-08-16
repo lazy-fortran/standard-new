@@ -44,24 +44,21 @@ contains
         type(standardir_statement_boundary_plan_t), intent(out) :: plan
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
-        logical, intent(in), optional :: coalesce
+        logical, intent(in) :: coalesce
 
         integer :: i
-        logical :: should_coalesce
 
         plan = standardir_statement_boundary_plan_t()
         allocate (plan%sites(0))
         ok = .false.
         message = ''
-        should_coalesce = .true.
-        if (present(coalesce)) should_coalesce = coalesce
         do i = 1, size(candidates)
             call validate_candidate(candidates(i), ok, message)
             if (.not. ok) return
             call append_site(plan%sites, candidates(i))
         end do
         call sort_sites(plan%sites)
-        if (should_coalesce) then
+        if (coalesce) then
             call coalesce_sites(plan%sites, ok, message)
             if (.not. ok) return
         end if
