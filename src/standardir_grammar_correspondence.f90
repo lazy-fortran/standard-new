@@ -25,6 +25,8 @@ module standardir_grammar_correspondence
         character(len=64) :: transformation = ''
         character(len=64) :: input_expression_sha256 = ''
         character(len=64) :: output_expression_sha256 = ''
+        character(len=64) :: source_expression_sha256 = ''
+        character(len=64) :: target_expression_sha256 = ''
         character(len=16) :: disposition = ''
         character(len=256) :: reason = ''
     end type standardir_grammar_correspondence_trace_t

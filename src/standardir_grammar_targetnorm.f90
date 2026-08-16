@@ -60,6 +60,7 @@ contains
         type(standardir_target_expression_t) :: normalized_expression
         type(standardir_grammar_correspondence_trace_t), allocatable :: trace_values(:)
         logical :: trace_requested
+        character(len=64) :: normalized_hash
         integer :: i, name_count, suppressed_before
 
         if (allocated(normalized)) deallocate (normalized)
@@ -90,6 +91,13 @@ contains
                 message, trace_requested, working(i), source_path_for_expression(working(i)%expression, 'rhs'), &
                 'rule-expression', trace_values)
             if (.not. ok) return
+            if (trace_requested) then
+                call standardir_target_expression_sha256(normalized_expression, normalized_hash, ok, &
+                    message)
+                if (.not. ok) return
+                call set_trace_target_hash(trace_values, working(i)%source, working(i)%alternative, &
+                    normalized_hash)
+            end if
             working(i)%expression = normalized_expression
         end do
         call deduplicate_rules(working, suppressed, ok, message)
@@ -97,13 +105,27 @@ contains
         if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
         suppressed_before = size(suppressed)
         call eliminate_left_recursion(working, suppressed, names, name_count, nullable, ok, message)
-        if (.not. ok) return
+        if (.not. ok) then
+            if (trace_requested) then
+                call publish_failed_trace(trace_values, working, message)
+                call finalize_trace_paths(trace_values)
+                call move_alloc(trace_values, trace)
+            end if
+            return
+        end if
         if (trace_requested) call mark_left_recursion_trace(trace_values, suppressed, suppressed_before + 1)
         call deduplicate_rules(working, suppressed, ok, message)
         if (.not. ok) return
         if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
         call reject_remaining_left_recursion(working, names, name_count, nullable, ok, message)
-        if (.not. ok) return
+        if (.not. ok) then
+            if (trace_requested) then
+                call publish_failed_trace(trace_values, working, message)
+                call finalize_trace_paths(trace_values)
+                call move_alloc(trace_values, trace)
+            end if
+            return
+        end if
         call refresh_target_expression_hashes(working, ok, message)
         if (.not. ok) return
         call refresh_source_witnesses(working, ok, message)
@@ -537,10 +559,15 @@ contains
         row%transformation = trim(operation)
         row%input_expression_sha256 = trim(input_hash)
         row%output_expression_sha256 = trim(output_hash)
+        row%source_expression_sha256 = source_hash_for_trace(context, input_hash)
+        row%target_expression_sha256 = trim(output_hash)
         row%disposition = standardir_correspondence_mapped
         if (present(disposition)) row%disposition = trim(disposition)
         if (trim(row%disposition) == standardir_correspondence_suppressed) then
             row%reason = 'source expression was removed by generic normalization'
+        end if
+        if (len_trim(row%reason) == 0) then
+            row%reason = 'source expression was retained by generic normalization'
         end if
         call standardir_grammar_append_correspondence_trace(trace, row)
         ok = .true.
@@ -781,6 +808,78 @@ contains
             end do
         end do
     end subroutine mark_suppressed_trace
+
+    subroutine set_trace_target_hash(trace, source, alternative, target_hash)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_source_ref_t), intent(in) :: source
+        integer, intent(in) :: alternative
+        character(len=*), intent(in) :: target_hash
+        integer :: i
+
+        do i = 1, size(trace)
+            if (trace(i)%source_alternative /= alternative) cycle
+            if (.not. same_trace_source(trace(i)%source, source)) cycle
+            trace(i)%target_expression_sha256 = trim(target_hash)
+        end do
+    end subroutine set_trace_target_hash
+
+    subroutine publish_failed_trace(trace, values, reason)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_target_rule_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: reason
+        type(standardir_grammar_correspondence_trace_t) :: row
+        character(len=64) :: expression_hash, source_hash
+        logical :: hash_ok
+        character(len=512) :: hash_message
+        integer :: i, j
+
+        do i = 1, size(values)
+            call standardir_target_expression_sha256(values(i)%expression, expression_hash, hash_ok, &
+                hash_message)
+            if (.not. hash_ok) expression_hash = 'unsupported'
+            if (.not. allocated(values(i)%provenance)) cycle
+            do j = 1, size(values(i)%provenance)
+                row = standardir_grammar_correspondence_trace_t()
+                row%source = values(i)%provenance(j)%source
+                row%source_alternative = values(i)%provenance(j)%alternative
+                row%raw_source_expression_path = 'rhs'
+                row%source_node_kind = values(i)%expression%kind
+                row%source_node_name = trim(values(i)%expression%name)
+                row%source_boundary_role = 'rule-expression'
+                row%target_rule_id = trim(values(i)%id)
+                row%target_lhs = trim(values(i)%lhs)
+                row%target_alternative = values(i)%alternative
+                row%transformation = 'left-recursion-unsupported'
+                source_hash = trim(values(i)%provenance(j)%source_expression_sha256)
+                if (len_trim(source_hash) == 0) source_hash = trim(expression_hash)
+                row%input_expression_sha256 = trim(expression_hash)
+                row%output_expression_sha256 = trim(expression_hash)
+                row%source_expression_sha256 = trim(source_hash)
+                row%target_expression_sha256 = trim(expression_hash)
+                row%disposition = standardir_correspondence_unsupported
+                row%reason = trim(reason)
+                call standardir_grammar_append_correspondence_trace(trace, row)
+            end do
+        end do
+    end subroutine publish_failed_trace
+
+    function source_hash_for_trace(context, fallback) result(value)
+        type(standardir_target_rule_t), intent(in) :: context
+        character(len=*), intent(in) :: fallback
+        character(len=64) :: value
+
+        value = ''
+        if (allocated(context%provenance)) then
+            if (size(context%provenance) > 0) then
+                if (context%provenance(1)%source_expression_present) then
+                    if (len_trim(context%provenance(1)%source_expression_sha256) > 0) then
+                        value = trim(context%provenance(1)%source_expression_sha256)
+                    end if
+                end if
+            end if
+        end if
+        if (len_trim(value) == 0) value = trim(fallback)
+    end function source_hash_for_trace
 
     subroutine finalize_trace_paths(trace)
         type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)

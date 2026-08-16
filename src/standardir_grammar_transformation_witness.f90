@@ -1,14 +1,20 @@
 module standardir_grammar_transformation_witness
     !! Emit the target lowering provenance as deterministic JSONL.
 
+    use, intrinsic :: iso_fortran_env, only: int64
     use standardir_export, only: standardir_validate_source_ref
+    use standardir_grammar_correspondence, only: standardir_correspondence_ambiguous, &
+        standardir_correspondence_mapped, standardir_correspondence_suppressed, &
+        standardir_correspondence_unsupported, standardir_grammar_correspondence_trace_t
     use standardir_grammar_export_support, only: standardir_grammar_apply_role_family
     use standardir_grammar_producer, only: standardir_grammar_origin_differential, &
         standardir_grammar_origin_mechanical, &
         standardir_grammar_origin_search, standardir_grammar_origin_smt, &
         standardir_grammar_origin_llm, standardir_grammar_origin_llm_repair, &
         standardir_grammar_origin_human, standardir_grammar_origin_imported, &
-        standardir_grammar_rule_t
+        standardir_grammar_reference, standardir_grammar_rule_t, standardir_grammar_token, &
+        standardir_grammar_sequence, standardir_grammar_choice, standardir_grammar_optional, &
+        standardir_grammar_repeat
     use standardir_grammar_reachability, only: standardir_grammar_select_reachable, &
         standardir_target_reachability_witness_t
     use standardir_grammar_targetnorm, only: standardir_grammar_normalize, &
@@ -21,10 +27,409 @@ module standardir_grammar_transformation_witness
     private
 
     public :: standardir_grammar_emit_transformation_witness
+    public :: standardir_grammar_emit_correspondence_witness
+    public :: standardir_grammar_validate_correspondence_trace
     public :: standardir_grammar_validate_transformation_witness
     public :: standardir_grammar_validate_source_disposition_witnesses
 
 contains
+
+    subroutine standardir_grammar_emit_correspondence_witness(unit, rules, ok, message)
+        integer, intent(in) :: unit
+        type(standardir_grammar_rule_t), intent(in) :: rules(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
+        type(standardir_grammar_correspondence_trace_t), allocatable :: trace(:), ordered(:)
+        integer :: i
+
+        ok = .false.
+        message = ''
+        call standardir_grammar_normalize(rules, normalized, suppressed, ok, message, trace)
+        if (.not. ok) return
+        call standardir_grammar_validate_correspondence_trace(trace, ok, message)
+        if (.not. ok) return
+        ordered = trace
+        call sort_correspondence_trace(ordered)
+        do i = 1, size(ordered)
+            call emit_correspondence_row(unit, ordered(i))
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_emit_correspondence_witness
+
+    subroutine standardir_grammar_validate_correspondence_trace(values, ok, message)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+
+        ok = .false.
+        message = ''
+        if (size(values) < 1) then
+            message = 'correspondence witness trace is empty'
+            return
+        end if
+        do i = 1, size(values)
+            call validate_correspondence_row(values(i), ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_validate_correspondence_trace
+
+    subroutine validate_correspondence_row(value, ok, message)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        call standardir_validate_source_ref(value%source, ok, message)
+        if (.not. ok) return
+        ok = .false.
+        if (value%source%end_page < 0) then
+            message = 'correspondence witness source end page is invalid'
+            return
+        end if
+        if (value%source%end_page > 0) then
+            if (value%source%end_page < value%source%page) then
+                message = 'correspondence witness source page range is invalid'
+                return
+            end if
+        end if
+        if (value%source%byte_start < 0_int64 .or. value%source%byte_length < 0_int64) then
+            message = 'correspondence witness source byte range is invalid'
+            return
+        end if
+        if (value%source_alternative < 1) then
+            message = 'correspondence witness source alternative is invalid'
+            return
+        end if
+        if (len_trim(value%raw_source_expression_path) == 0) then
+            message = 'correspondence witness raw source path is empty'
+            return
+        end if
+        select case (value%source_node_kind)
+        case (standardir_grammar_reference, standardir_grammar_token, &
+                standardir_grammar_sequence, &
+                standardir_grammar_choice, standardir_grammar_optional, standardir_grammar_repeat)
+        case default
+            message = 'correspondence witness source node kind is invalid'
+            return
+        end select
+        if (len_trim(value%source_node_name) == 0) then
+            message = 'correspondence witness source node name is empty'
+            return
+        end if
+        if (len_trim(value%source_boundary_role) == 0) then
+            message = 'correspondence witness source boundary role is empty'
+            return
+        end if
+        if (len_trim(value%target_rule_id) == 0 .or. len_trim(value%target_lhs) == 0) then
+            message = 'correspondence witness target identity is incomplete'
+            return
+        end if
+        if (value%target_alternative < 1) then
+            message = 'correspondence witness target alternative is invalid'
+            return
+        end if
+        if (len_trim(value%target_expression_path) > 0) then
+            call validate_target_path(value%target_expression_path, ok, message)
+            if (.not. ok) return
+            ok = .false.
+        end if
+        if (value%target_sequence_boundary_slot < 0) then
+            message = 'correspondence witness target sequence slot is invalid'
+            return
+        end if
+        if (len_trim(value%transformation) == 0) then
+            message = 'correspondence witness transformation is empty'
+            return
+        end if
+        if (len_trim(value%input_expression_sha256) == 0 .or. &
+            len_trim(value%output_expression_sha256) == 0) then
+            message = 'correspondence witness expression hash is incomplete'
+            return
+        end if
+        if (len_trim(value%source_expression_sha256) == 0 .or. &
+            len_trim(value%target_expression_sha256) == 0) then
+            message = 'correspondence witness source or target expression hash is incomplete'
+            return
+        end if
+        if (.not. valid_correspondence_disposition(value%disposition)) then
+            message = 'correspondence witness disposition is invalid'
+            return
+        end if
+        if (len_trim(value%reason) == 0) then
+            message = 'correspondence witness reason is empty'
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine validate_correspondence_row
+
+    logical function valid_correspondence_disposition(value)
+        character(len=*), intent(in) :: value
+
+        valid_correspondence_disposition = .false.
+        if (trim(value) == standardir_correspondence_mapped) then
+            valid_correspondence_disposition = .true.
+            return
+        end if
+        if (trim(value) == standardir_correspondence_ambiguous) then
+            valid_correspondence_disposition = .true.
+            return
+        end if
+        if (trim(value) == standardir_correspondence_suppressed) then
+            valid_correspondence_disposition = .true.
+            return
+        end if
+        if (trim(value) == standardir_correspondence_unsupported) then
+            valid_correspondence_disposition = .true.
+        end if
+    end function valid_correspondence_disposition
+
+    subroutine validate_target_path(path, ok, message)
+        character(len=*), intent(in) :: path
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        ok = .false.
+        message = ''
+        if (len_trim(path) < 3) then
+            message = 'correspondence witness target path is invalid'
+            return
+        end if
+        if (path(1:3) /= 'rhs') then
+            message = 'correspondence witness target path is invalid'
+            return
+        end if
+        if (len_trim(path) > 3) then
+            if (path(4:4) /= '/') then
+                message = 'correspondence witness target path is invalid'
+                return
+            end if
+        end if
+        ok = .true.
+    end subroutine validate_target_path
+
+    subroutine sort_correspondence_trace(values)
+        type(standardir_grammar_correspondence_trace_t), intent(inout) :: values(:)
+        type(standardir_grammar_correspondence_trace_t) :: item
+        integer :: i, j
+
+        do i = 2, size(values)
+            item = values(i)
+            j = i - 1
+            do while (j >= 1)
+                if (.not. correspondence_less(item, values(j))) exit
+                values(j + 1) = values(j)
+                j = j - 1
+            end do
+            values(j + 1) = item
+        end do
+    end subroutine sort_correspondence_trace
+
+    logical function correspondence_less(left, right)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: left, right
+        integer :: comparison
+
+        correspondence_less = .false.
+        comparison = compare_text(left%source%document, right%source%document)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%source%clause, right%source%clause)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%source%rule, right%source%rule)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%source%page, right%source%page)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%source%end_page, right%source%end_page)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_int64(left%source%byte_start, right%source%byte_start)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_int64(left%source%byte_length, right%source%byte_length)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%source%source_hash, right%source%source_hash)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%source_alternative, right%source_alternative)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%raw_source_expression_path, &
+            right%raw_source_expression_path)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%source_node_kind, right%source_node_kind)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%source_node_name, right%source_node_name)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%source_boundary_role, right%source_boundary_role)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%target_rule_id, right%target_rule_id)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%target_lhs, right%target_lhs)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%target_alternative, right%target_alternative)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%target_expression_path, right%target_expression_path)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_integer(left%target_sequence_boundary_slot, &
+            right%target_sequence_boundary_slot)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%transformation, right%transformation)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%input_expression_sha256, right%input_expression_sha256)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%output_expression_sha256, right%output_expression_sha256)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        comparison = compare_text(left%disposition, right%disposition)
+        if (comparison /= 0) then
+            correspondence_less = comparison < 0
+            return
+        end if
+        correspondence_less = compare_text(left%reason, right%reason) < 0
+    end function correspondence_less
+
+    integer function compare_text(left, right)
+        character(len=*), intent(in) :: left, right
+
+        compare_text = 0
+        if (trim(left) < trim(right)) compare_text = -1
+        if (trim(left) > trim(right)) compare_text = 1
+    end function compare_text
+
+    integer function compare_integer(left, right)
+        integer, intent(in) :: left, right
+
+        compare_integer = 0
+        if (left < right) compare_integer = -1
+        if (left > right) compare_integer = 1
+    end function compare_integer
+
+    integer function compare_int64(left, right)
+        integer(int64), intent(in) :: left, right
+
+        compare_int64 = 0
+        if (left < right) compare_int64 = -1
+        if (left > right) compare_int64 = 1
+    end function compare_int64
+
+    subroutine emit_correspondence_row(unit, value)
+        integer, intent(in) :: unit
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: value
+
+        write (unit, '(a)', advance='no') '{"kind":"correspondence-witness"'
+        call write_json_field(unit, 'source_document', trim(value%source%document))
+        call write_json_field(unit, 'source_clause', trim(value%source%clause))
+        call write_json_field(unit, 'source_rule', trim(value%source%rule))
+        call write_json_integer(unit, 'source_page', value%source%page)
+        call write_json_integer(unit, 'source_end_page', value%source%end_page)
+        call write_json_int64(unit, 'source_byte_start', value%source%byte_start)
+        call write_json_int64(unit, 'source_byte_length', value%source%byte_length)
+        call write_json_field(unit, 'source_hash', trim(value%source%source_hash))
+        call write_json_integer(unit, 'source_alternative', value%source_alternative)
+        call write_json_field(unit, 'raw_source_path', trim(value%raw_source_expression_path))
+        call write_json_integer(unit, 'source_node_kind', value%source_node_kind)
+        call write_json_field(unit, 'source_node_name', trim(value%source_node_name))
+        call write_json_field(unit, 'source_boundary_role', trim(value%source_boundary_role))
+        call write_json_field(unit, 'target_rule', trim(value%target_rule_id))
+        call write_json_field(unit, 'target_lhs', trim(value%target_lhs))
+        call write_json_integer(unit, 'target_alternative', value%target_alternative)
+        call write_json_field(unit, 'target_path', trim(value%target_expression_path))
+        call write_json_integer(unit, 'target_sequence_slot', value%target_sequence_boundary_slot)
+        call write_json_field(unit, 'transformation', trim(value%transformation))
+        call write_json_field(unit, 'source_expression_sha256', &
+            trim(value%source_expression_sha256))
+        call write_json_field(unit, 'target_expression_sha256', &
+            trim(value%target_expression_sha256))
+        call write_json_field(unit, 'input_expression_sha256', trim(value%input_expression_sha256))
+        call write_json_field(unit, 'output_expression_sha256', &
+            trim(value%output_expression_sha256))
+        call write_json_field(unit, 'disposition', trim(value%disposition))
+        call write_json_field(unit, 'reason', trim(value%reason))
+        call write_json_end(unit)
+    end subroutine emit_correspondence_row
+
+    subroutine write_json_integer(unit, key, value)
+        integer, intent(in) :: unit, value
+        character(len=*), intent(in) :: key
+        character(len=32) :: text
+
+        write (text, '(i0)') value
+        write (unit, '(a)', advance='no') ',"'//trim(key)//'":'//trim(text)
+    end subroutine write_json_integer
+
+    subroutine write_json_int64(unit, key, value)
+        integer, intent(in) :: unit
+        integer(int64), intent(in) :: value
+        character(len=*), intent(in) :: key
+        character(len=64) :: text
+
+        write (text, '(i0)') value
+        write (unit, '(a)', advance='no') ',"'//trim(key)//'":'//trim(text)
+    end subroutine write_json_int64
 
     subroutine standardir_grammar_emit_transformation_witness(unit, rules, ok, message, &
             selected_root, roots, role_family, pre_lowering_witnesses, treesitter_lowering)

@@ -14,6 +14,7 @@ program sxgrammar
         standardir_grammar_format_ebnf, standardir_grammar_format_tree_sitter, &
         standardir_target_role_family_config_t, standardir_target_source_witness_t
     use standardir_grammar_transformation_witness, only: &
+        standardir_grammar_emit_correspondence_witness, &
         standardir_grammar_emit_transformation_witness
     use standardir_grammar_producer, only: standardir_grammar_rule_t
     use standardir_lexical, only: standardir_lexical_add, standardir_lexical_facts_t, &
@@ -27,7 +28,8 @@ program sxgrammar
     implicit none
 
     character(len=4096) :: syntax_path, classifications_path, roots_path, lexical_path
-    character(len=4096) :: format_text, output_path, transformation_witness_path, message, line
+    character(len=4096) :: format_text, output_path, transformation_witness_path
+    character(len=4096) :: correspondence_witness_path, message, line
     character(len=128) :: selected_root
     type(standardir_target_role_family_config_t) :: role_family
     type(sx_node_t), allocatable :: nodes(:)
@@ -44,12 +46,14 @@ program sxgrammar
     integer :: argc, format, input_unit, output_unit, ios, records
     integer :: classification_count, root_count, semantic_skipped, lexical_closed
     integer :: i, j
-    logical :: ok, selected_mode, role_family_mode, transformation_witness_mode, source_node_found
+    logical :: ok, selected_mode, role_family_mode, transformation_witness_mode
+    logical :: correspondence_witness_mode, source_node_found
 
     argc = command_argument_count()
     selected_mode = .false.
     role_family_mode = .false.
     transformation_witness_mode = .false.
+    correspondence_witness_mode = .false.
     selected_root = ''
     role_family = standardir_target_role_family_config_t()
     allocate (pre_lowering_witnesses(0))
@@ -59,7 +63,7 @@ program sxgrammar
             ' <source.sx> <classifications.sx> <roots.sx> <lexical.sx|-> '// &
             '<ebnf|antlr|bison|treesitter> <output> '// &
             '[--selected-root <root>] [--role-family <representative>] '// &
-            '[--transformation-witness <path>]'
+            '[--transformation-witness <path>] [--correspondence-witness <path>]'
         stop 2
     end if
     call get_command_argument(1, syntax_path)
@@ -69,7 +73,9 @@ program sxgrammar
     call get_command_argument(5, format_text)
     call get_command_argument(6, output_path)
     call parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, &
-        transformation_witness_path, transformation_witness_mode, ok, message)
+        transformation_witness_path, transformation_witness_mode, &
+        correspondence_witness_path, &
+        correspondence_witness_mode, ok, message)
     if (.not. ok) call fail(trim(message))
     call parse_format(format_text, format, ok, message)
     if (.not. ok) call fail(trim(message))
@@ -184,6 +190,10 @@ program sxgrammar
     if (transformation_witness_mode) then
         call emit_transformation_witness_file(transformation_witness_path, rules, selected_mode, &
             format, selected_root, start_names, role_family_mode, role_family, pre_lowering_witnesses, ok, message)
+        if (.not. ok) call fail(trim(message))
+    end if
+    if (correspondence_witness_mode) then
+        call emit_correspondence_witness_file(correspondence_witness_path, rules, ok, message)
         if (.not. ok) call fail(trim(message))
     end if
     print '(a,i0,a,i0,a,i0,a)', 'emitted ', size(rules), ' rules; skipped ', &
@@ -579,6 +589,28 @@ contains
         close (unit)
     end subroutine emit_transformation_witness_file
 
+    subroutine emit_correspondence_witness_file(path, rules, ok, message)
+        character(len=*), intent(in) :: path
+        type(standardir_grammar_rule_t), intent(in) :: rules(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: unit, ios
+
+        ok = .false.
+        message = ''
+        open (newunit=unit, file=trim(path), status='replace', action='write', iostat=ios)
+        if (ios /= 0) then
+            message = 'cannot open correspondence witness output'
+            return
+        end if
+        call standardir_grammar_emit_correspondence_witness(unit, rules, ok, message)
+        if (.not. ok) then
+            close (unit, status='delete')
+            return
+        end if
+        close (unit)
+    end subroutine emit_correspondence_witness_file
+
     subroutine parse_format(text, format, ok, message)
         character(len=*), intent(in) :: text
         integer, intent(out) :: format
@@ -604,10 +636,14 @@ contains
     end subroutine parse_format
 
     subroutine parse_options(argc, selected_root, selected_mode, role_family, role_family_mode, &
-            transformation_witness_path, transformation_witness_mode, ok, message)
+            transformation_witness_path, transformation_witness_mode, &
+            correspondence_witness_path, &
+            correspondence_witness_mode, ok, message)
         integer, intent(in) :: argc
         character(len=*), intent(out) :: selected_root, transformation_witness_path
-        logical, intent(out) :: selected_mode, role_family_mode, transformation_witness_mode, ok
+        character(len=*), intent(out) :: correspondence_witness_path
+        logical, intent(out) :: selected_mode, role_family_mode, transformation_witness_mode
+        logical, intent(out) :: correspondence_witness_mode, ok
         type(standardir_target_role_family_config_t), intent(out) :: role_family
         character(len=*), intent(out) :: message
 
@@ -618,6 +654,8 @@ contains
         selected_mode = .false.
         transformation_witness_path = ''
         transformation_witness_mode = .false.
+        correspondence_witness_path = ''
+        correspondence_witness_mode = .false.
         role_family = standardir_target_role_family_config_t()
         role_family_mode = .false.
         ok = .false.
@@ -687,6 +725,22 @@ contains
                 end if
                 transformation_witness_path = trim(value)
                 transformation_witness_mode = .true.
+            case ('--correspondence-witness')
+                if (correspondence_witness_mode) then
+                    message = 'duplicate --correspondence-witness'
+                    return
+                end if
+                if (i == argc) then
+                    message = 'missing value for --correspondence-witness'
+                    return
+                end if
+                call get_command_argument(i + 1, value)
+                if (len_trim(value) == 0 .or. is_option(value)) then
+                    message = 'missing value for --correspondence-witness'
+                    return
+                end if
+                correspondence_witness_path = trim(value)
+                correspondence_witness_mode = .true.
             case default
                 message = 'unknown option: '//trim(option)
                 return
