@@ -126,6 +126,11 @@ name = "sxstatementsequence"
 source-dir = "app"
 main = "sxstatementsequence.f90"
 
+[[executable]]
+name = "sxstatementboundarymap"
+source-dir = "app"
+main = "sxstatementboundarymap.f90"
+
 [[test]]
 name = "test_fortpdf"
 source-dir = "test"
@@ -285,6 +290,11 @@ main = "test_standardir_statement_boundary_mapping.f90"
 name = "test_sxstatementsequence_cli"
 source-dir = "test"
 main = "test_sxstatementsequence_cli.f90"
+
+[[test]]
+name = "test_sxstatementboundarymap_cli"
+source-dir = "test"
+main = "test_sxstatementboundarymap_cli.f90"
 
 [[test]]
 name = "test_standardir_export"
