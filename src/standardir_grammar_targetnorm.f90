@@ -1,6 +1,7 @@
 module standardir_grammar_targetnorm
     !! Graph-derived normalization for source-backed grammar targets.
 
+    use standardir_export, only: standardir_source_ref_t
     use standardir_grammar_producer, only: standardir_grammar_choice, &
         standardir_grammar_optional, standardir_grammar_reference, &
         standardir_grammar_repeat, standardir_grammar_resolution_resolved, &
@@ -466,10 +467,12 @@ contains
             end if
         end if
         if (expression%kind == standardir_grammar_sequence .and. result%kind == standardir_grammar_sequence) then
-            if (trace_requested) call mark_trace_operation(trace, source_path, 'sequence-flatten')
+            if (trace_requested) call mark_trace_operation(trace, context%source, context%alternative, &
+                source_path, 'sequence-flatten')
             operation = 'sequence-flatten'
         else if (expression%kind == standardir_grammar_choice .and. result%kind == standardir_grammar_choice) then
-            if (trace_requested) call mark_trace_operation(trace, source_path, 'choice-flatten')
+            if (trace_requested) call mark_trace_operation(trace, context%source, context%alternative, &
+                source_path, 'choice-flatten')
             operation = 'choice-flatten'
         end if
         if (trace_requested) then
@@ -481,7 +484,8 @@ contains
                 input_hash, output_hash, result, ok, message, root_disposition)
             if (.not. ok) return
             if (operation == 'optional-wrapper-removal') then
-                call mark_trace_operation(trace, source_path, 'optional-wrapper-removal')
+                call mark_trace_operation(trace, context%source, context%alternative, source_path, &
+                    'optional-wrapper-removal')
             end if
         end if
         ok = .true.
@@ -724,15 +728,18 @@ contains
         end do
     end subroutine compact_trace_slot
 
-    subroutine mark_trace_operation(trace, source_path, operation)
+    subroutine mark_trace_operation(trace, source, alternative, source_path, operation)
         type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_source_ref_t), intent(in) :: source
+        integer, intent(in) :: alternative
         character(len=*), intent(in) :: source_path, operation
         integer :: i
 
         do i = 1, size(trace)
-            if (trim(trace(i)%raw_source_expression_path) == trim(source_path)) then
-                trace(i)%transformation = trim(operation)
-            end if
+            if (.not. same_trace_source(trace(i)%source, source)) cycle
+            if (trace(i)%source_alternative /= alternative) cycle
+            if (trim(trace(i)%raw_source_expression_path) /= trim(source_path)) cycle
+            trace(i)%transformation = trim(operation)
         end do
     end subroutine mark_trace_operation
 
@@ -744,7 +751,7 @@ contains
 
         do j = first_suppressed, size(suppressed)
             do i = 1, size(trace)
-                if (trim(trace(i)%source%rule) /= trim(suppressed(j)%source%rule)) cycle
+                if (.not. same_trace_source(trace(i)%source, suppressed(j)%source)) cycle
                 if (trace(i)%source_alternative /= suppressed(j)%alternative) cycle
                 trace(i)%target_expression_path = ''
                 trace(i)%target_sequence_boundary_slot = 0
@@ -763,7 +770,7 @@ contains
 
         do j = 1, size(suppressed)
             do i = 1, size(trace)
-                if (trim(trace(i)%source%rule) /= trim(suppressed(j)%source%rule)) cycle
+                if (.not. same_trace_source(trace(i)%source, suppressed(j)%source)) cycle
                 if (trace(i)%source_alternative /= suppressed(j)%alternative) cycle
                 if (trim(trace(i)%disposition) == standardir_correspondence_unsupported) cycle
                 trace(i)%target_expression_path = ''
@@ -785,6 +792,16 @@ contains
             end if
         end do
     end subroutine finalize_trace_paths
+
+    logical function same_trace_source(left, right)
+        type(standardir_source_ref_t), intent(in) :: left, right
+
+        same_trace_source = trim(left%document) == trim(right%document) .and. &
+            trim(left%clause) == trim(right%clause) .and. trim(left%rule) == trim(right%rule) .and. &
+            left%page == right%page .and. left%end_page == right%end_page .and. &
+            left%byte_start == right%byte_start .and. left%byte_length == right%byte_length .and. &
+            trim(left%source_hash) == trim(right%source_hash)
+    end function same_trace_source
 
 
     subroutine deduplicate_rules(values, suppressed, ok, message)

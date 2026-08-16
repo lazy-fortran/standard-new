@@ -46,6 +46,16 @@ program test_standardir_grammar_correspondence
     call require_trace(trace, 'R3', 1, 'rhs/1/2/2', 'rhs/1/2', 'choice-alternative', &
         standardir_correspondence_mapped, 'choice-flatten', 2, 'Y')
 
+    call normalize_pair('(syntax R5 (lhs first) (rhs (seq (seq (token A) (token B)) (token C))) '// &
+        '(source (document DOC) (clause C) (rule R5) (page 1) (byte-start 51) '// &
+        '(source-sha256 HASH)))', &
+        '(syntax R6 (lhs second) (rhs (seq (alt (token X) (alt (token Y) (token Z))) (token W))) '// &
+        '(source (document DOC) (clause C) (rule R6) (page 1) (byte-start 61) '// &
+        '(source-sha256 HASH)))', trace, ok, message)
+    call require(ok, 'repeated-path fixture failed: '//trim(message))
+    call require_operation(trace, 'R5', 'rhs/1', 'sequence-flatten')
+    call require_operation(trace, 'R6', 'rhs/1', 'choice-flatten')
+
     call normalize_fixture('(syntax R4 (lhs expr) (rhs (alt (seq (ref expr) (token X)) '// &
         '(token B))) (source (document DOC) (clause C) (rule R4) (page 1) '// &
         '(source-sha256 HASH)))', normalized, suppressed, trace, ok, message)
@@ -72,6 +82,48 @@ contains
         if (.not. ok) return
         call standardir_grammar_normalize(rules, normalized, suppressed, ok, message, trace)
     end subroutine normalize_fixture
+
+    subroutine normalize_pair(first_text, second_text, trace, ok, message)
+        character(len=*), intent(in) :: first_text, second_text
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(out) :: trace(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: first_node, second_node
+        type(standardir_grammar_rule_t), allocatable :: first_rules(:), second_rules(:), rules(:)
+        type(standardir_target_rule_t), allocatable :: normalized(:), suppressed(:)
+
+        call sx_parse(first_text, first_node, ok, message)
+        if (.not. ok) return
+        call sx_parse(second_text, second_node, ok, message)
+        if (.not. ok) return
+        call standardir_grammar_adapt_sx(first_node, standardir_grammar_origin_mechanical, &
+            standardir_grammar_resolution_resolved, first_rules, ok, message)
+        if (.not. ok) return
+        call standardir_grammar_adapt_sx(second_node, standardir_grammar_origin_mechanical, &
+            standardir_grammar_resolution_resolved, second_rules, ok, message)
+        if (.not. ok) return
+        allocate (rules(size(first_rules) + size(second_rules)))
+        rules(:size(first_rules)) = first_rules
+        rules(size(first_rules) + 1:) = second_rules
+        call standardir_grammar_normalize(rules, normalized, suppressed, ok, message, trace)
+    end subroutine normalize_pair
+
+    subroutine require_operation(values, source_rule, source_path, operation)
+        type(standardir_grammar_correspondence_trace_t), intent(in) :: values(:)
+        character(len=*), intent(in) :: source_rule, source_path, operation
+        integer :: i
+        logical :: found
+
+        found = .false.
+        do i = 1, size(values)
+            if (trim(values(i)%source%rule) /= trim(source_rule)) cycle
+            if (trim(values(i)%raw_source_expression_path) /= trim(source_path)) cycle
+            if (trim(values(i)%transformation) /= trim(operation)) cycle
+            found = .true.
+            exit
+        end do
+        call require(found, 'source path operation was cross-contaminated for '//trim(source_rule))
+    end subroutine require_operation
 
     subroutine require_trace(values, source_rule, alternative, source_path, target_path, role, &
             disposition, operation, slot, node_name)
