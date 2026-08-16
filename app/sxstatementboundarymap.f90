@@ -211,7 +211,7 @@ contains
         line = trim(candidate_line(value%candidate))//tab//trim(value%disposition)//tab// &
             trim(itoa(value%source_node_index))//tab//trim(itoa(value%source_node_kind))//tab// &
             trim(value%source_node_name)//tab//trim(itoa(value%alternative))//tab// &
-            alternatives_text(value%alternatives)//tab//trim(value%reason)
+            trim(alternatives_text(value%alternatives))//tab//trim(value%reason)
     end function mapping_line
 
     function candidate_line(value) result(line)
