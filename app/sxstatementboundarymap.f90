@@ -190,7 +190,7 @@ contains
         if (ios /= 0) then
             message = 'refusing to overwrite or create output: '//trim(path); return
         end if
-        write (unit, '(a)', iostat=ios) output_header()
+        write (unit, '(a)', iostat=ios) trim(output_header())
         do i = 1, size(values)
             if (ios /= 0) exit
             write (unit, '(a)', iostat=ios) trim(mapping_line(values(i)))
