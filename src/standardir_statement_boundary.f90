@@ -287,7 +287,7 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         type(standardir_statement_boundary_site_t), allocatable :: coalesced(:)
-        integer :: i, last
+        integer :: i, j, last
 
         allocate (coalesced(0))
         ok = .false.
@@ -302,11 +302,13 @@ contains
                 call append_site_value(coalesced, values(i))
                 cycle
             end if
-            if (same_evidence(values(i)%evidence(1), coalesced(last)%evidence(1))) then
-                message = 'statement boundary candidate evidence is duplicated or ambiguous'
-                deallocate (coalesced)
-                return
-            end if
+            do j = 1, size(coalesced(last)%evidence)
+                if (same_evidence(values(i)%evidence(1), coalesced(last)%evidence(j))) then
+                    message = 'statement boundary candidate evidence is duplicated or ambiguous'
+                    deallocate (coalesced)
+                    return
+                end if
+            end do
             call append_evidence(coalesced(last)%evidence, values(i)%evidence(1))
         end do
         call move_alloc(coalesced, values)

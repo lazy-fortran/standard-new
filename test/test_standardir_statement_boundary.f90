@@ -77,6 +77,16 @@ program test_standardir_statement_boundary
     call require(ok .and. size(plan%sites) == 1 .and. size(plan%sites(1)%evidence) == 2, &
         'different candidate evidence was not coalesced')
 
+    deallocate (broken)
+    allocate (broken(3))
+    broken(1) = candidates(1)
+    broken(2) = candidates(1)
+    broken(2)%item = 'conflicting-item'
+    broken(3) = broken(2)
+    call standardir_statement_boundary_build_plan(broken, plan, ok, message)
+    call require(.not. ok .and. index(trim(message), 'duplicated or ambiguous') > 0, &
+        'duplicate of retained evidence was accepted')
+
     broken(1) = candidates(1)
     broken(1)%source_hash = ''
     call standardir_statement_boundary_build_plan(broken(:1), plan, ok, message)
