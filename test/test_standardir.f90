@@ -17,8 +17,8 @@ program test_standardir
     character(len=*), parameter :: expected_multi = &
         '(syntax R705 (lhs integer-type-spec) (rhs (seq (token INTEGER) '// &
         '(optional (ref kind-selector)))) (source (document J3-24-007) '// &
-        '(clause 5) (rule R705) (page 67) (end-page 67) (byte-start 10) '// &
-        '(byte-length 25) (source-sha256 '//source_hash//')))'
+        '(clause 7) (occurrence-clause 5) (rule R705) (page 67) (end-page 67) '// &
+        '(byte-start 10) (byte-length 25) (source-sha256 '//source_hash//')))'
     character(len=4096) :: actual, message
     type(standardir_syntax_t) :: production
     integer(int64) :: start, length

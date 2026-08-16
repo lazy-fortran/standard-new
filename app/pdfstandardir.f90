@@ -23,6 +23,7 @@ program pdfstandardir
     type(standardir_syntax_t) :: production
     integer(int64) :: byte_start, byte_length
     integer :: argc, input_unit, output_unit, ios, page, records, origin, resolution
+    integer :: occurrence
     logical :: found, active, ok, syntax_item_mode
 
     argc = command_argument_count()
@@ -110,9 +111,12 @@ program pdfstandardir
             if (.not. ok) call fail_input(input_unit, output_unit, message)
             call required_int64(line, 'byte_length', byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
+            call optional_integer(line, 'occurrence', occurrence, found, ok, message)
+            if (.not. ok) call fail_input(input_unit, output_unit, message)
             call standardir_start(production, rule, lhs, page, byte_start, &
                 byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
+            if (found) production%occurrence = occurrence
             call standardir_add(production, 'sequence', text, page, byte_start, &
                 byte_length, ok, message)
             if (.not. ok) call fail_input(input_unit, output_unit, message)
@@ -154,7 +158,8 @@ contains
             call standardir_write_syntax_item_from_production(output_unit, production, &
                 source_document, clause, source_hash, origin, resolution, ok, message)
         else
-            call standardir_emit(output_unit, production, source_hash, clause, ok, message)
+            call standardir_emit(output_unit, production, source_hash, clause, ok, message, &
+                source_document)
         end if
     end subroutine emit_production
 
@@ -258,6 +263,27 @@ contains
         message = ''
         if (.not. ok) message = 'invalid JSON integer field '//trim(key)
     end subroutine required_int64
+
+    subroutine optional_integer(line, key, value, found, ok, message)
+        character(len=*), intent(in) :: line, key
+        integer, intent(out) :: value
+        logical, intent(out) :: found, ok
+        character(len=*), intent(out) :: message
+        character(len=256) :: raw
+        integer :: read_status
+
+        value = 0
+        call json_field(line, key, raw, found)
+        if (.not. found) then
+            ok = .true.
+            message = ''
+            return
+        end if
+        read (raw, *, iostat=read_status) value
+        ok = read_status == 0 .and. value >= 0
+        message = ''
+        if (.not. ok) message = 'invalid JSON integer field '//trim(key)
+    end subroutine optional_integer
 
     subroutine json_field(line, key, value, found)
         character(len=*), intent(in) :: line, key

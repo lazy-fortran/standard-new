@@ -16,13 +16,13 @@ contains
 
     subroutine standardir_read_syntax_header(node, rule, lhs, document, clause, page, source_hash, &
             ok, message, source_lineage, source_byte_start, source_byte_length, source_expression_hash, &
-            target_expression_hash)
+            target_expression_hash, occurrence_clause)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: rule, lhs, document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length, &
-            source_expression_hash, target_expression_hash
+            source_expression_hash, target_expression_hash, occurrence_clause
 
         rule = ''
         lhs = ''
@@ -35,6 +35,7 @@ contains
         if (present(source_byte_length)) source_byte_length = ''
         if (present(source_expression_hash)) source_expression_hash = ''
         if (present(target_expression_hash)) target_expression_hash = ''
+        if (present(occurrence_clause)) occurrence_clause = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count /= 5) then
@@ -51,18 +52,18 @@ contains
         if (.not. ok) return
         call standardir_read_source(node%children(5), document, clause, page, source_hash, ok, message, &
             source_lineage, source_byte_start, source_byte_length, source_expression_hash=source_expression_hash, &
-            target_expression_hash=target_expression_hash)
+            target_expression_hash=target_expression_hash, occurrence_clause=occurrence_clause)
     end subroutine standardir_read_syntax_header
 
     subroutine standardir_read_source(node, document, clause, page, source_hash, ok, message, &
             source_lineage, source_byte_start, source_byte_length, reject_unknown, source_expression_hash, &
-            target_expression_hash)
+            target_expression_hash, occurrence_clause)
         type(sx_node_t), intent(in) :: node
         character(len=*), intent(out) :: document, clause, page, source_hash
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         character(len=*), intent(out), optional :: source_lineage, source_byte_start, source_byte_length, &
-            source_expression_hash, target_expression_hash
+            source_expression_hash, target_expression_hash, occurrence_clause
         logical, intent(in), optional :: reject_unknown
         integer :: i
 
@@ -75,6 +76,7 @@ contains
         if (present(source_byte_length)) source_byte_length = ''
         if (present(source_expression_hash)) source_expression_hash = ''
         if (present(target_expression_hash)) target_expression_hash = ''
+        if (present(occurrence_clause)) occurrence_clause = ''
         ok = .false.
         message = ''
         if (node%kind /= sx_list .or. node%child_count < 1) then
@@ -102,6 +104,16 @@ contains
                 call standardir_read_pair(node%children(i), 'page', page, ok, message)
             else if (standardir_atom_equals(node%children(i)%children(1), 'source-sha256')) then
                 call standardir_read_pair(node%children(i), 'source-sha256', source_hash, ok, message)
+            else if (standardir_atom_equals(node%children(i)%children(1), 'occurrence-clause')) then
+                if (present(occurrence_clause)) then
+                    call standardir_read_pair(node%children(i), 'occurrence-clause', occurrence_clause, ok, message)
+                else if (present(reject_unknown)) then
+                    if (reject_unknown) then
+                        ok = .false.
+                        message = 'source field has an unsupported child'
+                        return
+                    end if
+                end if
             else if (standardir_atom_equals(node%children(i)%children(1), 'source-lineage')) then
                 if (present(source_lineage)) then
                     call standardir_read_pair(node%children(i), 'source-lineage', source_lineage, ok, message)

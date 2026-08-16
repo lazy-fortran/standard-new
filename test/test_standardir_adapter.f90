@@ -12,7 +12,8 @@ program test_standardir_adapter
     character(len=*), parameter :: expected = &
         '(syntax-item (id FIX-RULE) (lhs fixture) (source (source-ref '// &
         '(document fixture-document) (clause fixture-clause) (rule FIX-RULE) '// &
-        '(page 23) (source-hash fixture-hash))) (origin mechanical) '// &
+        '(page 23) (source-hash fixture-hash) (end-page 23) (byte-start 100) '// &
+        '(byte-length 20))) (origin mechanical) '// &
         '(resolution resolved))'
     type(standardir_syntax_t) :: production, incomplete
     type(standardir_syntax_item_t) :: item
@@ -45,7 +46,9 @@ program test_standardir_adapter
     call standardir_read_syntax_item(node, item, ok, message)
     call require(ok, message)
     call require(trim(item%id) == 'FIX-RULE' .and. trim(item%lhs) == 'fixture' .and. &
-        item%source%page == 23, 'adapter round-trip differs')
+        item%source%page == 23 .and. item%source%end_page == 23 .and. &
+        item%source%byte_start == 100_int64 .and. item%source%byte_length == 20_int64, &
+        'adapter round-trip differs')
 
     call standardir_write_syntax_item_from_production(unit, production, '', 'fixture-clause', &
         'fixture-hash', standardir_origin_mechanical, standardir_resolution_resolved, ok, &

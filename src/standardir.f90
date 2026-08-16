@@ -6,6 +6,7 @@ module standardir
     !! it does not make provenance optional.
 
     use, intrinsic :: iso_fortran_env, only: int64
+    use standardir_source_provenance, only: standardir_normative_clause
     implicit none
     private
 
@@ -34,6 +35,7 @@ module standardir
         integer :: last_page = 0
         integer(int64) :: first_byte = 0
         integer(int64) :: last_byte = 0
+        integer :: occurrence = 0
         character(len=16384) :: pending = ''
         logical :: incomplete = .false.
     end type standardir_syntax_t
@@ -52,6 +54,7 @@ contains
         production%last_page = 0
         production%first_byte = 0_int64
         production%last_byte = 0_int64
+        production%occurrence = 0
         production%pending = ''
         production%incomplete = .false.
     end subroutine standardir_reset
@@ -502,12 +505,14 @@ contains
         production%last_byte = max(production%last_byte, byte_start + byte_length)
     end subroutine update_span
 
-    subroutine standardir_emit(unit, production, source_hash, clause, ok, message)
+    subroutine standardir_emit(unit, production, source_hash, clause, ok, message, &
+            source_document)
         integer, intent(in) :: unit
         type(standardir_syntax_t), intent(in) :: production
         character(len=*), intent(in) :: source_hash, clause
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        character(len=*), intent(in), optional :: source_document
 
         integer :: i
 
@@ -535,7 +540,7 @@ contains
         if (.not. ok) return
         call piece(unit, ')', ok, message)
         if (.not. ok) return
-        call emit_source(unit, production, source_hash, clause, ok, message)
+        call emit_source(unit, production, source_hash, clause, ok, message, source_document)
         if (.not. ok) return
         call piece(unit, ')', ok, message)
         if (.not. ok) return
@@ -667,22 +672,42 @@ contains
         call piece(unit, '"', ok, message)
     end subroutine emit_atom
 
-    subroutine emit_source(unit, production, source_hash, clause, ok, message)
+    subroutine emit_source(unit, production, source_hash, clause, ok, message, source_document)
         integer, intent(in) :: unit
         type(standardir_syntax_t), intent(in) :: production
         character(len=*), intent(in) :: source_hash, clause
         logical, intent(inout) :: ok
         character(len=*), intent(inout) :: message
+        character(len=*), intent(in), optional :: source_document
         character(len=32) :: page, last_page, start, length
+        character(len=128) :: normative_clause, document
+        logical :: found
 
         write (page, '(i0)') production%first_page
         write (last_page, '(i0)') production%last_page
         write (start, '(i0)') production%first_byte
         write (length, '(i0)') production%last_byte - production%first_byte
-        call piece(unit, ' (source (document J3-24-007) (clause '//trim(clause)//') (rule '// &
-            trim(production%rule)//') (page '//trim(page)//') (end-page '// &
+        call standardir_normative_clause(production%rule, normative_clause, found)
+        if (.not. found) normative_clause = trim(clause)
+        document = 'J3-24-007'
+        if (present(source_document)) document = trim(source_document)
+        call piece(unit, ' (source (document '//trim(document)//') (clause '// &
+            trim(normative_clause)//')', ok, message)
+        if (.not. ok) return
+        if (trim(clause) /= trim(normative_clause)) then
+            call piece(unit, ' (occurrence-clause '//trim(clause)//')', ok, message)
+            if (.not. ok) return
+        end if
+        call piece(unit, ' (rule '//trim(production%rule)//') (page '//trim(page)//') (end-page '// &
             trim(last_page)//') (byte-start '//trim(start)//') (byte-length '// &
-            trim(length)//') (source-sha256 '//trim(source_hash)//'))', ok, message)
+            trim(length)//') (source-sha256 '//trim(source_hash)//')', ok, message)
+        if (.not. ok) return
+        if (production%occurrence > 0) then
+            write (page, '(i0)') production%occurrence
+            call piece(unit, ' (occurrence '//trim(page)//')', ok, message)
+            if (.not. ok) return
+        end if
+        call piece(unit, ')', ok, message)
     end subroutine emit_source
 
     subroutine piece(unit, text, ok, message)

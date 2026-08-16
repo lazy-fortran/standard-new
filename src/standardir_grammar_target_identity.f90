@@ -61,10 +61,12 @@ contains
         type(standardir_source_ref_t), intent(in) :: left, right
 
         same_source_ref = trim(left%document) == trim(right%document) .and. &
-            trim(left%clause) == trim(right%clause) .and. trim(left%rule) == trim(right%rule) .and. &
+            trim(left%clause) == trim(right%clause) .and. &
+            trim(left%occurrence_clause) == trim(right%occurrence_clause) .and. &
+            trim(left%rule) == trim(right%rule) .and. &
             left%page == right%page .and. left%end_page == right%end_page .and. &
             left%byte_start == right%byte_start .and. left%byte_length == right%byte_length .and. &
-            trim(left%source_hash) == trim(right%source_hash)
+            left%occurrence == right%occurrence .and. trim(left%source_hash) == trim(right%source_hash)
     end function same_source_ref
 
     logical function same_roles(left, right)

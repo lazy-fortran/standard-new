@@ -96,7 +96,7 @@ contains
                 return
             end if
             select case (trim(label))
-            case ('document', 'clause', 'rule', 'source-sha256', 'source-hash')
+            case ('document', 'clause', 'occurrence-clause', 'rule', 'source-sha256', 'source-hash')
                 call pair_text(node%children(i), text, ok, message)
                 if (.not. ok) return
                 select case (trim(label))
@@ -106,6 +106,8 @@ contains
                 case ('clause')
                     source%clause = text
                     have_clause = .true.
+                case ('occurrence-clause')
+                    source%occurrence_clause = text
                 case ('rule')
                     source%rule = text
                     have_rule = .true.
@@ -132,6 +134,10 @@ contains
                 case ('byte-length')
                     source%byte_length = int64_value
                 end select
+            case ('occurrence')
+                call pair_integer(node%children(i), value, ok, message)
+                if (.not. ok) return
+                source%occurrence = value
             case default
                 message = 'unsupported source field: '//trim(label)
                 return
