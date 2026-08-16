@@ -26,10 +26,13 @@ program test_sxstatementboundarymap_cli
     call require(count_lines_containing(output_path, achar(9)//'suppressed'//achar(9)) == 1, &
         'suppressed candidate was not retained')
     call require(count_lines(output_path) == 7, 'output row count changed')
-    call read_matching(output_path, 'foo-stmt', line)
+    call read_matching(output_path, 'foo-stmt-alternate', line)
     call require(index(line, achar(9)//'mapped'//achar(9)//'3'//achar(9)//'1'//achar(9)// &
         'foo-stmt'//achar(9)//'1'//achar(9)//'1') > 0, &
         'R1505 alternative 1 raw provenance was lost')
+    call require(index(line, achar(9)//'1'//achar(9)//'2'//achar(9)// &
+        'first-plus-repeat;repeat-item') > 0, &
+        'coalesced candidate evidence was not serialized deterministically')
     call read_matching(output_path, 'bar-stmt', line)
     call require(index(line, achar(9)//'mapped'//achar(9)//'5'//achar(9)//'1'//achar(9)// &
         'bar-stmt'//achar(9)//'2'//achar(9)//'2') > 0, &
@@ -65,6 +68,8 @@ contains
         call require(ios == 0, 'could not create candidate fixture')
         write (unit, '(a)') header()
         write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/1/1', 'foo-stmt', 'candidate')
+        write (unit, '(a)') candidate_kind('R1505', 'execution-part', '1', '10', 'rhs/1/1', &
+            'foo-stmt-alternate', 'candidate', 'first-plus-repeat')
         write (unit, '(a)') candidate('R1505', 'execution-part', '1', '10', 'rhs/2/1', 'bar-stmt', 'candidate')
         write (unit, '(a)') candidate('R1506', 'duplicate-part', '2', '20', 'rhs/1', 'duplicate-stmt', 'candidate')
         write (unit, '(a)') candidate('R1507', 'missing-part', '3', '30', 'rhs/9', 'missing-stmt', 'candidate')
@@ -94,12 +99,19 @@ contains
     function candidate(rule, lhs, page, byte_start, path, item, status) result(text)
         character(len=*), intent(in) :: rule, lhs, page, byte_start, path, item, status
         character(len=4096) :: text
+
+        text = candidate_kind(rule, lhs, page, byte_start, path, item, status, 'repeat-item')
+    end function candidate
+
+    function candidate_kind(rule, lhs, page, byte_start, path, item, status, kind) result(text)
+        character(len=*), intent(in) :: rule, lhs, page, byte_start, path, item, status, kind
+        character(len=4096) :: text
         character(len=1) :: tab
 
         tab = achar(9)
         text = trim(rule)//tab//trim(lhs)//tab//'DOC'//tab//'5'//tab//trim(page)//tab//trim(byte_start)//tab//hash//tab// &
-            'repeat-item'//tab//trim(path)//tab//trim(item)//tab//'fixture'//tab//trim(status)
-    end function candidate
+            trim(kind)//tab//trim(path)//tab//trim(item)//tab//'fixture'//tab//trim(status)
+    end function candidate_kind
 
     function header() result(text)
         character(len=4096) :: text

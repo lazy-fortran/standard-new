@@ -14,8 +14,16 @@ module standardir_statement_boundary
     character(len=18), parameter, public :: standardir_statement_boundary_marker = 'statement-boundary'
     character(len=18), parameter, public :: standardir_statement_boundary_separator = 'statement-boundary'
 
+    type, public :: standardir_statement_boundary_evidence_t
+        character(len=32) :: kind = ''
+        character(len=128) :: item = ''
+        character(len=128) :: derivation = ''
+        character(len=32) :: status = ''
+    end type standardir_statement_boundary_evidence_t
+
     type, public :: standardir_statement_boundary_site_t
         type(standardir_statement_sequence_candidate_t) :: candidate
+        type(standardir_statement_boundary_evidence_t), allocatable :: evidence(:)
         character(len=18) :: marker = standardir_statement_boundary_marker
         character(len=18) :: separator = standardir_statement_boundary_separator
     end type standardir_statement_boundary_site_t
@@ -49,22 +57,8 @@ contains
             call append_site(plan%sites, candidates(i))
         end do
         call sort_sites(plan%sites)
-        do i = 1, size(plan%sites)
-            if (i > 1) then
-                if (same_site(plan%sites(i), plan%sites(i - 1))) then
-                    ok = .false.
-                    message = 'statement boundary site is duplicated or ambiguous'
-                    return
-                else if (same_location(plan%sites(i), plan%sites(i - 1))) then
-                    if (trim(plan%sites(i)%candidate%kind) == &
-                        trim(plan%sites(i - 1)%candidate%kind)) then
-                        ok = .false.
-                        message = 'statement boundary site is duplicated or ambiguous'
-                        return
-                    end if
-                end if
-            end if
-        end do
+        call coalesce_sites(plan%sites, ok, message)
+        if (.not. ok) return
         ok = .true.
         message = ''
     end subroutine standardir_statement_boundary_build_plan
@@ -253,18 +247,10 @@ contains
         allocate (expanded(old_size + 1))
         if (old_size > 0) expanded(:old_size) = values
         expanded(old_size + 1)%candidate = candidate
+        allocate (expanded(old_size + 1)%evidence(1))
+        expanded(old_size + 1)%evidence(1) = candidate_evidence(candidate)
         call move_alloc(expanded, values)
     end subroutine append_site
-
-    logical function same_site(left, right)
-        type(standardir_statement_boundary_site_t), intent(in) :: left, right
-
-        same_site = same_location(left, right) .and. &
-            trim(left%candidate%item) == trim(right%candidate%item) .and. &
-            trim(left%candidate%kind) == trim(right%candidate%kind) .and. &
-            trim(left%candidate%derivation) == trim(right%candidate%derivation) .and. &
-            trim(left%candidate%status) == trim(right%candidate%status)
-    end function same_site
 
     logical function same_location(left, right)
         type(standardir_statement_boundary_site_t), intent(in) :: left, right
@@ -278,6 +264,80 @@ contains
             trim(left%candidate%source_lhs) == trim(right%candidate%source_lhs) .and. &
             trim(left%candidate%expression_path) == trim(right%candidate%expression_path)
     end function same_location
+
+    logical function same_evidence(left, right)
+        type(standardir_statement_boundary_evidence_t), intent(in) :: left, right
+
+        same_evidence = trim(left%kind) == trim(right%kind) .and. trim(left%item) == trim(right%item) .and. &
+            trim(left%derivation) == trim(right%derivation) .and. trim(left%status) == trim(right%status)
+    end function same_evidence
+
+    function candidate_evidence(candidate) result(value)
+        type(standardir_statement_sequence_candidate_t), intent(in) :: candidate
+        type(standardir_statement_boundary_evidence_t) :: value
+
+        value%kind = trim(candidate%kind)
+        value%item = trim(candidate%item)
+        value%derivation = trim(candidate%derivation)
+        value%status = trim(candidate%status)
+    end function candidate_evidence
+
+    subroutine coalesce_sites(values, ok, message)
+        type(standardir_statement_boundary_site_t), allocatable, intent(inout) :: values(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(standardir_statement_boundary_site_t), allocatable :: coalesced(:)
+        integer :: i, last
+
+        allocate (coalesced(0))
+        ok = .false.
+        message = ''
+        do i = 1, size(values)
+            if (size(coalesced) == 0) then
+                call append_site_value(coalesced, values(i))
+                cycle
+            end if
+            last = size(coalesced)
+            if (.not. same_location(values(i), coalesced(last))) then
+                call append_site_value(coalesced, values(i))
+                cycle
+            end if
+            if (same_evidence(values(i)%evidence(1), coalesced(last)%evidence(1))) then
+                message = 'statement boundary candidate evidence is duplicated or ambiguous'
+                deallocate (coalesced)
+                return
+            end if
+            call append_evidence(coalesced(last)%evidence, values(i)%evidence(1))
+        end do
+        call move_alloc(coalesced, values)
+        ok = .true.
+    end subroutine coalesce_sites
+
+    subroutine append_site_value(values, value)
+        type(standardir_statement_boundary_site_t), allocatable, intent(inout) :: values(:)
+        type(standardir_statement_boundary_site_t), intent(in) :: value
+        type(standardir_statement_boundary_site_t), allocatable :: expanded(:)
+        integer :: old_size
+
+        old_size = size(values)
+        allocate (expanded(old_size + 1))
+        if (old_size > 0) expanded(:old_size) = values
+        expanded(old_size + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_site_value
+
+    subroutine append_evidence(values, value)
+        type(standardir_statement_boundary_evidence_t), allocatable, intent(inout) :: values(:)
+        type(standardir_statement_boundary_evidence_t), intent(in) :: value
+        type(standardir_statement_boundary_evidence_t), allocatable :: expanded(:)
+        integer :: old_size
+
+        old_size = size(values)
+        allocate (expanded(old_size + 1))
+        if (old_size > 0) expanded(:old_size) = values
+        expanded(old_size + 1) = value
+        call move_alloc(expanded, values)
+    end subroutine append_evidence
 
     subroutine sort_sites(values)
         type(standardir_statement_boundary_site_t), intent(inout) :: values(:)
@@ -300,30 +360,60 @@ contains
         type(standardir_statement_boundary_site_t), intent(in) :: left, right
 
         site_after = .false.
-        if (trim(left%candidate%source_lhs) > trim(right%candidate%source_lhs)) then
+        if (trim(left%candidate%source_document) > trim(right%candidate%source_document)) then
             site_after = .true.
-        else if (trim(left%candidate%source_lhs) < trim(right%candidate%source_lhs)) then
+        else if (trim(left%candidate%source_document) < trim(right%candidate%source_document)) then
+            return
+        else if (trim(left%candidate%source_clause) > trim(right%candidate%source_clause)) then
+            site_after = .true.
+        else if (trim(left%candidate%source_clause) < trim(right%candidate%source_clause)) then
+            return
+        else if (trim(left%candidate%source_hash) > trim(right%candidate%source_hash)) then
+            site_after = .true.
+        else if (trim(left%candidate%source_hash) < trim(right%candidate%source_hash)) then
+            return
+        else if (decimal_after(left%candidate%source_page, right%candidate%source_page)) then
+            site_after = .true.
+        else if (decimal_after(right%candidate%source_page, left%candidate%source_page)) then
+            return
+        else if (trim(left%candidate%source_page) > trim(right%candidate%source_page)) then
+            site_after = .true.
+        else if (trim(left%candidate%source_page) < trim(right%candidate%source_page)) then
+            return
+        else if (decimal_after(left%candidate%source_byte_start, right%candidate%source_byte_start)) then
+            site_after = .true.
+        else if (decimal_after(right%candidate%source_byte_start, left%candidate%source_byte_start)) then
+            return
+        else if (trim(left%candidate%source_byte_start) > trim(right%candidate%source_byte_start)) then
+            site_after = .true.
+        else if (trim(left%candidate%source_byte_start) < trim(right%candidate%source_byte_start)) then
             return
         else if (trim(left%candidate%source_rule) > trim(right%candidate%source_rule)) then
             site_after = .true.
         else if (trim(left%candidate%source_rule) < trim(right%candidate%source_rule)) then
             return
-        else
-            if (decimal_after(left%candidate%source_byte_start, &
-                right%candidate%source_byte_start)) then
-                site_after = .true.
-            else if (decimal_after(right%candidate%source_byte_start, &
-                    left%candidate%source_byte_start)) then
-                return
-            end if
-        end if
-        if (site_after) return
-        if (trim(left%candidate%expression_path) > trim(right%candidate%expression_path)) then
+        else if (trim(left%candidate%source_lhs) > trim(right%candidate%source_lhs)) then
+            site_after = .true.
+        else if (trim(left%candidate%source_lhs) < trim(right%candidate%source_lhs)) then
+            return
+        else if (trim(left%candidate%expression_path) > trim(right%candidate%expression_path)) then
             site_after = .true.
         else if (trim(left%candidate%expression_path) < trim(right%candidate%expression_path)) then
             return
+        else if (trim(left%candidate%kind) > trim(right%candidate%kind)) then
+            site_after = .true.
+        else if (trim(left%candidate%kind) < trim(right%candidate%kind)) then
+            return
+        else if (trim(left%candidate%item) > trim(right%candidate%item)) then
+            site_after = .true.
+        else if (trim(left%candidate%item) < trim(right%candidate%item)) then
+            return
+        else if (trim(left%candidate%derivation) > trim(right%candidate%derivation)) then
+            site_after = .true.
+        else if (trim(left%candidate%derivation) < trim(right%candidate%derivation)) then
+            return
         else
-            site_after = trim(left%candidate%kind) > trim(right%candidate%kind)
+            site_after = trim(left%candidate%status) > trim(right%candidate%status)
         end if
     end function site_after
 

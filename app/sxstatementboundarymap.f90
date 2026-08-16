@@ -3,7 +3,7 @@ program sxstatementboundarymap
 
     use fortsx, only: sx_atom, sx_list, sx_node_t, sx_parse
     use standardir_statement_boundary, only: standardir_statement_boundary_build_plan, &
-        standardir_statement_boundary_plan_t
+        standardir_statement_boundary_evidence_t, standardir_statement_boundary_plan_t
     use standardir_statement_boundary_mapping, only: standardir_statement_boundary_mapping_t
     use standardir_statement_boundary_source_mapping, only: standardir_statement_boundary_map_sx
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
@@ -172,6 +172,8 @@ contains
             if (old_size > 0) expanded(:old_size) = values
             expanded(old_size + 1) = standardir_statement_boundary_mapping_t()
             expanded(old_size + 1)%candidate = all_values(i)
+            allocate (expanded(old_size + 1)%evidence(1))
+            expanded(old_size + 1)%evidence(1) = evidence_from_candidate(all_values(i))
             expanded(old_size + 1)%disposition = trim(all_values(i)%status)
             expanded(old_size + 1)%reason = 'input candidate status is '//trim(all_values(i)%status)
             call move_alloc(expanded, values)
@@ -211,7 +213,10 @@ contains
         line = trim(candidate_line(value%candidate))//tab//trim(value%disposition)//tab// &
             trim(itoa(value%source_node_index))//tab//trim(itoa(value%source_node_kind))//tab// &
             trim(value%source_node_name)//tab//trim(itoa(value%alternative))//tab// &
-            trim(alternatives_text(value%alternatives))//tab//trim(value%reason)
+            trim(alternatives_text(value%alternatives))//tab//trim(itoa(evidence_count(value%evidence)))//tab// &
+            trim(evidence_kinds(value%evidence))//tab//trim(evidence_items(value%evidence))//tab// &
+            trim(evidence_derivations(value%evidence))//tab//trim(evidence_statuses(value%evidence))//tab// &
+            trim(value%reason)
     end function mapping_line
 
     function candidate_line(value) result(line)
@@ -238,6 +243,78 @@ contains
             text = trim(text)//itoa(values(i))
         end do
     end function alternatives_text
+
+    integer function evidence_count(values)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+
+        evidence_count = 0
+        if (allocated(values)) evidence_count = size(values)
+    end function evidence_count
+
+    function evidence_kinds(values) result(text)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+        character(len=4096) :: text
+
+        text = evidence_field(values, 1)
+    end function evidence_kinds
+
+    function evidence_items(values) result(text)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+        character(len=4096) :: text
+
+        text = evidence_field(values, 2)
+    end function evidence_items
+
+    function evidence_derivations(values) result(text)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+        character(len=4096) :: text
+
+        text = evidence_field(values, 3)
+    end function evidence_derivations
+
+    function evidence_statuses(values) result(text)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+        character(len=4096) :: text
+
+        text = evidence_field(values, 4)
+    end function evidence_statuses
+
+    function evidence_field(values, field) result(text)
+        type(standardir_statement_boundary_evidence_t), intent(in), allocatable :: values(:)
+        integer, intent(in) :: field
+        character(len=4096) :: text
+        integer :: i
+        character(len=128) :: item
+
+        text = ''
+        if (.not. allocated(values)) return
+        do i = 1, size(values)
+            if (i > 1) text = trim(text)//';'
+            select case (field)
+            case (1)
+                item = trim(values(i)%kind)
+            case (2)
+                item = trim(values(i)%item)
+            case (3)
+                item = trim(values(i)%derivation)
+            case (4)
+                item = trim(values(i)%status)
+            case default
+                item = ''
+            end select
+            text = trim(text)//trim(item)
+        end do
+    end function evidence_field
+
+    function evidence_from_candidate(candidate) result(value)
+        type(standardir_statement_sequence_candidate_t), intent(in) :: candidate
+        type(standardir_statement_boundary_evidence_t) :: value
+
+        value%kind = trim(candidate%kind)
+        value%item = trim(candidate%item)
+        value%derivation = trim(candidate%derivation)
+        value%status = trim(candidate%status)
+    end function evidence_from_candidate
 
     subroutine split_fields(line, fields, count, message)
         character(len=*), intent(in) :: line
@@ -292,7 +369,8 @@ contains
         character(len=4096) :: text
         text = trim(expected_header())//achar(9)//'disposition'//achar(9)//'source_node_index'//achar(9)// &
             'source_node_kind'//achar(9)//'source_node_name'//achar(9)//'alternative'//achar(9)// &
-            'alternatives'//achar(9)//'reason'
+            'alternatives'//achar(9)//'evidence_count'//achar(9)//'evidence_kinds'//achar(9)// &
+            'evidence_items'//achar(9)//'evidence_derivations'//achar(9)//'evidence_statuses'//achar(9)//'reason'
     end function output_header
 
     logical function is_label(node, label)

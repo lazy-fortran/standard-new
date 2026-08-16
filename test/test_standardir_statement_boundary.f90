@@ -36,7 +36,10 @@ program test_standardir_statement_boundary
 
     call standardir_statement_boundary_build_plan(candidates, plan, ok, message)
     call require(ok, message)
-    call require(size(plan%sites) == size(candidates), 'boundary plan changed witness cardinality')
+    call require(size(plan%sites) < size(candidates), &
+        'same-location candidate evidence was not coalesced')
+    call require(plan_evidence_count(plan) == size(candidates), &
+        'coalescing discarded candidate evidence')
     call require(trim(plan%integration_boundary) == &
         'target expression mapping and token insertion remain downstream', &
         'plan did not state its remaining integration boundary')
@@ -47,6 +50,8 @@ program test_standardir_statement_boundary
         'plan lost repeat-item provenance')
     call require(has_plan_site(plan, 'case-construct', 'R9', 'rhs/2', 'sequence', &
         standardir_sequence_compound_repeat_item), 'plan lost compound provenance')
+    call require(has_plan_evidence(plan, 'case-construct', 'R9', 'rhs/2', 2), &
+        'coalesced site did not retain both candidate kinds')
     call require(has_plan_lineage(plan, 'execution-part', 'DOC', '4.1.4', '45', '100', hash), &
         'plan lost source lineage')
     call require(has_plan_lineage(plan, 'execution-part', 'DOC', '4.1.4', '45', '101', hash), &
@@ -69,8 +74,8 @@ program test_standardir_statement_boundary
 
     broken(2)%item = 'conflicting-item'
     call standardir_statement_boundary_build_plan(broken, plan, ok, message)
-    call require(.not. ok .and. index(trim(message), 'duplicated or ambiguous') > 0, &
-        'ambiguous source occurrence was accepted')
+    call require(ok .and. size(plan%sites) == 1 .and. size(plan%sites(1)%evidence) == 2, &
+        'different candidate evidence was not coalesced')
 
     broken(1) = candidates(1)
     broken(1)%source_hash = ''
@@ -220,17 +225,25 @@ contains
     logical function has_plan_site(value, lhs, rule, path, item, kind)
         type(standardir_statement_boundary_plan_t), intent(in) :: value
         character(len=*), intent(in) :: lhs, rule, path, item, kind
-        integer :: i
+        integer :: i, j
 
         has_plan_site = .false.
         do i = 1, size(value%sites)
             if (trim(value%sites(i)%candidate%source_lhs) /= trim(lhs)) cycle
             if (trim(value%sites(i)%candidate%source_rule) /= trim(rule)) cycle
             if (trim(value%sites(i)%candidate%expression_path) /= trim(path)) cycle
-            if (trim(value%sites(i)%candidate%item) /= trim(item)) cycle
-            if (trim(value%sites(i)%candidate%kind) /= trim(kind)) cycle
-            has_plan_site = .true.
-            return
+            if (trim(value%sites(i)%candidate%item) == trim(item) .and. &
+                trim(value%sites(i)%candidate%kind) == trim(kind)) then
+                has_plan_site = .true.
+                return
+            end if
+            if (.not. allocated(value%sites(i)%evidence)) cycle
+            do j = 1, size(value%sites(i)%evidence)
+                if (trim(value%sites(i)%evidence(j)%item) /= trim(item)) cycle
+                if (trim(value%sites(i)%evidence(j)%kind) /= trim(kind)) cycle
+                has_plan_site = .true.
+                return
+            end do
         end do
     end function has_plan_site
 
@@ -251,6 +264,34 @@ contains
             return
         end do
     end function has_plan_lineage
+
+    integer function plan_evidence_count(value)
+        type(standardir_statement_boundary_plan_t), intent(in) :: value
+        integer :: i
+
+        plan_evidence_count = 0
+        do i = 1, size(value%sites)
+            if (allocated(value%sites(i)%evidence)) plan_evidence_count = &
+                plan_evidence_count + size(value%sites(i)%evidence)
+        end do
+    end function plan_evidence_count
+
+    logical function has_plan_evidence(value, lhs, rule, path, count)
+        type(standardir_statement_boundary_plan_t), intent(in) :: value
+        character(len=*), intent(in) :: lhs, rule, path
+        integer, intent(in) :: count
+        integer :: i
+
+        has_plan_evidence = .false.
+        do i = 1, size(value%sites)
+            if (trim(value%sites(i)%candidate%source_lhs) /= trim(lhs)) cycle
+            if (trim(value%sites(i)%candidate%source_rule) /= trim(rule)) cycle
+            if (trim(value%sites(i)%candidate%expression_path) /= trim(path)) cycle
+            if (.not. allocated(value%sites(i)%evidence)) cycle
+            has_plan_evidence = size(value%sites(i)%evidence) == count
+            return
+        end do
+    end function has_plan_evidence
 
     subroutine require(condition, failure)
         logical, intent(in) :: condition

@@ -18,7 +18,9 @@ program test_standardir_statement_boundary_mapping
     character(len=*), parameter :: other_hash = repeat('b', 64)
     type(standardir_grammar_rule_t) :: rules(10)
     type(standardir_statement_sequence_candidate_t) :: candidates(8)
+    type(standardir_statement_sequence_candidate_t) :: coalesced_candidates(2)
     type(standardir_statement_boundary_plan_t) :: plan, broken
+    type(standardir_statement_boundary_plan_t) :: coalesced_plan
     type(standardir_statement_boundary_mapping_t), allocatable :: mappings(:)
     character(len=512) :: message
     logical :: ok
@@ -108,6 +110,24 @@ program test_standardir_statement_boundary_mapping
         'missing candidate lineage was rejected instead of retained')
     call require(same_candidate(mappings(index)%candidate, broken%sites(plan_index)%candidate), &
         'mapping did not preserve the original candidate on failure')
+
+    coalesced_candidates(1) = candidate('R1', 'nested-stmt', 'rhs/2/1/2', '100', 'nested-stmt', 'repeat-item')
+    coalesced_candidates(2) = coalesced_candidates(1)
+    coalesced_candidates(2)%kind = 'sequence-internal'
+    coalesced_candidates(2)%item = 'other-item'
+    coalesced_candidates(2)%derivation = 'other-derivation'
+    call standardir_statement_boundary_build_plan(coalesced_candidates, coalesced_plan, ok, message)
+    call require(ok, message)
+    call require(size(coalesced_plan%sites) == 1, 'mapping plan retained duplicate structural sites')
+    call require(size(coalesced_plan%sites(1)%evidence) == 2, &
+        'mapping plan did not retain all candidate evidence')
+    call standardir_statement_boundary_map(coalesced_plan, rules, mappings, ok, message)
+    call require(ok, message)
+    call require(size(mappings) == 1 .and. size(mappings(1)%evidence) == 2, &
+        'mapping did not retain one site and both evidence records')
+    call require(trim(mappings(1)%evidence(1)%kind) == 'repeat-item' .and. &
+        trim(mappings(1)%evidence(2)%kind) == 'sequence-internal', &
+        'mapping evidence order was not deterministic')
 
     print '(a)', 'StandardIR statement-boundary mapping test passed'
 

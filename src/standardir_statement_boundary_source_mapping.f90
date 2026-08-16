@@ -7,7 +7,8 @@ module standardir_statement_boundary_source_mapping
         standardir_grammar_reference, standardir_grammar_repeat, standardir_grammar_sequence, &
         standardir_grammar_token
     use standardir_grammar_sx_adapter_support, only: read_syntax
-    use standardir_statement_boundary, only: standardir_statement_boundary_plan_t
+    use standardir_statement_boundary, only: standardir_statement_boundary_plan_t, &
+        standardir_statement_boundary_site_t
     use standardir_statement_boundary_mapping, only: standardir_boundary_ambiguous, standardir_boundary_mapped, &
         standardir_boundary_unsupported, standardir_statement_boundary_mapping_t
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
@@ -35,7 +36,7 @@ contains
         allocate (mappings(0))
         do i = 1, size(plan%sites)
             value = standardir_statement_boundary_mapping_t(); allocate (value%alternatives(0))
-            value%candidate = plan%sites(i)%candidate; matches = 0
+            value%candidate = plan%sites(i)%candidate; call copy_evidence(value, plan%sites(i)); matches = 0
             do j = 1, size(nodes)
                 call read_syntax(nodes(j), rule, lhs, expression, source, local_ok, message)
                 if (.not. local_ok) return
@@ -63,6 +64,21 @@ contains
         end do
         ok = .true.
     end subroutine standardir_statement_boundary_map_sx
+
+    subroutine copy_evidence(value, site)
+        type(standardir_statement_boundary_mapping_t), intent(inout) :: value
+        type(standardir_statement_boundary_site_t), intent(in) :: site
+
+        if (allocated(site%evidence)) then
+            value%evidence = site%evidence
+        else
+            allocate (value%evidence(1))
+            value%evidence(1)%kind = trim(site%candidate%kind)
+            value%evidence(1)%item = trim(site%candidate%item)
+            value%evidence(1)%derivation = trim(site%candidate%derivation)
+            value%evidence(1)%status = trim(site%candidate%status)
+        end if
+    end subroutine copy_evidence
 
     logical function same_source(candidate, rule, lhs, source)
         type(standardir_statement_sequence_candidate_t), intent(in) :: candidate

@@ -6,7 +6,8 @@ module standardir_statement_boundary_mapping
         standardir_grammar_optional, standardir_grammar_reference, standardir_grammar_repeat, &
         standardir_grammar_rule_t, standardir_grammar_sequence, standardir_grammar_token, &
         standardir_grammar_validate
-    use standardir_statement_boundary, only: standardir_statement_boundary_plan_t
+    use standardir_statement_boundary, only: standardir_statement_boundary_evidence_t, &
+        standardir_statement_boundary_plan_t, standardir_statement_boundary_site_t
     use standardir_statement_sequence, only: standardir_statement_sequence_candidate_t
     implicit none
     private
@@ -18,6 +19,7 @@ module standardir_statement_boundary_mapping
 
     type, public :: standardir_statement_boundary_mapping_t
         type(standardir_statement_sequence_candidate_t) :: candidate
+        type(standardir_statement_boundary_evidence_t), allocatable :: evidence(:)
         character(len=16) :: disposition = ''
         character(len=256) :: reason = ''
         integer :: source_node_index = 0
@@ -50,11 +52,27 @@ contains
         do i = 1, size(plan%sites)
             mappings(i) = standardir_statement_boundary_mapping_t()
             mappings(i)%candidate = plan%sites(i)%candidate
+            call copy_evidence(mappings(i), plan%sites(i))
             call map_site(mappings(i), rules)
         end do
         ok = .true.
         message = ''
     end subroutine standardir_statement_boundary_map
+
+    subroutine copy_evidence(value, site)
+        type(standardir_statement_boundary_mapping_t), intent(inout) :: value
+        type(standardir_statement_boundary_site_t), intent(in) :: site
+
+        if (allocated(site%evidence)) then
+            value%evidence = site%evidence
+        else
+            allocate (value%evidence(1))
+            value%evidence(1)%kind = trim(site%candidate%kind)
+            value%evidence(1)%item = trim(site%candidate%item)
+            value%evidence(1)%derivation = trim(site%candidate%derivation)
+            value%evidence(1)%status = trim(site%candidate%status)
+        end if
+    end subroutine copy_evidence
 
     subroutine map_site(value, rules)
         type(standardir_statement_boundary_mapping_t), intent(inout) :: value
