@@ -8,6 +8,7 @@ module standardir_grammar_target_records
     type, public :: standardir_target_expression_t
         integer :: kind = 0
         character(len=128) :: name = ''
+        character(len=512) :: source_expression_path = ''
         integer :: minimum = 0
         logical :: unbounded = .false.
         type(standardir_target_expression_t), allocatable :: children(:)

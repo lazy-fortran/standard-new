@@ -19,7 +19,9 @@ module standardir_grammar_export
         standardir_target_provenance_t, standardir_target_role_family_config_t, &
         standardir_target_role_family_factored, standardir_target_role_family_rejected, &
         standardir_target_role_family_witness_t, standardir_target_rule_t, &
-        standardir_target_source_witness_t
+        standardir_target_source_witness_t, standardir_grammar_correspondence_trace_t, &
+        standardir_correspondence_mapped, standardir_correspondence_ambiguous, &
+        standardir_correspondence_suppressed, standardir_correspondence_unsupported
     use standardir_grammar_treesitter, only: standardir_grammar_lower_treesitter
     use standardir_grammar_source_fingerprint, only: standardir_grammar_source_expression_sha256
     use standardir_grammar_sx_adapter, only: standardir_grammar_adapt_sx
@@ -50,6 +52,11 @@ module standardir_grammar_export
     public :: standardir_target_role_family_rejected
     public :: standardir_target_role_family_witness_t
     public :: standardir_target_rule_t
+    public :: standardir_grammar_correspondence_trace_t
+    public :: standardir_correspondence_mapped
+    public :: standardir_correspondence_ambiguous
+    public :: standardir_correspondence_suppressed
+    public :: standardir_correspondence_unsupported
     public :: standardir_target_reachability_witness_t
     public :: standardir_grammar_select_reachable
     public :: standardir_grammar_validate_reachability

@@ -61,11 +61,11 @@ contains
             if (trim_expression(expression) == 'alt') then
                 staged(i) = standardir_grammar_rule_t()
                 call copy_alternative(expression, i, staged(i), rule, lhs, source, origin, resolution, &
-                    raw_hashes, ok, message)
+                    raw_hashes, 'rhs/'//integer_text(i), ok, message)
             else
                 staged(i) = standardir_grammar_rule_t()
                 call copy_expression(expression, staged(i), rule, lhs, source, origin, resolution, 1, &
-                    raw_hashes, ok, message)
+                    raw_hashes, 'rhs', ok, message)
             end if
             if (.not. ok) then
                 deallocate (staged)
@@ -191,13 +191,14 @@ contains
     end subroutine expression_shape
 
     subroutine copy_alternative(expression, alternative, value, rule, lhs, source, origin, &
-            resolution, raw_hashes, ok, message)
+            resolution, raw_hashes, source_path, ok, message)
         type(sx_node_t), intent(in) :: expression
         integer, intent(in) :: alternative, origin, resolution
         type(standardir_grammar_rule_t), intent(out) :: value
         character(len=*), intent(in) :: rule, lhs
         type(standardir_source_ref_t), intent(in) :: source
         character(len=64), intent(in) :: raw_hashes(:)
+        character(len=*), intent(in) :: source_path
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -205,17 +206,18 @@ contains
 
         selected = expression%children(alternative + 1)
         call copy_expression(selected, value, rule, lhs, source, origin, resolution, alternative, &
-            raw_hashes, ok, message)
+            raw_hashes, source_path, ok, message)
     end subroutine copy_alternative
 
     subroutine copy_expression(expression, value, rule, lhs, source, origin, resolution, &
-            alternative, raw_hashes, ok, message)
+            alternative, raw_hashes, source_path, ok, message)
         type(sx_node_t), intent(in) :: expression
         type(standardir_grammar_rule_t), intent(out) :: value
         character(len=*), intent(in) :: rule, lhs
         type(standardir_source_ref_t), intent(in) :: source
         integer, intent(in) :: origin, resolution, alternative
         character(len=64), intent(in) :: raw_hashes(:)
+        character(len=*), intent(in) :: source_path
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -225,7 +227,7 @@ contains
         if (.not. ok) return
         allocate (value%nodes%values(count))
         cursor = 0
-        call append_expression(expression, value%nodes%values, cursor, first, ok, message, 1)
+        call append_expression(expression, value%nodes%values, cursor, first, ok, message, 1, source_path)
         if (.not. ok) return
         if (alternative < 1 .or. alternative > size(raw_hashes)) then
             ok = .false.
@@ -270,7 +272,7 @@ contains
         end do
     end subroutine standardir_grammar_capture_source_identity
 
-    recursive subroutine append_expression(node, values, cursor, first, ok, message, depth)
+    recursive subroutine append_expression(node, values, cursor, first, ok, message, depth, source_path)
         type(sx_node_t), intent(in) :: node
         type(standardir_grammar_node_t), intent(inout) :: values(:)
         integer, intent(inout) :: cursor
@@ -278,6 +280,7 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
         integer, intent(in) :: depth
+        character(len=*), intent(in) :: source_path
 
         character(len=32) :: label
         integer :: i, child_first, minimum, ios
@@ -298,6 +301,7 @@ contains
         first = cursor
         values(first) = standardir_grammar_node_t()
         values(first)%name = '-'
+        values(first)%source_expression_path = trim(source_path)
         values(first)%minimum = 1
         select case (trim(label))
         case ('ref', 'token')
@@ -311,7 +315,7 @@ contains
             values(first)%first_child = cursor + 1
             do i = 2, node%child_count
                 call append_expression(node%children(i), values, cursor, child_first, ok, message, &
-                    depth + 1)
+                    depth + 1, trim(source_path)//'/'//integer_text(i - 1))
                 if (.not. ok) return
             end do
         case ('optional', 'repeat')
@@ -330,7 +334,7 @@ contains
             values(first)%child_count = 1
             values(first)%first_child = cursor + 1
             call append_expression(node%children(2), values, cursor, child_first, ok, message, &
-                depth + 1)
+                depth + 1, trim(source_path)//'/1')
             if (.not. ok) return
         case default
             message = 'unsupported grammar expression: '//trim(label)
@@ -353,5 +357,12 @@ contains
         end do
         ok = .true.
     end subroutine validate_staged
+
+    function integer_text(value) result(text)
+        integer, intent(in) :: value
+        character(len=32) :: text
+
+        write (text, '(i0)') value
+    end function integer_text
 
 end module standardir_grammar_sx_adapter

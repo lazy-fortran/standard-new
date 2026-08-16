@@ -43,6 +43,7 @@ module standardir_grammar_producer
         logical :: unbounded = .false.
         integer :: first_child = 0
         integer :: child_count = 0
+        character(len=512) :: source_expression_path = ''
     end type standardir_grammar_node_t
 
     type, public :: standardir_grammar_nodes_t

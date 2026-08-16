@@ -17,6 +17,10 @@ module standardir_grammar_targetnorm
         standardir_target_rule_t, standardir_target_source_witness_t, standardir_grammar_factor_role_family, &
         standardir_grammar_validate_role_family_witness
     use standardir_grammar_target_fingerprint, only: standardir_target_expression_sha256
+    use standardir_grammar_correspondence, only: standardir_correspondence_ambiguous, &
+        standardir_correspondence_mapped, standardir_correspondence_suppressed, &
+        standardir_correspondence_unsupported, standardir_grammar_append_correspondence_trace, &
+        standardir_grammar_correspondence_trace_t
     implicit none
     private
 
@@ -32,26 +36,40 @@ module standardir_grammar_targetnorm
     public :: standardir_target_role_family_rejected
     public :: standardir_target_role_family_witness_t
     public :: standardir_target_rule_t
+    public :: standardir_grammar_correspondence_trace_t
+    public :: standardir_correspondence_mapped
+    public :: standardir_correspondence_ambiguous
+    public :: standardir_correspondence_suppressed
+    public :: standardir_correspondence_unsupported
 
 
 contains
 
-    subroutine standardir_grammar_normalize(rules, normalized, suppressed, ok, message)
+    subroutine standardir_grammar_normalize(rules, normalized, suppressed, ok, message, trace)
         type(standardir_grammar_rule_t), intent(in) :: rules(:)
         type(standardir_target_rule_t), allocatable, intent(out) :: normalized(:), suppressed(:)
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(out), optional :: trace(:)
 
         type(standardir_target_rule_t), allocatable :: working(:)
         character(len=128), allocatable :: names(:)
         logical, allocatable :: nullable(:)
         type(standardir_target_rule_t) :: item
         type(standardir_target_expression_t) :: normalized_expression
-        integer :: i, name_count
+        type(standardir_grammar_correspondence_trace_t), allocatable :: trace_values(:)
+        logical :: trace_requested
+        integer :: i, name_count, suppressed_before
 
         if (allocated(normalized)) deallocate (normalized)
         if (allocated(suppressed)) deallocate (suppressed)
         allocate (working(0), suppressed(0))
+        allocate (trace_values(0))
+        trace_requested = present(trace)
+        if (trace_requested) then
+            if (allocated(trace)) deallocate (trace)
+            allocate (trace(0))
+        end if
         ok = .false.
         message = ''
         if (size(rules) < 1) then
@@ -67,17 +85,22 @@ contains
         call collect_lhs_names(working, names, name_count)
         call compute_nullable(working, names, name_count, nullable)
         do i = 1, size(working)
-            call normalize_expression(working(i)%expression, names, nullable, &
-                normalized_expression, ok, message)
+            call normalize_expression(working(i)%expression, names, nullable, normalized_expression, ok, &
+                message, trace_requested, working(i), source_path_for_expression(working(i)%expression, 'rhs'), &
+                'rule-expression', trace_values)
             if (.not. ok) return
             working(i)%expression = normalized_expression
         end do
         call deduplicate_rules(working, suppressed, ok, message)
         if (.not. ok) return
+        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
+        suppressed_before = size(suppressed)
         call eliminate_left_recursion(working, suppressed, names, name_count, nullable, ok, message)
         if (.not. ok) return
+        if (trace_requested) call mark_left_recursion_trace(trace_values, suppressed, suppressed_before + 1)
         call deduplicate_rules(working, suppressed, ok, message)
         if (.not. ok) return
+        if (trace_requested) call mark_suppressed_trace(trace_values, suppressed, 'rule-deduplicate')
         call reject_remaining_left_recursion(working, names, name_count, nullable, ok, message)
         if (.not. ok) return
         call refresh_target_expression_hashes(working, ok, message)
@@ -88,7 +111,9 @@ contains
             message = 'grammar normalization removed every alternative'
             return
         end if
+        if (trace_requested) call finalize_trace_paths(trace_values)
         call move_alloc(working, normalized)
+        if (trace_requested) call move_alloc(trace_values, trace)
         ok = .true.
         message = ''
     end subroutine standardir_grammar_normalize
@@ -189,6 +214,7 @@ contains
         node = rule%nodes%values(index)
         expression%kind = node%kind
         expression%name = trim(node%name)
+        expression%source_expression_path = trim(node%source_expression_path)
         expression%minimum = node%minimum
         expression%unbounded = node%unbounded
         if (node%child_count > 0) then
@@ -305,18 +331,26 @@ contains
         end select
     end function expression_nullable
 
-    recursive subroutine normalize_expression(expression, names, nullable, result, ok, message)
+    recursive subroutine normalize_expression(expression, names, nullable, result, ok, message, &
+            trace_requested, context, source_path, boundary_role, trace)
         type(standardir_target_expression_t), intent(in) :: expression
         character(len=128), intent(in) :: names(:)
         logical, intent(in) :: nullable(:)
         type(standardir_target_expression_t), intent(out) :: result
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+        logical, intent(in) :: trace_requested
+        type(standardir_target_rule_t), intent(in) :: context
+        character(len=*), intent(in) :: source_path, boundary_role
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
 
         type(standardir_target_expression_t), allocatable :: children(:)
         type(standardir_target_expression_t) :: child
-        integer :: i, j
+        integer :: child_start, child_end, flatten_base, i, j, output_count
         logical :: duplicate
+        character(len=64) :: operation
+        character(len=16) :: root_disposition
+        character(len=64) :: input_hash, output_hash
 
         result = standardir_target_expression_t()
         ok = .false.
@@ -324,6 +358,10 @@ contains
         if (expression%kind == standardir_grammar_reference .or. &
             expression%kind == standardir_grammar_token) then
             result = expression
+            if (trace_requested) then
+                call append_trace_node(trace, context, expression, source_path, boundary_role, &
+                    'identity', standardir_correspondence_mapped, result, ok, message)
+            end if
             ok = .true.
             return
         end if
@@ -336,26 +374,60 @@ contains
             return
         end if
         allocate (children(0))
+        output_count = 0
         do i = 1, size(expression%children)
-            call normalize_expression(expression%children(i), names, nullable, child, ok, message)
+            child_start = size(trace)
+            call normalize_expression(expression%children(i), names, nullable, child, ok, message, &
+                trace_requested, context, source_path_for_expression(expression%children(i), &
+                child_path(source_path, i)), child_role(expression%kind), trace)
             if (.not. ok) return
+            child_end = size(trace)
             if (expression%kind == standardir_grammar_sequence .and. &
                 child%kind == standardir_grammar_sequence) then
+                if (trace_requested) then
+                    call rebase_flattened_trace(trace, child_start + 1, child_end, source_path, output_count, &
+                        'sequence-flatten')
+                end if
                 do j = 1, size(child%children)
                     call append_expression(children, child%children(j))
+                    output_count = output_count + 1
                 end do
             else if (expression%kind == standardir_grammar_choice .and. &
                     child%kind == standardir_grammar_choice) then
+                flatten_base = output_count
+                if (trace_requested) then
+                    call rebase_flattened_trace(trace, child_start + 1, child_end, source_path, output_count, &
+                        'choice-flatten')
+                end if
                 do j = 1, size(child%children)
                     call contains_expression(children, child%children(j), duplicate)
-                    if (.not. duplicate) call append_expression(children, child%children(j))
+                    if (.not. duplicate) then
+                        call append_expression(children, child%children(j))
+                        output_count = output_count + 1
+                        if (trace_requested) then
+                            call compact_trace_slot(trace, child_start + 1, child_end, flatten_base + j, &
+                                output_count)
+                        end if
+                    else if (trace_requested) then
+                        call mark_trace_slot(trace, child_start + 1, child_end, flatten_base + j, &
+                            'choice-deduplicate')
+                    end if
                 end do
             else
                 duplicate = .false.
                 if (expression%kind == standardir_grammar_choice) then
                     call contains_expression(children, child, duplicate)
                 end if
-                if (.not. duplicate) call append_expression(children, child)
+                if (.not. duplicate) then
+                    call append_expression(children, child)
+                    output_count = output_count + 1
+                    if (trace_requested) then
+                        call prefix_trace_paths(trace, child_start + 1, child_end, output_count)
+                    end if
+                else if (trace_requested) then
+                    call mark_trace_range(trace, child_start + 1, child_end, &
+                        standardir_correspondence_suppressed, 'choice-deduplicate')
+                end if
             end if
         end do
         if (size(children) < 1) then
@@ -364,20 +436,355 @@ contains
         end if
         result = expression
         call move_alloc(children, result%children)
+        operation = 'identity'
+        root_disposition = standardir_correspondence_mapped
         if (result%kind == standardir_grammar_optional) then
             if (expression_nullable(result%children(1), names, nullable)) result = result%children(1)
+            if (result%kind /= standardir_grammar_optional) then
+                operation = 'optional-wrapper-removal'
+                root_disposition = standardir_correspondence_suppressed
+            end if
         else if (result%kind == standardir_grammar_repeat) then
             if (result%children(1)%kind == standardir_grammar_optional) then
                 result%minimum = 0
                 result%children(1) = result%children(1)%children(1)
+                operation = 'optional-wrapper-removal'
+                root_disposition = standardir_correspondence_suppressed
             end if
         end if
         if (result%kind == standardir_grammar_sequence .or. result%kind == standardir_grammar_choice) then
-            if (size(result%children) == 1) result = result%children(1)
+            if (size(result%children) == 1) then
+                result = result%children(1)
+                if (operation == 'identity') then
+                    if (expression%kind == standardir_grammar_sequence) then
+                        operation = 'sequence-collapse'
+                    else
+                        operation = 'choice-collapse'
+                    end if
+                    root_disposition = standardir_correspondence_suppressed
+                end if
+            end if
+        end if
+        if (expression%kind == standardir_grammar_sequence .and. result%kind == standardir_grammar_sequence) then
+            if (trace_requested) call mark_trace_operation(trace, source_path, 'sequence-flatten')
+            operation = 'sequence-flatten'
+        else if (expression%kind == standardir_grammar_choice .and. result%kind == standardir_grammar_choice) then
+            if (trace_requested) call mark_trace_operation(trace, source_path, 'choice-flatten')
+            operation = 'choice-flatten'
+        end if
+        if (trace_requested) then
+            call trace_expression_hash(expression, context, source_path, input_hash, ok, message)
+            if (.not. ok) return
+            call standardir_target_expression_sha256(result, output_hash, ok, message)
+            if (.not. ok) return
+            call append_trace_root(trace, context, expression, source_path, boundary_role, operation, &
+                input_hash, output_hash, result, ok, message, root_disposition)
+            if (.not. ok) return
+            if (operation == 'optional-wrapper-removal') then
+                call mark_trace_operation(trace, source_path, 'optional-wrapper-removal')
+            end if
         end if
         ok = .true.
         message = ''
     end subroutine normalize_expression
+
+    subroutine append_trace_node(trace, context, expression, source_path, boundary_role, operation, &
+            disposition, result, ok, message)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_target_rule_t), intent(in) :: context
+        type(standardir_target_expression_t), intent(in) :: expression, result
+        character(len=*), intent(in) :: source_path, boundary_role, operation, disposition
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=64) :: input_hash, output_hash
+
+        call trace_expression_hash(expression, context, source_path, input_hash, ok, message)
+        if (.not. ok) return
+        call standardir_target_expression_sha256(result, output_hash, ok, message)
+        if (.not. ok) return
+        call append_trace_root(trace, context, expression, source_path, boundary_role, operation, &
+            input_hash, output_hash, result, ok, message, disposition)
+    end subroutine append_trace_node
+
+    subroutine append_trace_root(trace, context, expression, source_path, boundary_role, operation, &
+            input_hash, output_hash, result, ok, message, disposition)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_target_rule_t), intent(in) :: context
+        type(standardir_target_expression_t), intent(in) :: expression, result
+        character(len=*), intent(in) :: source_path, boundary_role, operation
+        character(len=*), intent(in) :: input_hash, output_hash
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        character(len=*), intent(in), optional :: disposition
+        type(standardir_grammar_correspondence_trace_t) :: row
+
+        row = standardir_grammar_correspondence_trace_t()
+        row%source = context%source
+        row%source_alternative = context%alternative
+        row%raw_source_expression_path = trim(source_path)
+        row%source_node_kind = expression%kind
+        row%source_node_name = trim(expression%name)
+        row%source_boundary_role = trim(boundary_role)
+        row%target_rule_id = trim(context%id)
+        row%target_lhs = trim(context%lhs)
+        row%target_alternative = context%alternative
+        row%target_expression_path = ''
+        row%target_sequence_boundary_slot = 0
+        row%transformation = trim(operation)
+        row%input_expression_sha256 = trim(input_hash)
+        row%output_expression_sha256 = trim(output_hash)
+        row%disposition = standardir_correspondence_mapped
+        if (present(disposition)) row%disposition = trim(disposition)
+        if (trim(row%disposition) == standardir_correspondence_suppressed) then
+            row%reason = 'source expression was removed by generic normalization'
+        end if
+        call standardir_grammar_append_correspondence_trace(trace, row)
+        ok = .true.
+        message = ''
+    end subroutine append_trace_root
+
+    subroutine trace_expression_hash(expression, context, source_path, fingerprint, ok, message)
+        type(standardir_target_expression_t), intent(in) :: expression
+        type(standardir_target_rule_t), intent(in) :: context
+        character(len=*), intent(in) :: source_path
+        character(len=*), intent(out) :: fingerprint
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        fingerprint = ''
+        ok = .false.
+        message = ''
+        if (trim(source_path) == 'rhs' .and. allocated(context%provenance)) then
+            if (size(context%provenance) > 0) then
+                if (context%provenance(1)%source_expression_present .and. &
+                    len_trim(context%provenance(1)%source_expression_sha256) > 0) then
+                    fingerprint = trim(context%provenance(1)%source_expression_sha256)
+                    ok = .true.
+                    return
+                end if
+            end if
+        end if
+        call standardir_target_expression_sha256(expression, fingerprint, ok, message)
+    end subroutine trace_expression_hash
+
+    function child_path(parent, index) result(value)
+        character(len=*), intent(in) :: parent
+        integer, intent(in) :: index
+        character(len=512) :: value
+        character(len=32) :: text
+
+        write (text, '(i0)') index
+        value = trim(parent)//'/'//trim(text)
+    end function child_path
+
+    function source_path_for_expression(expression, fallback) result(value)
+        type(standardir_target_expression_t), intent(in) :: expression
+        character(len=*), intent(in) :: fallback
+        character(len=512) :: value
+
+        if (len_trim(expression%source_expression_path) > 0) then
+            value = trim(expression%source_expression_path)
+        else
+            value = trim(fallback)
+        end if
+    end function source_path_for_expression
+
+    function child_role(kind) result(value)
+        integer, intent(in) :: kind
+        character(len=64) :: value
+
+        select case (kind)
+        case (standardir_grammar_sequence)
+            value = 'sequence-element'
+        case (standardir_grammar_choice)
+            value = 'choice-alternative'
+        case (standardir_grammar_optional)
+            value = 'optional-content'
+        case (standardir_grammar_repeat)
+            value = 'repeat-content'
+        case default
+            value = 'expression-child'
+        end select
+    end function child_role
+
+    subroutine prefix_trace_paths(trace, first, last, slot)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer, intent(in) :: first, last, slot
+        character(len=32) :: text
+        integer :: i
+
+        write (text, '(i0)') slot
+        do i = first, last
+            if (trim(trace(i)%disposition) /= standardir_correspondence_mapped .and. &
+                trim(trace(i)%disposition) /= standardir_correspondence_ambiguous) cycle
+            if (len_trim(trace(i)%target_expression_path) == 0) then
+                trace(i)%target_expression_path = '/'//trim(text)
+            else
+                trace(i)%target_expression_path = '/'//trim(text)// &
+                    trim(trace(i)%target_expression_path)
+            end if
+            if (trace(i)%target_sequence_boundary_slot == 0) then
+                trace(i)%target_sequence_boundary_slot = slot
+            end if
+        end do
+    end subroutine prefix_trace_paths
+
+    subroutine rebase_flattened_trace(trace, first, last, source_path, old_count, operation)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer, intent(in) :: first, last, old_count
+        character(len=*), intent(in) :: source_path
+        character(len=*), intent(in) :: operation
+        character(len=512) :: path, remainder
+        character(len=32) :: number_text, slot_text
+        integer :: i, ios, nested_slot, target_slot
+
+        do i = first, last
+            path = trim(trace(i)%target_expression_path)
+            if (len_trim(path) == 0) then
+                trace(i)%disposition = standardir_correspondence_suppressed
+                trace(i)%transformation = trim(operation)
+                trace(i)%reason = 'nested expression wrapper has no target node'
+                cycle
+            end if
+            read (path(2:), *, iostat=ios) nested_slot
+            if (ios /= 0) cycle
+            target_slot = old_count + nested_slot
+            write (slot_text, '(i0)') target_slot
+            remainder = ''
+            if (len_trim(path) > 0) then
+                number_text = ''
+                write (number_text, '(i0)') nested_slot
+                if (len_trim(path) > len_trim(number_text)) then
+                    remainder = path(len_trim(number_text) + 2:)
+                end if
+            end if
+            trace(i)%target_expression_path = '/'//trim(slot_text)//trim(remainder)
+            trace(i)%target_sequence_boundary_slot = target_slot
+            trace(i)%transformation = trim(operation)
+        end do
+    end subroutine rebase_flattened_trace
+
+    subroutine mark_trace_range(trace, first, last, disposition, operation)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer, intent(in) :: first, last
+        character(len=*), intent(in) :: disposition, operation
+        integer :: i
+
+        do i = first, last
+            trace(i)%target_expression_path = ''
+            trace(i)%target_sequence_boundary_slot = 0
+            trace(i)%disposition = trim(disposition)
+            trace(i)%transformation = trim(operation)
+            trace(i)%reason = 'source expression was not uniquely retained'
+        end do
+    end subroutine mark_trace_range
+
+    subroutine mark_trace_slot(trace, first, last, slot, operation)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer, intent(in) :: first, last, slot
+        character(len=*), intent(in) :: operation
+        character(len=512) :: path
+        character(len=32) :: slot_text
+        integer :: i
+
+        write (slot_text, '(i0)') slot
+        do i = first, last
+            path = trim(trace(i)%target_expression_path)
+            if (len_trim(path) == 0) cycle
+            if (path == '/'//trim(slot_text) .or. &
+                index(path, '/'//trim(slot_text)//'/') == 1) then
+                trace(i)%target_expression_path = ''
+                trace(i)%target_sequence_boundary_slot = 0
+                trace(i)%disposition = standardir_correspondence_suppressed
+                trace(i)%transformation = trim(operation)
+                trace(i)%reason = 'duplicate choice alternative was suppressed'
+            end if
+        end do
+    end subroutine mark_trace_slot
+
+    subroutine compact_trace_slot(trace, first, last, old_slot, new_slot)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer, intent(in) :: first, last, old_slot, new_slot
+        character(len=512) :: path
+        character(len=32) :: old_text, new_text
+        integer :: i
+
+        write (old_text, '(i0)') old_slot
+        write (new_text, '(i0)') new_slot
+        do i = first, last
+            path = trim(trace(i)%target_expression_path)
+            if (path == '/'//trim(old_text)) then
+                trace(i)%target_expression_path = '/'//trim(new_text)
+            else if (index(path, '/'//trim(old_text)//'/') == 1) then
+                trace(i)%target_expression_path = '/'//trim(new_text)//path(len_trim(old_text) + 1:)
+            else
+                cycle
+            end if
+            trace(i)%target_sequence_boundary_slot = new_slot
+        end do
+    end subroutine compact_trace_slot
+
+    subroutine mark_trace_operation(trace, source_path, operation)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        character(len=*), intent(in) :: source_path, operation
+        integer :: i
+
+        do i = 1, size(trace)
+            if (trim(trace(i)%raw_source_expression_path) == trim(source_path)) then
+                trace(i)%transformation = trim(operation)
+            end if
+        end do
+    end subroutine mark_trace_operation
+
+    subroutine mark_left_recursion_trace(trace, suppressed, first_suppressed)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_target_rule_t), allocatable, intent(in) :: suppressed(:)
+        integer, intent(in) :: first_suppressed
+        integer :: i, j
+
+        do j = first_suppressed, size(suppressed)
+            do i = 1, size(trace)
+                if (trim(trace(i)%source%rule) /= trim(suppressed(j)%source%rule)) cycle
+                if (trace(i)%source_alternative /= suppressed(j)%alternative) cycle
+                trace(i)%target_expression_path = ''
+                trace(i)%target_sequence_boundary_slot = 0
+                trace(i)%disposition = standardir_correspondence_unsupported
+                trace(i)%transformation = 'left-recursion-elimination'
+                trace(i)%reason = 'left-recursion lowering has no sound correspondence trace'
+            end do
+        end do
+    end subroutine mark_left_recursion_trace
+
+    subroutine mark_suppressed_trace(trace, suppressed, operation)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        type(standardir_target_rule_t), allocatable, intent(in) :: suppressed(:)
+        character(len=*), intent(in) :: operation
+        integer :: i, j
+
+        do j = 1, size(suppressed)
+            do i = 1, size(trace)
+                if (trim(trace(i)%source%rule) /= trim(suppressed(j)%source%rule)) cycle
+                if (trace(i)%source_alternative /= suppressed(j)%alternative) cycle
+                if (trim(trace(i)%disposition) == standardir_correspondence_unsupported) cycle
+                trace(i)%target_expression_path = ''
+                trace(i)%target_sequence_boundary_slot = 0
+                trace(i)%disposition = standardir_correspondence_suppressed
+                trace(i)%transformation = trim(operation)
+                trace(i)%reason = 'duplicate target alternative was suppressed'
+            end do
+        end do
+    end subroutine mark_suppressed_trace
+
+    subroutine finalize_trace_paths(trace)
+        type(standardir_grammar_correspondence_trace_t), allocatable, intent(inout) :: trace(:)
+        integer :: i
+
+        do i = 1, size(trace)
+            if (len_trim(trace(i)%target_expression_path) > 0) then
+                trace(i)%target_expression_path = 'rhs'//trim(trace(i)%target_expression_path)
+            end if
+        end do
+    end subroutine finalize_trace_paths
 
 
     subroutine deduplicate_rules(values, suppressed, ok, message)
