@@ -23,6 +23,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_div_op_grammar_fact
     public :: standardir_generate_add_op_grammar_fact
     public :: standardir_generate_add_op_en_dash_grammar_fact
+    public :: standardir_generate_expression_fact_table
     public :: standardir_generate_intrinsic_type_spec_lookup
 
 contains
@@ -170,6 +171,179 @@ contains
         call generate_type_spec_fact(node, unit, 'R1010', &
             'standardir_add_op_en_dash_grammar_fact', 'add_op_en_dash_grammar', 'add-op', ok, message)
     end subroutine standardir_generate_add_op_en_dash_grammar_fact
+
+    subroutine standardir_generate_expression_fact_table(nodes, unit, ok, message)
+        type(sx_node_t), intent(in) :: nodes(:)
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(grammar_fact_t), allocatable :: facts(:)
+        type(grammar_fact_t) :: value
+        integer :: i, count
+
+        ok = .false.
+        message = ''
+        allocate (facts(size(nodes)))
+        count = 0
+        do i = 1, size(nodes)
+            call read_grammar_fact_value(nodes(i), value, ok, message)
+            if (.not. ok) return
+            if (.not. expression_fact_rule(value)) cycle
+            count = count + 1
+            facts(count) = value
+        end do
+        if (count == 0) then
+            message = 'expression-fact table has no bounded grammar facts'
+            return
+        end if
+
+        call emit_expression_fact_table(unit, facts(:count))
+        ok = .true.
+
+    contains
+
+        logical function expression_fact_rule(value)
+            type(grammar_fact_t), intent(in) :: value
+
+            expression_fact_rule = trim(value%source%clause) == '10' .and. &
+                trim(value%id) == trim(value%source%rule) .and. &
+                (trim(value%id) == 'R1006' .or. trim(value%id) == 'R1009' .or. &
+                trim(value%id) == 'R1010')
+        end function expression_fact_rule
+
+    end subroutine standardir_generate_expression_fact_table
+
+    subroutine emit_expression_fact_table(unit, facts)
+        integer, intent(in) :: unit
+        type(grammar_fact_t), intent(in) :: facts(:)
+
+        integer :: i
+        character(len=32) :: count_text
+
+        write (count_text, '(i0)') size(facts)
+        call emit_line(unit, 'module standardir_expression_fact_generated')
+        call emit_line(unit, '    !! Generated from specs/grammar-facts-v0.sx; do not edit.')
+        call emit_line(unit, '')
+        call emit_line(unit, '    use schema_v0_generated, only: grammar_fact_t, ORIGIN_MECHANICAL, &')
+        call emit_line(unit, '        RESOLUTION_RESOLVED')
+        call emit_line(unit, '    implicit none')
+        call emit_line(unit, '    private')
+        call emit_line(unit, '')
+        call emit_line(unit, '    type, public :: standardir_expression_fact_t')
+        call emit_line(unit, '        type(grammar_fact_t) :: fact')
+        call emit_line(unit, '    end type standardir_expression_fact_t')
+        call emit_line(unit, '')
+        call emit_line(unit, '    integer, parameter, public :: standardir_expression_fact_count = '// &
+            trim(count_text))
+        call emit_line(unit, '    public :: standardir_make_expression_fact_table')
+        call emit_line(unit, '    public :: standardir_lookup_expression_fact')
+        call emit_line(unit, '')
+        call emit_line(unit, 'contains')
+        call emit_line(unit, '')
+        call emit_line(unit, '    subroutine standardir_make_expression_fact_table(values)')
+        call emit_line(unit, '        type(standardir_expression_fact_t), intent(out) :: values('// &
+            trim(count_text)//')')
+        call emit_line(unit, '')
+        do i = 1, size(facts)
+            call emit_fact_assignment(unit, i, facts(i))
+        end do
+        call emit_line(unit, '    end subroutine standardir_make_expression_fact_table')
+        call emit_line(unit, '')
+        call emit_line(unit, '    subroutine standardir_lookup_expression_fact(id, expression, value, found)')
+        call emit_line(unit, '        character(len=*), intent(in) :: id, expression')
+        call emit_line(unit, '        type(standardir_expression_fact_t), intent(out) :: value')
+        call emit_line(unit, '        logical, intent(out) :: found')
+        call emit_line(unit, '')
+        call emit_line(unit, '        type(standardir_expression_fact_t) :: values('//trim(count_text)//')')
+        call emit_line(unit, '        integer :: i')
+        call emit_line(unit, '')
+        call emit_line(unit, '        call standardir_make_expression_fact_table(values)')
+        call emit_line(unit, '        value%fact%id = ''''')
+        call emit_line(unit, '        value%fact%expression = ''''')
+        call emit_line(unit, '        value%fact%source%document = ''''')
+        call emit_line(unit, '        value%fact%source%clause = ''''')
+        call emit_line(unit, '        value%fact%source%rule = ''''')
+        call emit_line(unit, '        value%fact%source%page = 0')
+        call emit_line(unit, '        value%fact%source%source_hash = ''''')
+        call emit_line(unit, '        value%fact%origin = 0')
+        call emit_line(unit, '        value%fact%resolution = 0')
+        call emit_line(unit, '        found = .false.')
+        call emit_line(unit, '        do i = 1, size(values)')
+        call emit_line(unit, '            if (trim(values(i)%fact%id) == trim(id) .and. &')
+        call emit_line(unit, '                trim(values(i)%fact%expression) == trim(expression)) then')
+        call emit_line(unit, '                value = values(i)')
+        call emit_line(unit, '                found = .true.')
+        call emit_line(unit, '                return')
+        call emit_line(unit, '            end if')
+        call emit_line(unit, '        end do')
+        call emit_line(unit, '    end subroutine standardir_lookup_expression_fact')
+        call emit_line(unit, '')
+        call emit_line(unit, 'end module standardir_expression_fact_generated')
+    end subroutine emit_expression_fact_table
+
+    subroutine emit_fact_assignment(unit, index, fact)
+        integer, intent(in) :: unit, index
+        type(grammar_fact_t), intent(in) :: fact
+        call emit_fact_text(unit, index, 'id', fact%id)
+        call emit_fact_text(unit, index, 'expression', fact%expression)
+        call emit_fact_text(unit, index, 'source%document', fact%source%document)
+        call emit_fact_text(unit, index, 'source%clause', fact%source%clause)
+        call emit_fact_text(unit, index, 'source%rule', fact%source%rule)
+        call emit_fact_integer(unit, index, 'source%page', fact%source%page)
+        call emit_fact_text(unit, index, 'source%source_hash', fact%source%source_hash)
+        call emit_fact_constant(unit, index, 'origin', origin_name(fact%origin))
+        call emit_fact_constant(unit, index, 'resolution', resolution_name(fact%resolution))
+    end subroutine emit_fact_assignment
+
+    subroutine emit_fact_text(unit, index, field, value)
+        integer, intent(in) :: unit, index
+        character(len=*), intent(in) :: field, value
+        character(len=2048) :: line
+
+        write (line, '(a,i0,a,a,a,a,a)') '        values(', index, ')%fact%', trim(field), &
+            ' = ''', trim(value), ''''
+        call emit_line(unit, trim(line))
+    end subroutine emit_fact_text
+
+    subroutine emit_fact_integer(unit, index, field, value)
+        integer, intent(in) :: unit, index, value
+        character(len=*), intent(in) :: field
+        character(len=256) :: line
+
+        write (line, '(a,i0,a,a,a,i0)') '        values(', index, ')%fact%', trim(field), &
+            ' = ', value
+        call emit_line(unit, trim(line))
+    end subroutine emit_fact_integer
+
+    subroutine emit_fact_constant(unit, index, field, value)
+        integer, intent(in) :: unit, index
+        character(len=*), intent(in) :: field, value
+        character(len=256) :: line
+
+        write (line, '(a,i0,a,a,a,a)') '        values(', index, ')%fact%', trim(field), ' = ', trim(value)
+        call emit_line(unit, trim(line))
+    end subroutine emit_fact_constant
+
+    character(len=32) function origin_name(origin)
+        integer, intent(in) :: origin
+
+        if (origin == ORIGIN_MECHANICAL) then
+            origin_name = 'ORIGIN_MECHANICAL'
+        else
+            origin_name = '0'
+        end if
+    end function origin_name
+
+    character(len=32) function resolution_name(resolution)
+        integer, intent(in) :: resolution
+
+        if (resolution == RESOLUTION_RESOLVED) then
+            resolution_name = 'RESOLUTION_RESOLVED'
+        else
+            resolution_name = '0'
+        end if
+    end function resolution_name
 
     subroutine standardir_generate_intrinsic_type_spec_lookup(nodes, unit, ok, message)
         type(sx_node_t), intent(in) :: nodes(:)
