@@ -17,6 +17,8 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_character_type_spec_fact
     public :: standardir_generate_program_grammar_fact
     public :: standardir_generate_execution_part_grammar_fact
+    public :: standardir_generate_stop_stmt_grammar_fact
+    public :: standardir_generate_stop_code_grammar_fact
     public :: standardir_generate_int_literal_constant_grammar_fact
     public :: standardir_generate_assignment_stmt_grammar_fact
     public :: standardir_generate_level_2_expr_grammar_fact
@@ -113,6 +115,26 @@ contains
         call generate_type_spec_fact(node, unit, 'R509', 'standardir_execution_part_grammar_fact', &
             'execution_part_grammar', 'execution-part', ok, message)
     end subroutine standardir_generate_execution_part_grammar_fact
+
+    subroutine standardir_generate_stop_stmt_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1162', 'standardir_stop_stmt_grammar_fact', &
+            'stop_stmt_grammar', 'stop-stmt', ok, message)
+    end subroutine standardir_generate_stop_stmt_grammar_fact
+
+    subroutine standardir_generate_stop_code_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1164', 'standardir_stop_code_grammar_fact', &
+            'stop_code_grammar', 'stop-code', ok, message)
+    end subroutine standardir_generate_stop_code_grammar_fact
 
     subroutine standardir_generate_int_literal_constant_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
@@ -932,6 +954,8 @@ contains
                 type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 53
             case ('R509')
                 type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 45
+            case ('R1162', 'R1164')
+                type_spec_source_matches = trim(source_clause) == '11' .and. source_page == 214
             case ('R705', 'R706', 'R707')
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 67
             case ('R708')
@@ -954,6 +978,12 @@ contains
 
             type_spec_expression_matches = .true.
             select case (trim(rule))
+            case ('R1162')
+                type_spec_expression_matches = trim(source_expression) == &
+                    'STOP [ stop-code ] [ , QUIET = scalar-logical-expr ]'
+            case ('R1164')
+                type_spec_expression_matches = trim(source_expression) == &
+                    'scalar-default-char-expr | scalar-int-expr'
             case ('R901')
                 type_spec_expression_matches = trim(source_expression) == &
                     'object-name | array-element | array-section | coindexed-named-object | '// &
