@@ -8,6 +8,7 @@ program test_standardir_grammar_fact
         standardir_generate_character_type_spec_fact, &
         standardir_generate_program_grammar_fact, standardir_generate_assignment_stmt_grammar_fact, &
         standardir_generate_level_2_expr_grammar_fact, standardir_generate_add_op_grammar_fact, &
+        standardir_generate_add_operand_grammar_fact, standardir_generate_mult_op_grammar_fact, &
         standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
@@ -15,6 +16,10 @@ program test_standardir_grammar_fact
         standardir_consume_assignment_stmt_grammar_fact, standardir_write_assignment_stmt_grammar_fact
     use standardir_level_2_expr_grammar_fact, only: &
         standardir_consume_level_2_expr_grammar_fact, standardir_write_level_2_expr_grammar_fact
+    use standardir_add_operand_grammar_fact, only: &
+        standardir_consume_add_operand_grammar_fact, standardir_write_add_operand_grammar_fact
+    use standardir_mult_op_grammar_fact, only: &
+        standardir_consume_mult_op_grammar_fact, standardir_write_mult_op_grammar_fact
     use standardir_add_op_grammar_fact, only: &
         standardir_consume_add_op_grammar_fact, standardir_write_add_op_grammar_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
@@ -75,6 +80,14 @@ program test_standardir_grammar_fact
     character(len=*), parameter :: expected_add_op = &
         '(grammar-fact (id R1010) (expression "+") '// &
         '(source (source-ref (document J3-24-007) (clause 10) (rule R1010) '// &
+        '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_add_operand = &
+        '(grammar-fact (id R1006) (expression "[ add-operand mult-op ] mult-operand") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1006) '// &
+        '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_mult_op = &
+        '(grammar-fact (id R1009) (expression "*") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1009) '// &
         '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
     type(sx_node_t) :: node
@@ -184,6 +197,11 @@ program test_standardir_grammar_fact
         standardir_generate_level_2_expr_grammar_fact)
     call check_expression_fact(expected_add_op, 'R1010', '+', standardir_write_add_op_grammar_fact, &
         standardir_consume_add_op_grammar_fact, standardir_generate_add_op_grammar_fact)
+    call check_expression_fact(expected_add_operand, 'R1006', '[ add-operand mult-op ] mult-operand', &
+        standardir_write_add_operand_grammar_fact, standardir_consume_add_operand_grammar_fact, &
+        standardir_generate_add_operand_grammar_fact)
+    call check_expression_fact(expected_mult_op, 'R1009', '*', standardir_write_mult_op_grammar_fact, &
+        standardir_consume_mult_op_grammar_fact, standardir_generate_mult_op_grammar_fact)
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open fact output')
@@ -717,7 +735,7 @@ contains
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
         call require(ios == 0, 'could not reopen expression grammar-fact specification')
-        do i = 1, 10
+        do i = 1, 12
             read (input_unit, '(a)', iostat=ios) source
             call require(ios == 0, 'could not read add-op grammar-fact specification')
         end do
@@ -734,6 +752,46 @@ contains
         call read_source('src/standardir_add_op_grammar_fact_generated.f90', checked, checked_count)
         call require(fresh_count == checked_count .and. all(fresh(:fresh_count) == checked(:checked_count)), &
             'checked-in add-op output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not reopen add-operand grammar-fact specification')
+        do i = 1, 10
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read add-operand grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=output_unit, file='build/standardir_add_operand_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh add-operand output')
+        call standardir_generate_add_operand_grammar_fact(node, output_unit, local_ok, message)
+        close (output_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_add_operand_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('src/standardir_add_operand_grammar_fact_generated.f90', checked, checked_count)
+        call require(fresh_count == checked_count .and. all(fresh(:fresh_count) == checked(:checked_count)), &
+            'checked-in add-operand output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not reopen mult-op grammar-fact specification')
+        do i = 1, 11
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read mult-op grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=output_unit, file='build/standardir_mult_op_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh mult-op output')
+        call standardir_generate_mult_op_grammar_fact(node, output_unit, local_ok, message)
+        close (output_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_mult_op_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('src/standardir_mult_op_grammar_fact_generated.f90', checked, checked_count)
+        call require(fresh_count == checked_count .and. all(fresh(:fresh_count) == checked(:checked_count)), &
+            'checked-in mult-op output differs from specification')
     end subroutine check_expression_generated_source_freshness
 
     subroutine check_expression_fact(expected_fact, rule, expression, write, consume, generate)
