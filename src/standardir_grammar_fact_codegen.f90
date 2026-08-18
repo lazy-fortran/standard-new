@@ -9,6 +9,7 @@ module standardir_grammar_fact_codegen
 
     public :: standardir_generate_integer_type_spec_fact
     public :: standardir_generate_real_type_spec_fact
+    public :: standardir_generate_double_precision_type_spec_fact
 
 contains
 
@@ -31,6 +32,17 @@ contains
         call generate_type_spec_fact(node, unit, 'R706', 'REAL [ kind-selector ]', &
             'standardir_real_type_spec_fact', 'real_type_spec', 'real', ok, message)
     end subroutine standardir_generate_real_type_spec_fact
+
+    subroutine standardir_generate_double_precision_type_spec_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R707', 'DOUBLE PRECISION', &
+            'standardir_double_precision_type_spec_fact', 'double_precision_type_spec', &
+            'double precision', ok, message)
+    end subroutine standardir_generate_double_precision_type_spec_fact
 
     subroutine generate_type_spec_fact(node, unit, expected_id, expected_expression, module_name, &
             type_spec_name, type_spec_label, ok, message)
