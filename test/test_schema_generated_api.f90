@@ -21,13 +21,18 @@ program test_schema_generated_api
         '(enum resolution resolved unresolved disputed) '// &
         '(record semantic-item (id name) (subject name) (source source-ref) '// &
         '(origin origin) (resolution resolution)) '// &
-        '(list semantic-items semantic-item) (list items item) '// &
+        '(record grammar-fact (id name) (expression string) (source source-ref) '// &
+        '(origin origin) (resolution resolution)) '// &
+        '(list semantic-items semantic-item) (list grammar-facts grammar-fact) '// &
+        '(list items item) '// &
         '(optional source-ref-option source-ref))'
     character(len=256) :: message, actual, reference
     type(schema_t) :: schema
     type(source_ref_t) :: source_ref, decoded_source_ref
     type(item_t) :: item, decoded_item
     type(items_t) :: items
+    type(grammar_fact_t) :: grammar_fact, decoded_grammar_fact
+    type(grammar_facts_t) :: grammar_facts
     type(source_ref_option_t) :: optional_ref
     type(sx_node_t) :: node
     logical :: ok
@@ -81,6 +86,34 @@ program test_schema_generated_api
     items%values(1)%syntax%value = 'x'
     items%values(2)%kind = ITEM_CONSTRAINT
     call write_items(items, '(items (syntax "x") (constraint))')
+
+    grammar_fact%id = 'R501'
+    grammar_fact%expression = 'name [ "," name ]'
+    grammar_fact%source = source_ref
+    grammar_fact%origin = ORIGIN_MECHANICAL
+    grammar_fact%resolution = RESOLUTION_RESOLVED
+    call write_grammar_fact(grammar_fact, '(grammar-fact (id R501) '// &
+        '(expression "name [ \",\" name ]") (source (source-ref (document J3) '// &
+        '(clause 5) (rule R501) (page 53) (source-hash fixture))) '// &
+        '(origin mechanical) (resolution resolved))')
+    call sx_parse('(grammar-fact (id R501) (expression "name [ \",\" name ]") '// &
+        '(source (source-ref (document J3) (clause 5) (rule R501) (page 53) '// &
+        '(source-hash fixture))) (origin mechanical) (resolution resolved))', node, ok, &
+        message)
+    call require(ok, message)
+    call schema_read_grammar_fact(node, decoded_grammar_fact, ok, message)
+    call require(ok, message)
+    call require(trim(decoded_grammar_fact%id) == 'R501' .and. &
+        trim(decoded_grammar_fact%expression) == 'name [ "," name ]' .and. &
+        decoded_grammar_fact%origin == ORIGIN_MECHANICAL .and. &
+        decoded_grammar_fact%resolution == RESOLUTION_RESOLVED, &
+        'generated grammar fact differs')
+    allocate (grammar_facts%values(1))
+    grammar_facts%values(1) = grammar_fact
+    call write_grammar_facts(grammar_facts, '(grammar-facts (grammar-fact (id R501) '// &
+        '(expression "name [ \",\" name ]") (source (source-ref (document J3) '// &
+        '(clause 5) (rule R501) (page 53) (source-hash fixture))) '// &
+        '(origin mechanical) (resolution resolved)))')
 
     optional_ref%value = source_ref
     call write_optional(optional_ref, &
@@ -150,6 +183,30 @@ contains
         call require(ok, message)
         call check_output('items', '(items (syntax "x") (constraint))', expected)
     end subroutine write_items
+
+    subroutine write_grammar_fact(value, expected)
+        type(grammar_fact_t), intent(in) :: value
+        character(len=*), intent(in) :: expected
+        integer :: unit
+
+        call open_output(unit)
+        call schema_write_grammar_fact(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('grammar-fact', expected, expected)
+    end subroutine write_grammar_fact
+
+    subroutine write_grammar_facts(value, expected)
+        type(grammar_facts_t), intent(in) :: value
+        character(len=*), intent(in) :: expected
+        integer :: unit
+
+        call open_output(unit)
+        call schema_write_grammar_facts(value, unit, ok, message)
+        close (unit)
+        call require(ok, message)
+        call check_output('grammar-facts', expected, expected)
+    end subroutine write_grammar_facts
 
     subroutine write_optional(value, expected)
         type(source_ref_option_t), intent(in) :: value

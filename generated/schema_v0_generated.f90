@@ -57,9 +57,21 @@ module schema_v0_generated
         integer :: resolution
     end type semantic_item_t
 
+    type, public :: grammar_fact_t
+        character(len=128) :: id
+        character(len=128) :: expression
+        type(source_ref_t) :: source
+        integer :: origin
+        integer :: resolution
+    end type grammar_fact_t
+
     type, public :: semantic_items_t
         type(semantic_item_t), allocatable :: values(:)
     end type semantic_items_t
+
+    type, public :: grammar_facts_t
+        type(grammar_fact_t), allocatable :: values(:)
+    end type grammar_facts_t
 
     type, public :: items_t
         type(item_t), allocatable :: values(:)
@@ -161,12 +173,30 @@ module schema_v0_generated
     end interface
 
     abstract interface
+        subroutine schema_consume_grammar_fact_callback(value, ok, message)
+            import :: grammar_fact_t
+            type(grammar_fact_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_grammar_fact_callback
+    end interface
+
+    abstract interface
         subroutine schema_consume_semantic_items_callback(value, ok, message)
             import :: semantic_items_t
             type(semantic_items_t), intent(in) :: value
             logical, intent(out) :: ok
             character(len=*), intent(out) :: message
         end subroutine schema_consume_semantic_items_callback
+    end interface
+
+    abstract interface
+        subroutine schema_consume_grammar_facts_callback(value, ok, message)
+            import :: grammar_facts_t
+            type(grammar_facts_t), intent(in) :: value
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine schema_consume_grammar_facts_callback
     end interface
 
     abstract interface
@@ -209,8 +239,12 @@ module schema_v0_generated
         schema_print_item, schema_hash_item
     public :: schema_write_semantic_item, schema_read_semantic_item, &
         schema_print_semantic_item, schema_hash_semantic_item
+    public :: schema_write_grammar_fact, schema_read_grammar_fact, &
+        schema_print_grammar_fact, schema_hash_grammar_fact
     public :: schema_write_semantic_items, schema_read_semantic_items, &
         schema_print_semantic_items, schema_hash_semantic_items
+    public :: schema_write_grammar_facts, schema_read_grammar_facts, &
+        schema_print_grammar_facts, schema_hash_grammar_facts
     public :: schema_write_items, schema_read_items, &
         schema_print_items, schema_hash_items
     public :: schema_write_source_ref_option, schema_read_source_ref_option, &
@@ -226,7 +260,9 @@ module schema_v0_generated
     public :: schema_validate_resolution, schema_equal_resolution
     public :: schema_validate_item, schema_equal_item
     public :: schema_validate_semantic_item, schema_equal_semantic_item
+    public :: schema_validate_grammar_fact, schema_equal_grammar_fact
     public :: schema_validate_semantic_items, schema_equal_semantic_items
+    public :: schema_validate_grammar_facts, schema_equal_grammar_facts
     public :: schema_validate_items, schema_equal_items
     public :: schema_validate_source_ref_option, schema_equal_source_ref_option
     public :: schema_consume_bool
@@ -240,10 +276,13 @@ module schema_v0_generated
     public :: schema_consume_resolution
     public :: schema_consume_item
     public :: schema_consume_semantic_item
+    public :: schema_consume_grammar_fact
     public :: schema_consume_semantic_items
+    public :: schema_consume_grammar_facts
     public :: schema_consume_items
     public :: schema_consume_source_ref_option
     public :: schema_consume_semantic_items_elements
+    public :: schema_consume_grammar_facts_elements
     public :: schema_consume_items_elements
 
 contains
@@ -816,6 +855,91 @@ contains
         if (.not. ok) return
     end subroutine schema_read_semantic_item
 
+    subroutine schema_emit_grammar_fact(value, unit, ok, message)
+        type(grammar_fact_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_runtime_open_list(unit, 'grammar-fact', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'id', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_name(value%id, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'expression', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_string(value%expression, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'source', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_source_ref(value%source, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'origin', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_origin(value%origin, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_runtime_open_list(unit, 'resolution', ok, message)
+        if (.not. ok) return
+        call schema_runtime_write_space(unit, ok, message)
+        call schema_emit_resolution(value%resolution, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_close_list(unit, ok, message)
+        call schema_runtime_close_list(unit, ok, message)
+    end subroutine schema_emit_grammar_fact
+
+    subroutine schema_write_grammar_fact(value, unit, ok, message)
+        type(grammar_fact_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_grammar_fact(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_grammar_fact
+
+    subroutine schema_read_grammar_fact(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(grammar_fact_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: field
+        call schema_runtime_expect_list(node, 'grammar-fact', 6, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 1, 'id', field, ok, message)
+        if (.not. ok) return
+        call schema_read_name(field, value%id, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 2, 'expression', field, ok, message)
+        if (.not. ok) return
+        call schema_read_string(field, value%expression, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 3, 'source', field, ok, message)
+        if (.not. ok) return
+        call schema_read_source_ref(field, value%source, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 4, 'origin', field, ok, message)
+        if (.not. ok) return
+        call schema_read_origin(field, value%origin, ok, message)
+        if (.not. ok) return
+        call schema_runtime_record_field(node, 5, 'resolution', field, ok, message)
+        if (.not. ok) return
+        call schema_read_resolution(field, value%resolution, ok, message)
+        if (.not. ok) return
+    end subroutine schema_read_grammar_fact
+
     subroutine schema_emit_semantic_items(value, unit, ok, message)
         type(semantic_items_t), intent(in) :: value
         integer, intent(in) :: unit
@@ -864,6 +988,55 @@ contains
             if (.not. ok) return
         end do
     end subroutine schema_read_semantic_items
+
+    subroutine schema_emit_grammar_facts(value, unit, ok, message)
+        type(grammar_facts_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+        call schema_runtime_open_list(unit, 'grammar-facts', ok, message)
+        if (.not. ok) return
+        if (allocated(value%values)) then
+            do i = 1, size(value%values)
+                call schema_runtime_write_space(unit, ok, message)
+                call schema_emit_grammar_fact(value%values(i), unit, ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        call schema_runtime_close_list(unit, ok, message)
+    end subroutine schema_emit_grammar_facts
+
+    subroutine schema_write_grammar_facts(value, unit, ok, message)
+        type(grammar_facts_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_emit_grammar_facts(value, unit, ok, message)
+        if (.not. ok) return
+        call schema_runtime_finish(unit, ok, message)
+    end subroutine schema_write_grammar_facts
+
+    subroutine schema_read_grammar_facts(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(grammar_facts_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: element
+        integer :: i, count
+        call schema_runtime_expect_list(node, 'grammar-facts', -1, ok, message)
+        if (.not. ok) return
+        if (allocated(value%values)) deallocate(value%values)
+        count = node%child_count - 1
+        if (count > 0) allocate(value%values(count))
+        do i = 1, count
+            call schema_runtime_list_element(node, i, element, ok, &
+                message)
+            if (.not. ok) return
+            call schema_read_grammar_fact(element, value%values(i), ok, message)
+            if (.not. ok) return
+        end do
+    end subroutine schema_read_grammar_facts
 
     subroutine schema_emit_items(value, unit, ok, message)
         type(items_t), intent(in) :: value
@@ -1163,6 +1336,26 @@ contains
         message = ''
     end subroutine schema_validate_semantic_item
 
+    subroutine schema_validate_grammar_fact(value, ok, message)
+        type(grammar_fact_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        ok = .false.
+        message = ''
+        call schema_validate_name(value%id, ok, message)
+        if (.not. ok) return
+        call schema_validate_string(value%expression, ok, message)
+        if (.not. ok) return
+        call schema_validate_source_ref(value%source, ok, message)
+        if (.not. ok) return
+        call schema_validate_origin(value%origin, ok, message)
+        if (.not. ok) return
+        call schema_validate_resolution(value%resolution, ok, message)
+        if (.not. ok) return
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_grammar_fact
+
     subroutine schema_validate_semantic_items(value, ok, message)
         type(semantic_items_t), intent(in) :: value
         logical, intent(out) :: ok
@@ -1179,6 +1372,23 @@ contains
         ok = .true.
         message = ''
     end subroutine schema_validate_semantic_items
+
+    subroutine schema_validate_grammar_facts(value, ok, message)
+        type(grammar_facts_t), intent(in) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        integer :: i
+        ok = .false.
+        message = ''
+        if (allocated(value%values)) then
+            do i = 1, size(value%values)
+                call schema_validate_grammar_fact(value%values(i), ok, message)
+                if (.not. ok) return
+            end do
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_validate_grammar_facts
 
     subroutine schema_validate_items(value, ok, message)
         type(items_t), intent(in) :: value
@@ -1301,6 +1511,17 @@ contains
         equal = .true.
     end function schema_equal_semantic_item
 
+    logical function schema_equal_grammar_fact(left, right) result(equal)
+        type(grammar_fact_t), intent(in) :: left, right
+        equal = .false.
+        if (.not. schema_equal_name(left%id, right%id)) return
+        if (.not. schema_equal_string(left%expression, right%expression)) return
+        if (.not. schema_equal_source_ref(left%source, right%source)) return
+        if (.not. schema_equal_origin(left%origin, right%origin)) return
+        if (.not. schema_equal_resolution(left%resolution, right%resolution)) return
+        equal = .true.
+    end function schema_equal_grammar_fact
+
     logical function schema_equal_semantic_items(left, right) result(equal)
         type(semantic_items_t), intent(in) :: left, right
         integer :: left_count, right_count, i
@@ -1315,6 +1536,21 @@ contains
         end do
         equal = .true.
     end function schema_equal_semantic_items
+
+    logical function schema_equal_grammar_facts(left, right) result(equal)
+        type(grammar_facts_t), intent(in) :: left, right
+        integer :: left_count, right_count, i
+        equal = .false.
+        left_count = 0
+        right_count = 0
+        if (allocated(left%values)) left_count = size(left%values)
+        if (allocated(right%values)) right_count = size(right%values)
+        if (left_count /= right_count) return
+        do i = 1, left_count
+            if (.not. schema_equal_grammar_fact(left%values(i), right%values(i))) return
+        end do
+        equal = .true.
+    end function schema_equal_grammar_facts
 
     logical function schema_equal_items(left, right) result(equal)
         type(items_t), intent(in) :: left, right
@@ -2123,6 +2359,77 @@ contains
         message = ''
     end subroutine schema_hash_semantic_item
 
+    subroutine schema_print_grammar_fact(value, unit, ok, message)
+        type(grammar_fact_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_grammar_fact(value, unit, ok, message)
+    end subroutine schema_print_grammar_fact
+
+    subroutine schema_hash_grammar_fact(value, digest, ok, message)
+        type(grammar_fact_t), intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_grammar_fact(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_grammar_fact
+
     subroutine schema_print_semantic_items(value, unit, ok, message)
         type(semantic_items_t), intent(in) :: value
         integer, intent(in) :: unit
@@ -2193,6 +2500,77 @@ contains
         ok = .true.
         message = ''
     end subroutine schema_hash_semantic_items
+
+    subroutine schema_print_grammar_facts(value, unit, ok, message)
+        type(grammar_facts_t), intent(in) :: value
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        call schema_write_grammar_facts(value, unit, ok, message)
+    end subroutine schema_print_grammar_facts
+
+    subroutine schema_hash_grammar_facts(value, digest, ok, message)
+        type(grammar_facts_t), intent(in) :: value
+        integer(int8), intent(out) :: digest(32)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(writer_t) :: output
+        integer(int8) :: bytes(65536)
+        character(len=65536) :: text
+        integer :: unit, ios, i, text_length
+        logical :: local_ok
+        character(len=256) :: local_message
+        digest = 0_int8
+        open (newunit=unit, status='scratch', access='stream', &
+            form='formatted', action='readwrite', iostat=ios)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot open schema hash scratch stream', ok, message)
+            return
+        end if
+        call schema_write_grammar_facts(value, unit, ok, message)
+        if (.not. ok) then
+            close (unit)
+            return
+        end if
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) text
+        close (unit)
+        if (ios /= 0) then
+            call schema_runtime_error('cannot read schema hash scratch stream', ok, message)
+            return
+        end if
+        text_length = len_trim(text)
+        do i = 1, text_length
+            bytes(i) = int(iachar(text(i:i)), int8)
+        end do
+        call writer_init_hash(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_bytes(output, bytes(:text_length), local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_write_newline(output, local_ok, local_message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        call writer_digest(output, digest, local_ok, local_message)
+        call writer_close(output, ok, message)
+        if (.not. local_ok) then
+            ok = .false.
+            message = local_message
+            return
+        end if
+        ok = .true.
+        message = ''
+    end subroutine schema_hash_grammar_facts
 
     subroutine schema_print_items(value, unit, ok, message)
         type(items_t), intent(in) :: value
@@ -2479,6 +2857,19 @@ contains
         call consumer(value, ok, message)
     end subroutine schema_consume_semantic_item
 
+    subroutine schema_consume_grammar_fact(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_grammar_fact_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(grammar_fact_t) :: value
+        call schema_read_grammar_fact(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_grammar_fact(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_grammar_fact
+
     subroutine schema_consume_semantic_items(node, consumer, ok, message)
         type(sx_node_t), intent(in) :: node
         procedure(schema_consume_semantic_items_callback) :: consumer
@@ -2491,6 +2882,19 @@ contains
         if (.not. ok) return
         call consumer(value, ok, message)
     end subroutine schema_consume_semantic_items
+
+    subroutine schema_consume_grammar_facts(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_grammar_facts_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(grammar_facts_t) :: value
+        call schema_read_grammar_facts(node, value, ok, message)
+        if (.not. ok) return
+        call schema_validate_grammar_facts(value, ok, message)
+        if (.not. ok) return
+        call consumer(value, ok, message)
+    end subroutine schema_consume_grammar_facts
 
     subroutine schema_consume_items(node, consumer, ok, message)
         type(sx_node_t), intent(in) :: node
@@ -2537,6 +2941,26 @@ contains
         ok = .true.
         message = ''
     end subroutine schema_consume_semantic_items_elements
+
+    subroutine schema_consume_grammar_facts_elements(node, consumer, ok, message)
+        type(sx_node_t), intent(in) :: node
+        procedure(schema_consume_grammar_fact_callback) :: consumer
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+        type(sx_node_t) :: element
+        integer :: i
+        call schema_runtime_expect_list(node, 'grammar-facts', -1, ok, message)
+        if (.not. ok) return
+        do i = 1, node%child_count - 1
+            call schema_runtime_list_element(node, i, element, &
+                ok, message)
+            if (.not. ok) return
+            call schema_consume_grammar_fact(element, consumer, ok, message)
+            if (.not. ok) return
+        end do
+        ok = .true.
+        message = ''
+    end subroutine schema_consume_grammar_facts_elements
 
     subroutine schema_consume_items_elements(node, consumer, ok, message)
         type(sx_node_t), intent(in) :: node
