@@ -14,14 +14,14 @@ module standardir_intrinsic_type_spec_generated
         character(len=64) :: source_hash = ''
     end type standardir_intrinsic_type_spec_t
 
-    integer, parameter, public :: standardir_intrinsic_type_spec_count = 3
+    integer, parameter, public :: standardir_intrinsic_type_spec_count = 4
     public :: standardir_make_intrinsic_type_spec_lookup
     public :: standardir_lookup_intrinsic_type_spec
 
 contains
 
     subroutine standardir_make_intrinsic_type_spec_lookup(values)
-        type(standardir_intrinsic_type_spec_t), intent(out) :: values(3)
+        type(standardir_intrinsic_type_spec_t), intent(out) :: values(4)
 
         values(1)%canonical_name = 'integer'
         values(1)%source_spelling = 'INTEGER [ kind-selector ]'
@@ -44,6 +44,13 @@ contains
         values(3)%clause = '7'
         values(3)%page = 67
         values(3)%source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
+        values(4)%canonical_name = 'complex'
+        values(4)%source_spelling = 'COMPLEX'
+        values(4)%source_rule = 'R704'
+        values(4)%document = 'J3-24-007'
+        values(4)%clause = '7'
+        values(4)%page = 80
+        values(4)%source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
     end subroutine standardir_make_intrinsic_type_spec_lookup
 
     subroutine standardir_lookup_intrinsic_type_spec(source_spelling, value, found)
@@ -51,7 +58,7 @@ contains
         type(standardir_intrinsic_type_spec_t), intent(out) :: value
         logical, intent(out) :: found
 
-        type(standardir_intrinsic_type_spec_t) :: values(3)
+        type(standardir_intrinsic_type_spec_t) :: values(4)
         integer :: i
 
         call standardir_make_intrinsic_type_spec_lookup(values)

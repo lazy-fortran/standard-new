@@ -4,7 +4,8 @@ program test_standardir_grammar_fact
     use fortsx, only: sx_node_t, sx_parse
     use standardir_grammar_fact_codegen, only: standardir_generate_integer_type_spec_fact, &
         standardir_generate_real_type_spec_fact, standardir_generate_double_precision_type_spec_fact, &
-        standardir_generate_program_grammar_fact, standardir_generate_intrinsic_type_spec_lookup
+        standardir_generate_complex_type_spec_fact, standardir_generate_program_grammar_fact, &
+        standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
@@ -14,6 +15,8 @@ program test_standardir_grammar_fact
     use standardir_double_precision_type_spec_fact, only: &
         standardir_consume_double_precision_type_spec_fact, &
         standardir_write_double_precision_type_spec_fact
+    use standardir_complex_type_spec_fact, only: &
+        standardir_consume_complex_type_spec_fact, standardir_write_complex_type_spec_fact
     use standardir_intrinsic_type_spec_generated, only: &
         standardir_intrinsic_type_spec_t, standardir_lookup_intrinsic_type_spec
     implicit none
@@ -36,6 +39,10 @@ program test_standardir_grammar_fact
         '(grammar-fact (id R707) (expression "DOUBLE PRECISION") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R707) '// &
         '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_complex = &
+        '(grammar-fact (id R704) (expression "or COMPLEX [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
+        '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -142,6 +149,41 @@ program test_standardir_grammar_fact
     call standardir_consume_double_precision_type_spec_fact(node, ok, message)
     call require(.not. ok, 'R706 reached the DOUBLE PRECISION frontend consumer')
 
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open COMPLEX fact output')
+    call standardir_write_complex_type_spec_fact(unit, 'J3-24-007', '7', 'R704', 80, &
+        source_hash, ok, message)
+    call require(ok, message)
+    rewind (unit)
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    call require(ios == 0, 'could not read COMPLEX fact output')
+    call require(trim(actual) == expected_complex, 'canonical COMPLEX type-spec fact differs')
+
+    call sx_parse(expected_complex, node, ok, message)
+    call require(ok, message)
+    call standardir_consume_complex_type_spec_fact(node, ok, message)
+    call require(ok, message)
+
+    call sx_parse('(grammar-fact (id R704) (expression "COMPLEX [ mutated ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
+        '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    call standardir_consume_complex_type_spec_fact(node, ok, message)
+    call require(.not. ok, 'mutated COMPLEX expression reached the frontend consumer')
+
+    call sx_parse('(grammar-fact (id R704) (expression "or COMPLEX [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R705) '// &
+        '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open mutated COMPLEX fact output')
+    call standardir_generate_complex_type_spec_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated COMPLEX source rule reached the generator')
+
     print '(a)', 'StandardIR grammar fact test passed'
 
 contains
@@ -164,6 +206,10 @@ contains
         call standardir_lookup_intrinsic_type_spec('DOUBLE PRECISION', value, found)
         call require(found .and. trim(value%canonical_name) == 'double_precision' .and. &
             trim(value%source_rule) == 'R707', 'DOUBLE PRECISION intrinsic lookup failed')
+        call standardir_lookup_intrinsic_type_spec('COMPLEX', value, found)
+        call require(found .and. trim(value%canonical_name) == 'complex' .and. &
+            trim(value%source_rule) == 'R704' .and. value%page == 80, &
+            'COMPLEX intrinsic lookup failed')
 
         call standardir_lookup_intrinsic_type_spec('REAL [ mutated ]', value, found)
         call require(.not. found, 'mutated intrinsic spelling was accepted')
@@ -199,15 +245,17 @@ contains
         character(len=256) :: line, fresh_program(512), checked_program(512), &
             fresh_integer(512), checked_integer(512), &
             fresh_real(512), checked_real(512), fresh_double_precision(512), &
-            checked_double_precision(512), fresh_intrinsic(512), checked_intrinsic(512)
+            checked_double_precision(512), fresh_complex(512), checked_complex(512), &
+            fresh_intrinsic(512), checked_intrinsic(512)
         character(len=1024) :: source
         integer :: input_unit, fresh_program_unit, fresh_integer_unit, fresh_real_unit, &
             fresh_double_precision_unit, fresh_intrinsic_unit, ios
         integer :: fresh_program_count, checked_program_count
         integer :: fresh_integer_count, checked_integer_count, fresh_real_count, checked_real_count
         integer :: fresh_double_precision_count, checked_double_precision_count
+        integer :: fresh_complex_count, checked_complex_count
         integer :: fresh_intrinsic_count, checked_intrinsic_count, i
-        type(sx_node_t) :: intrinsic_nodes(3)
+        type(sx_node_t) :: intrinsic_nodes(4)
         logical :: local_ok
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
@@ -298,10 +346,34 @@ contains
             'checked-in DOUBLE PRECISION grammar-fact output differs from specification')
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not reopen COMPLEX grammar-fact specification')
+        do i = 1, 5
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read COMPLEX grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=input_unit, file='build/standardir_complex_type_spec_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh COMPLEX grammar-fact output')
+        call standardir_generate_complex_type_spec_fact(node, input_unit, local_ok, message)
+        close (input_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_complex_type_spec_fact_generated.f90', fresh_complex, &
+            fresh_complex_count)
+        call read_source('src/standardir_complex_type_spec_fact_generated.f90', checked_complex, &
+            checked_complex_count)
+        call require(fresh_complex_count == checked_complex_count, &
+            'checked-in COMPLEX grammar-fact output is stale')
+        call require(all(fresh_complex(:fresh_complex_count) == checked_complex(:checked_complex_count)), &
+            'checked-in COMPLEX grammar-fact output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
         call require(ios == 0, 'could not open intrinsic type-spec specification')
         read (input_unit, '(a)', iostat=ios) line
         call require(ios == 0, 'could not skip program grammar-fact specification')
-        do i = 1, 3
+        do i = 1, 4
             read (input_unit, '(a)', iostat=ios) source
             call require(ios == 0, 'could not read intrinsic type-spec specification')
             call sx_parse(trim(source), intrinsic_nodes(i), local_ok, message)

@@ -12,6 +12,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_integer_type_spec_fact
     public :: standardir_generate_real_type_spec_fact
     public :: standardir_generate_double_precision_type_spec_fact
+    public :: standardir_generate_complex_type_spec_fact
     public :: standardir_generate_program_grammar_fact
     public :: standardir_generate_intrinsic_type_spec_lookup
 
@@ -48,6 +49,16 @@ contains
             'double precision', ok, message)
     end subroutine standardir_generate_double_precision_type_spec_fact
 
+    subroutine standardir_generate_complex_type_spec_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R704', 'standardir_complex_type_spec_fact', &
+            'complex_type_spec', 'complex', ok, message)
+    end subroutine standardir_generate_complex_type_spec_fact
+
     subroutine standardir_generate_program_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: unit
@@ -64,15 +75,15 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        type(grammar_fact_t) :: facts(3)
-        logical :: found(3)
+        type(grammar_fact_t) :: facts(4)
+        logical :: found(4)
         integer :: i
 
         ok = .false.
         message = ''
         found = .false.
-        if (size(nodes) /= 3) then
-            message = 'intrinsic type-spec lookup requires R705, R706 and R707'
+        if (size(nodes) /= 4) then
+            message = 'intrinsic type-spec lookup requires R704, R705, R706 and R707'
             return
         end if
         do i = 1, size(nodes)
@@ -121,6 +132,8 @@ contains
                 intrinsic_type_spec_index = 2
             case ('R707')
                 intrinsic_type_spec_index = 3
+            case ('R704')
+                intrinsic_type_spec_index = 4
             end select
         end function intrinsic_type_spec_index
 
@@ -149,19 +162,19 @@ contains
         call emit_line(unit, '        character(len=64) :: source_hash = ''''')
         call emit_line(unit, '    end type standardir_intrinsic_type_spec_t')
         call emit_line(unit, '')
-        call emit_line(unit, '    integer, parameter, public :: standardir_intrinsic_type_spec_count = 3')
+        call emit_line(unit, '    integer, parameter, public :: standardir_intrinsic_type_spec_count = 4')
         call emit_line(unit, '    public :: standardir_make_intrinsic_type_spec_lookup')
         call emit_line(unit, '    public :: standardir_lookup_intrinsic_type_spec')
         call emit_line(unit, '')
         call emit_line(unit, 'contains')
         call emit_line(unit, '')
         call emit_line(unit, '    subroutine standardir_make_intrinsic_type_spec_lookup(values)')
-        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: values(3)')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: values(4)')
         call emit_line(unit, '')
         do i = 1, size(facts)
             canonical_name = intrinsic_canonical_name(facts(i)%id)
             call emit_assignment(unit, i, 'canonical_name', canonical_name)
-            call emit_assignment(unit, i, 'source_spelling', facts(i)%expression)
+            call emit_assignment(unit, i, 'source_spelling', intrinsic_source_spelling(facts(i)))
             call emit_assignment(unit, i, 'source_rule', facts(i)%source%rule)
             call emit_assignment(unit, i, 'document', facts(i)%source%document)
             call emit_assignment(unit, i, 'clause', facts(i)%source%clause)
@@ -175,7 +188,7 @@ contains
         call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: value')
         call emit_line(unit, '        logical, intent(out) :: found')
         call emit_line(unit, '')
-        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t) :: values(3)')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t) :: values(4)')
         call emit_line(unit, '        integer :: i')
         call emit_line(unit, '')
         call emit_line(unit, '        call standardir_make_intrinsic_type_spec_lookup(values)')
@@ -203,10 +216,23 @@ contains
             intrinsic_canonical_name = 'real'
         case ('R707')
             intrinsic_canonical_name = 'double_precision'
+        case ('R704')
+            intrinsic_canonical_name = 'complex'
         case default
             intrinsic_canonical_name = ''
         end select
     end function intrinsic_canonical_name
+
+    character(len=128) function intrinsic_source_spelling(value)
+        type(grammar_fact_t), intent(in) :: value
+
+        select case (trim(value%id))
+        case ('R704')
+            intrinsic_source_spelling = 'COMPLEX'
+        case default
+            intrinsic_source_spelling = value%expression
+        end select
+    end function intrinsic_source_spelling
 
     subroutine emit_assignment(unit, index, field, value)
         integer, intent(in) :: unit, index
