@@ -370,3 +370,8 @@ main = "test_standardir_semantic_consumer.f90"
 name = "test_standardir_semantic_command"
 source-dir = "test"
 main = "test_standardir_semantic_command.f90"
+
+[[test]]
+name = "test_standardir_variable_reference_grammar_fact"
+source-dir = "test"
+main = "test_standardir_variable_reference_grammar_fact.f90"

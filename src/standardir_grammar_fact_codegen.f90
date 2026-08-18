@@ -26,6 +26,9 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_add_op_en_dash_grammar_fact
     public :: standardir_generate_expression_fact_table
     public :: standardir_generate_intrinsic_type_spec_lookup
+    public :: standardir_generate_designator_grammar_fact
+    public :: standardir_generate_variable_grammar_fact
+    public :: standardir_generate_variable_name_grammar_fact
 
 contains
 
@@ -225,6 +228,36 @@ contains
         end function expression_fact_rule
 
     end subroutine standardir_generate_expression_fact_table
+
+    subroutine standardir_generate_designator_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R901', 'standardir_designator_grammar_fact', &
+            'designator_grammar', 'designator', ok, message)
+    end subroutine standardir_generate_designator_grammar_fact
+
+    subroutine standardir_generate_variable_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R902', 'standardir_variable_grammar_fact', &
+            'variable_grammar', 'variable', ok, message)
+    end subroutine standardir_generate_variable_grammar_fact
+
+    subroutine standardir_generate_variable_name_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R903', 'standardir_variable_name_grammar_fact', &
+            'variable_name_grammar', 'variable-name', ok, message)
+    end subroutine standardir_generate_variable_name_grammar_fact
 
     subroutine emit_expression_fact_table(unit, facts)
         integer, intent(in) :: unit
@@ -724,6 +757,11 @@ contains
             message = 'grammar-fact type-spec provenance differs'
             return
         end if
+        if (.not. type_spec_expression_matches(expected_id, expression)) then
+            ok = .false.
+            message = 'grammar-fact expression differs'
+            return
+        end if
         write (page_text, '(i0)') page_number
 
         call emit('module '//trim(module_name))
@@ -891,10 +929,28 @@ contains
                 type_spec_source_matches = trim(source_clause) == '10' .and. source_page == 188
             case ('R1006', 'R1007', 'R1009', 'R1010')
                 type_spec_source_matches = trim(source_clause) == '10' .and. source_page == 155
+            case ('R901', 'R902', 'R903')
+                type_spec_source_matches = trim(source_clause) == '5-15' .and. source_page == 150
             case default
                 type_spec_source_matches = .false.
             end select
         end function type_spec_source_matches
+
+        logical function type_spec_expression_matches(rule, source_expression)
+            character(len=*), intent(in) :: rule, source_expression
+
+            type_spec_expression_matches = .true.
+            select case (trim(rule))
+            case ('R901')
+                type_spec_expression_matches = trim(source_expression) == &
+                    'object-name | array-element | array-section | coindexed-named-object | '// &
+                    'complex-part-designator | structure-component | substring'
+            case ('R902')
+                type_spec_expression_matches = trim(source_expression) == 'designator | function-reference'
+            case ('R903')
+                type_spec_expression_matches = trim(source_expression) == 'name'
+            end select
+        end function type_spec_expression_matches
 
         subroutine read_rule_from_source(field, value, result_ok, result_message)
             type(sx_node_t), intent(in) :: field
