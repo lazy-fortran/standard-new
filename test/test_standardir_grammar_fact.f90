@@ -4,7 +4,7 @@ program test_standardir_grammar_fact
     use fortsx, only: sx_node_t, sx_parse
     use standardir_grammar_fact_codegen, only: standardir_generate_integer_type_spec_fact, &
         standardir_generate_real_type_spec_fact, standardir_generate_double_precision_type_spec_fact, &
-        standardir_generate_program_grammar_fact
+        standardir_generate_program_grammar_fact, standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
@@ -14,6 +14,8 @@ program test_standardir_grammar_fact
     use standardir_double_precision_type_spec_fact, only: &
         standardir_consume_double_precision_type_spec_fact, &
         standardir_write_double_precision_type_spec_fact
+    use standardir_intrinsic_type_spec_generated, only: &
+        standardir_intrinsic_type_spec_t, standardir_lookup_intrinsic_type_spec
     implicit none
 
     character(len=*), parameter :: source_hash = &
@@ -41,6 +43,7 @@ program test_standardir_grammar_fact
 
     call check_generated_source_freshness()
     call check_generator_uses_declarative_expression()
+    call check_intrinsic_type_spec_lookup()
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open program fact output')
@@ -143,6 +146,29 @@ program test_standardir_grammar_fact
 
 contains
 
+    subroutine check_intrinsic_type_spec_lookup()
+        type(standardir_intrinsic_type_spec_t) :: value
+        logical :: found
+
+        call standardir_lookup_intrinsic_type_spec('INTEGER [ kind-selector ]', value, found)
+        call require(found, 'INTEGER intrinsic lookup failed')
+        call require(trim(value%canonical_name) == 'integer', 'INTEGER canonical name differs')
+        call require(trim(value%source_rule) == 'R705', 'INTEGER source rule differs')
+        call require(trim(value%document) == 'J3-24-007' .and. trim(value%clause) == '7' .and. &
+            value%page == 67 .and. trim(value%source_hash) == source_hash, &
+            'INTEGER provenance differs')
+
+        call standardir_lookup_intrinsic_type_spec('REAL [ kind-selector ]', value, found)
+        call require(found .and. trim(value%canonical_name) == 'real' .and. &
+            trim(value%source_rule) == 'R706', 'REAL intrinsic lookup failed')
+        call standardir_lookup_intrinsic_type_spec('DOUBLE PRECISION', value, found)
+        call require(found .and. trim(value%canonical_name) == 'double_precision' .and. &
+            trim(value%source_rule) == 'R707', 'DOUBLE PRECISION intrinsic lookup failed')
+
+        call standardir_lookup_intrinsic_type_spec('REAL [ mutated ]', value, found)
+        call require(.not. found, 'mutated intrinsic spelling was accepted')
+    end subroutine check_intrinsic_type_spec_lookup
+
     subroutine check_generator_uses_declarative_expression()
         character(len=*), parameter :: mutated_source = &
             '(grammar-fact (id R501) (expression "program-unit [ mutated ] ...") '// &
@@ -173,13 +199,15 @@ contains
         character(len=256) :: line, fresh_program(512), checked_program(512), &
             fresh_integer(512), checked_integer(512), &
             fresh_real(512), checked_real(512), fresh_double_precision(512), &
-            checked_double_precision(512)
+            checked_double_precision(512), fresh_intrinsic(512), checked_intrinsic(512)
         character(len=1024) :: source
         integer :: input_unit, fresh_program_unit, fresh_integer_unit, fresh_real_unit, &
-            fresh_double_precision_unit, ios
+            fresh_double_precision_unit, fresh_intrinsic_unit, ios
         integer :: fresh_program_count, checked_program_count
         integer :: fresh_integer_count, checked_integer_count, fresh_real_count, checked_real_count
         integer :: fresh_double_precision_count, checked_double_precision_count
+        integer :: fresh_intrinsic_count, checked_intrinsic_count, i
+        type(sx_node_t) :: intrinsic_nodes(3)
         logical :: local_ok
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
@@ -268,6 +296,34 @@ contains
         call require(all(fresh_double_precision(:fresh_double_precision_count) == &
             checked_double_precision(:checked_double_precision_count)), &
             'checked-in DOUBLE PRECISION grammar-fact output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not open intrinsic type-spec specification')
+        read (input_unit, '(a)', iostat=ios) line
+        call require(ios == 0, 'could not skip program grammar-fact specification')
+        do i = 1, 3
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read intrinsic type-spec specification')
+            call sx_parse(trim(source), intrinsic_nodes(i), local_ok, message)
+            call require(local_ok, message)
+        end do
+        close (input_unit)
+        open (newunit=fresh_intrinsic_unit, file='build/standardir_intrinsic_type_spec_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh intrinsic type-spec output')
+        call standardir_generate_intrinsic_type_spec_lookup(intrinsic_nodes, fresh_intrinsic_unit, &
+            local_ok, message)
+        close (fresh_intrinsic_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_intrinsic_type_spec_generated.f90', fresh_intrinsic, &
+            fresh_intrinsic_count)
+        call read_source('src/standardir_intrinsic_type_spec_generated.f90', checked_intrinsic, &
+            checked_intrinsic_count)
+        call require(fresh_intrinsic_count == checked_intrinsic_count, &
+            'checked-in intrinsic type-spec output is stale')
+        call require(all(fresh_intrinsic(:fresh_intrinsic_count) == &
+            checked_intrinsic(:checked_intrinsic_count)), &
+            'checked-in intrinsic type-spec output differs from specification')
     end subroutine check_generated_source_freshness
 
     subroutine read_source(path, lines, count)

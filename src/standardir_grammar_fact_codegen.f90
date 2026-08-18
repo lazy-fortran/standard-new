@@ -2,6 +2,8 @@ module standardir_grammar_fact_codegen
     !! Generate bounded type-spec grammar-fact consumers from SX sources.
 
     use fortsx, only: sx_list, sx_node_t
+    use schema_v0_generated, only: grammar_fact_t, ORIGIN_MECHANICAL, RESOLUTION_RESOLVED, &
+        schema_validate_grammar_fact
     use standardir_syntax_fields, only: standardir_atom_equals, &
         standardir_read_pair, standardir_read_source
     implicit none
@@ -11,6 +13,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_real_type_spec_fact
     public :: standardir_generate_double_precision_type_spec_fact
     public :: standardir_generate_program_grammar_fact
+    public :: standardir_generate_intrinsic_type_spec_lookup
 
 contains
 
@@ -54,6 +57,272 @@ contains
         call generate_type_spec_fact(node, unit, 'R501', 'standardir_program_grammar_fact', &
             'program_grammar', 'program', ok, message)
     end subroutine standardir_generate_program_grammar_fact
+
+    subroutine standardir_generate_intrinsic_type_spec_lookup(nodes, unit, ok, message)
+        type(sx_node_t), intent(in) :: nodes(:)
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(grammar_fact_t) :: facts(3)
+        logical :: found(3)
+        integer :: i
+
+        ok = .false.
+        message = ''
+        found = .false.
+        if (size(nodes) /= 3) then
+            message = 'intrinsic type-spec lookup requires R705, R706 and R707'
+            return
+        end if
+        do i = 1, size(nodes)
+            call read_grammar_fact_value(nodes(i), facts(i), ok, message)
+            if (.not. ok) return
+            call collect_fact(facts(i), ok, message)
+            if (.not. ok) return
+        end do
+        if (.not. all(found)) then
+            message = 'intrinsic type-spec lookup is missing a bounded grammar fact'
+            return
+        end if
+
+        call emit_lookup(unit, facts)
+        ok = .true.
+
+    contains
+
+        subroutine collect_fact(value, callback_ok, callback_message)
+            type(grammar_fact_t), intent(in) :: value
+            logical, intent(out) :: callback_ok
+            character(len=*), intent(out) :: callback_message
+
+            integer :: index
+
+            index = intrinsic_type_spec_index(value%id)
+            callback_ok = index > 0
+            if (callback_ok) callback_ok = .not. found(index)
+            callback_message = ''
+            if (.not. callback_ok) then
+                callback_message = 'intrinsic type-spec lookup has an unknown or duplicate rule'
+                return
+            end if
+            facts(index) = value
+            found(index) = .true.
+        end subroutine collect_fact
+
+        integer function intrinsic_type_spec_index(id)
+            character(len=*), intent(in) :: id
+
+            intrinsic_type_spec_index = 0
+            select case (trim(id))
+            case ('R705')
+                intrinsic_type_spec_index = 1
+            case ('R706')
+                intrinsic_type_spec_index = 2
+            case ('R707')
+                intrinsic_type_spec_index = 3
+            end select
+        end function intrinsic_type_spec_index
+
+    end subroutine standardir_generate_intrinsic_type_spec_lookup
+
+    subroutine emit_lookup(unit, facts)
+        integer, intent(in) :: unit
+        type(grammar_fact_t), intent(in) :: facts(:)
+
+        integer :: i
+        character(len=32) :: canonical_name
+
+        call emit_line(unit, 'module standardir_intrinsic_type_spec_generated')
+        call emit_line(unit, '    !! Generated from specs/grammar-facts-v0.sx; do not edit.')
+        call emit_line(unit, '')
+        call emit_line(unit, '    implicit none')
+        call emit_line(unit, '    private')
+        call emit_line(unit, '')
+        call emit_line(unit, '    type, public :: standardir_intrinsic_type_spec_t')
+        call emit_line(unit, '        character(len=32) :: canonical_name = ''''')
+        call emit_line(unit, '        character(len=128) :: source_spelling = ''''')
+        call emit_line(unit, '        character(len=64) :: source_rule = ''''')
+        call emit_line(unit, '        character(len=128) :: document = ''''')
+        call emit_line(unit, '        character(len=64) :: clause = ''''')
+        call emit_line(unit, '        integer :: page = 0')
+        call emit_line(unit, '        character(len=64) :: source_hash = ''''')
+        call emit_line(unit, '    end type standardir_intrinsic_type_spec_t')
+        call emit_line(unit, '')
+        call emit_line(unit, '    integer, parameter, public :: standardir_intrinsic_type_spec_count = 3')
+        call emit_line(unit, '    public :: standardir_make_intrinsic_type_spec_lookup')
+        call emit_line(unit, '    public :: standardir_lookup_intrinsic_type_spec')
+        call emit_line(unit, '')
+        call emit_line(unit, 'contains')
+        call emit_line(unit, '')
+        call emit_line(unit, '    subroutine standardir_make_intrinsic_type_spec_lookup(values)')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: values(3)')
+        call emit_line(unit, '')
+        do i = 1, size(facts)
+            canonical_name = intrinsic_canonical_name(facts(i)%id)
+            call emit_assignment(unit, i, 'canonical_name', canonical_name)
+            call emit_assignment(unit, i, 'source_spelling', facts(i)%expression)
+            call emit_assignment(unit, i, 'source_rule', facts(i)%source%rule)
+            call emit_assignment(unit, i, 'document', facts(i)%source%document)
+            call emit_assignment(unit, i, 'clause', facts(i)%source%clause)
+            call emit_integer_assignment(unit, i, 'page', facts(i)%source%page)
+            call emit_assignment(unit, i, 'source_hash', facts(i)%source%source_hash)
+        end do
+        call emit_line(unit, '    end subroutine standardir_make_intrinsic_type_spec_lookup')
+        call emit_line(unit, '')
+        call emit_line(unit, '    subroutine standardir_lookup_intrinsic_type_spec(source_spelling, value, found)')
+        call emit_line(unit, '        character(len=*), intent(in) :: source_spelling')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: value')
+        call emit_line(unit, '        logical, intent(out) :: found')
+        call emit_line(unit, '')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t) :: values(3)')
+        call emit_line(unit, '        integer :: i')
+        call emit_line(unit, '')
+        call emit_line(unit, '        call standardir_make_intrinsic_type_spec_lookup(values)')
+        call emit_line(unit, '        value = standardir_intrinsic_type_spec_t()')
+        call emit_line(unit, '        found = .false.')
+        call emit_line(unit, '        do i = 1, size(values)')
+        call emit_line(unit, '            if (trim(values(i)%source_spelling) == trim(source_spelling)) then')
+        call emit_line(unit, '                value = values(i)')
+        call emit_line(unit, '                found = .true.')
+        call emit_line(unit, '                return')
+        call emit_line(unit, '            end if')
+        call emit_line(unit, '        end do')
+        call emit_line(unit, '    end subroutine standardir_lookup_intrinsic_type_spec')
+        call emit_line(unit, '')
+        call emit_line(unit, 'end module standardir_intrinsic_type_spec_generated')
+    end subroutine emit_lookup
+
+    character(len=32) function intrinsic_canonical_name(id)
+        character(len=*), intent(in) :: id
+
+        select case (trim(id))
+        case ('R705')
+            intrinsic_canonical_name = 'integer'
+        case ('R706')
+            intrinsic_canonical_name = 'real'
+        case ('R707')
+            intrinsic_canonical_name = 'double_precision'
+        case default
+            intrinsic_canonical_name = ''
+        end select
+    end function intrinsic_canonical_name
+
+    subroutine emit_assignment(unit, index, field, value)
+        integer, intent(in) :: unit, index
+        character(len=*), intent(in) :: field, value
+        character(len=1024) :: line
+
+        write (line, '(a,i0,a,a,a)') '        values(', index, ')%', trim(field), ' = '''//trim(value)//''''
+        call emit_line(unit, trim(line))
+    end subroutine emit_assignment
+
+    subroutine emit_integer_assignment(unit, index, field, value)
+        integer, intent(in) :: unit, index, value
+        character(len=*), intent(in) :: field
+        character(len=256) :: line
+
+        write (line, '(a,i0,a,a,a,i0)') '        values(', index, ')%', trim(field), ' = ', value
+        call emit_line(unit, trim(line))
+    end subroutine emit_integer_assignment
+
+    subroutine emit_line(unit, line)
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: line
+
+        write (unit, '(a)') line
+    end subroutine emit_line
+
+    subroutine read_grammar_fact_value(node, value, ok, message)
+        type(sx_node_t), intent(in) :: node
+        type(grammar_fact_t), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        character(len=128) :: id, expression, document, clause, source_rule, source_hash
+        character(len=64) :: page_text, origin, resolution
+        integer :: page, ios
+
+        value%id = ''
+        value%expression = ''
+        value%source%document = ''
+        value%source%clause = ''
+        value%source%rule = ''
+        value%source%page = 0
+        value%source%source_hash = ''
+        value%origin = ORIGIN_MECHANICAL
+        value%resolution = RESOLUTION_RESOLVED
+        ok = .false.
+        message = ''
+        if (node%kind /= sx_list .or. node%child_count /= 6) then
+            message = 'grammar-fact source has the wrong shape'
+            return
+        end if
+        if (.not. standardir_atom_equals(node%children(1), 'grammar-fact')) then
+            message = 'grammar-fact source has the wrong label'
+            return
+        end if
+        call standardir_read_pair(node%children(2), 'id', id, ok, message)
+        if (.not. ok) return
+        call standardir_read_pair(node%children(3), 'expression', expression, ok, message)
+        if (.not. ok) return
+        call standardir_read_source(node%children(4), document, clause, page_text, source_hash, ok, message)
+        if (.not. ok) return
+        call read_source_rule_value(node%children(4), source_rule, ok, message)
+        if (.not. ok) return
+        read (page_text, *, iostat=ios) page
+        if (ios /= 0 .or. page <= 0) then
+            ok = .false.
+            message = 'grammar-fact source page is invalid'
+            return
+        end if
+        call standardir_read_pair(node%children(5), 'origin', origin, ok, message)
+        if (.not. ok) return
+        call standardir_read_pair(node%children(6), 'resolution', resolution, ok, message)
+        if (.not. ok) return
+
+        value%id = id
+        value%expression = expression
+        value%source%document = document
+        value%source%clause = clause
+        value%source%rule = source_rule
+        value%source%page = page
+        value%source%source_hash = source_hash
+        if (trim(origin) == 'mechanical') then
+            value%origin = ORIGIN_MECHANICAL
+        else
+            message = 'grammar-fact origin is outside the bounded lookup'
+            return
+        end if
+        if (trim(resolution) == 'resolved') then
+            value%resolution = RESOLUTION_RESOLVED
+        else
+            message = 'grammar-fact resolution is outside the bounded lookup'
+            return
+        end if
+        call schema_validate_grammar_fact(value, ok, message)
+    end subroutine read_grammar_fact_value
+
+    subroutine read_source_rule_value(field, value, ok, message)
+        type(sx_node_t), intent(in) :: field
+        character(len=*), intent(out) :: value
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        integer :: i
+
+        value = ''
+        ok = .false.
+        message = ''
+        do i = 2, field%child_count
+            if (field%children(i)%kind /= sx_list) cycle
+            if (field%children(i)%child_count < 1) cycle
+            if (.not. standardir_atom_equals(field%children(i)%children(1), 'rule')) cycle
+            call standardir_read_pair(field%children(i), 'rule', value, ok, message)
+            return
+        end do
+        message = 'grammar-fact source lacks rule'
+    end subroutine read_source_rule_value
 
     subroutine generate_type_spec_fact(node, unit, expected_id, module_name, type_spec_name, &
             type_spec_label, ok, message)
