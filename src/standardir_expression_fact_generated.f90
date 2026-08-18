@@ -10,14 +10,14 @@ module standardir_expression_fact_generated
         type(grammar_fact_t) :: fact
     end type standardir_expression_fact_t
 
-    integer, parameter, public :: standardir_expression_fact_count = 5
+    integer, parameter, public :: standardir_expression_fact_count = 6
     public :: standardir_make_expression_fact_table
     public :: standardir_lookup_expression_fact
 
 contains
 
     subroutine standardir_make_expression_fact_table(values)
-        type(standardir_expression_fact_t), intent(out) :: values(5)
+        type(standardir_expression_fact_t), intent(out) :: values(6)
 
         values(1)%fact%id = 'R1006'
         values(1)%fact%expression = '[ add-operand mult-op ] mult-operand'
@@ -64,6 +64,15 @@ contains
         values(5)%fact%source%source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
         values(5)%fact%origin = ORIGIN_MECHANICAL
         values(5)%fact%resolution = RESOLUTION_RESOLVED
+        values(6)%fact%id = 'R1008'
+        values(6)%fact%expression = '**'
+        values(6)%fact%source%document = 'J3-24-007'
+        values(6)%fact%source%clause = '10'
+        values(6)%fact%source%rule = 'R1008'
+        values(6)%fact%source%page = 155
+        values(6)%fact%source%source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
+        values(6)%fact%origin = ORIGIN_MECHANICAL
+        values(6)%fact%resolution = RESOLUTION_RESOLVED
     end subroutine standardir_make_expression_fact_table
 
     subroutine standardir_lookup_expression_fact(id, expression, value, found)
@@ -71,7 +80,7 @@ contains
         type(standardir_expression_fact_t), intent(out) :: value
         logical, intent(out) :: found
 
-        type(standardir_expression_fact_t) :: values(5)
+        type(standardir_expression_fact_t) :: values(6)
         integer :: i
 
         call standardir_make_expression_fact_table(values)

@@ -289,7 +289,8 @@ contains
 
             expression_fact_rule = trim(value%source%clause) == '10' .and. &
                 trim(value%id) == trim(value%source%rule) .and. &
-                (trim(value%id) == 'R1006' .or. trim(value%id) == 'R1009' .or. &
+                (trim(value%id) == 'R1006' .or. trim(value%id) == 'R1008' .or. &
+                trim(value%id) == 'R1009' .or. &
                 trim(value%id) == 'R1010')
         end function expression_fact_rule
 
