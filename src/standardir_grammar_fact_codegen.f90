@@ -19,6 +19,9 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_execution_part_grammar_fact
     public :: standardir_generate_stop_stmt_grammar_fact
     public :: standardir_generate_stop_code_grammar_fact
+    public :: standardir_generate_print_stmt_grammar_fact
+    public :: standardir_generate_format_grammar_fact
+    public :: standardir_generate_output_item_grammar_fact
     public :: standardir_generate_int_literal_constant_grammar_fact
     public :: standardir_generate_assignment_stmt_grammar_fact
     public :: standardir_generate_level_2_expr_grammar_fact
@@ -135,6 +138,36 @@ contains
         call generate_type_spec_fact(node, unit, 'R1164', 'standardir_stop_code_grammar_fact', &
             'stop_code_grammar', 'stop-code', ok, message)
     end subroutine standardir_generate_stop_code_grammar_fact
+
+    subroutine standardir_generate_print_stmt_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1212', 'standardir_print_stmt_grammar_fact', &
+            'print_stmt_grammar', 'print-stmt', ok, message)
+    end subroutine standardir_generate_print_stmt_grammar_fact
+
+    subroutine standardir_generate_format_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1215', 'standardir_format_grammar_fact', &
+            'format_grammar', 'format', ok, message)
+    end subroutine standardir_generate_format_grammar_fact
+
+    subroutine standardir_generate_output_item_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1217', 'standardir_output_item_grammar_fact', &
+            'output_item_grammar', 'output-item', ok, message)
+    end subroutine standardir_generate_output_item_grammar_fact
 
     subroutine standardir_generate_int_literal_constant_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
@@ -956,6 +989,12 @@ contains
                 type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 45
             case ('R1162', 'R1164')
                 type_spec_source_matches = trim(source_clause) == '11' .and. source_page == 214
+            case ('R1212')
+                type_spec_source_matches = trim(source_clause) == '12.6.1' .and. source_page == 242
+            case ('R1215')
+                type_spec_source_matches = trim(source_clause) == '12.6.2.2' .and. source_page == 244
+            case ('R1217')
+                type_spec_source_matches = trim(source_clause) == '12.6.3' .and. source_page == 248
             case ('R705', 'R706', 'R707')
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 67
             case ('R708')
@@ -984,6 +1023,14 @@ contains
             case ('R1164')
                 type_spec_expression_matches = trim(source_expression) == &
                     'scalar-default-char-expr | scalar-int-expr'
+            case ('R1212')
+                type_spec_expression_matches = trim(source_expression) == &
+                    'PRINT format [ , output-item-list ]'
+            case ('R1215')
+                type_spec_expression_matches = trim(source_expression) == &
+                    'default-char-expr | label | *'
+            case ('R1217')
+                type_spec_expression_matches = trim(source_expression) == 'expr | io-implied-do'
             case ('R901')
                 type_spec_expression_matches = trim(source_expression) == &
                     'object-name | array-element | array-section | coindexed-named-object | '// &
