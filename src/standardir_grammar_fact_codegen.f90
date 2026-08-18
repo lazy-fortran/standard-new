@@ -16,6 +16,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_logical_type_spec_fact
     public :: standardir_generate_character_type_spec_fact
     public :: standardir_generate_program_grammar_fact
+    public :: standardir_generate_assignment_stmt_grammar_fact
     public :: standardir_generate_intrinsic_type_spec_lookup
 
 contains
@@ -90,6 +91,17 @@ contains
         call generate_type_spec_fact(node, unit, 'R501', 'standardir_program_grammar_fact', &
             'program_grammar', 'program', ok, message)
     end subroutine standardir_generate_program_grammar_fact
+
+    subroutine standardir_generate_assignment_stmt_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1033', &
+            'standardir_assignment_stmt_grammar_fact', 'assignment_stmt_grammar', &
+            'assignment-stmt', ok, message)
+    end subroutine standardir_generate_assignment_stmt_grammar_fact
 
     subroutine standardir_generate_intrinsic_type_spec_lookup(nodes, unit, ok, message)
         type(sx_node_t), intent(in) :: nodes(:)
@@ -617,6 +629,8 @@ contains
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 67
             case ('R704')
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 80
+            case ('R1033')
+                type_spec_source_matches = trim(source_clause) == '10' .and. source_page == 188
             case default
                 type_spec_source_matches = .false.
             end select

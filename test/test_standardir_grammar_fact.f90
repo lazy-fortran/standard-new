@@ -6,10 +6,12 @@ program test_standardir_grammar_fact
         standardir_generate_real_type_spec_fact, standardir_generate_double_precision_type_spec_fact, &
         standardir_generate_complex_type_spec_fact, standardir_generate_logical_type_spec_fact, &
         standardir_generate_character_type_spec_fact, &
-        standardir_generate_program_grammar_fact, &
+        standardir_generate_program_grammar_fact, standardir_generate_assignment_stmt_grammar_fact, &
         standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
+    use standardir_assignment_stmt_grammar_fact, only: &
+        standardir_consume_assignment_stmt_grammar_fact, standardir_write_assignment_stmt_grammar_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
         standardir_write_integer_type_spec_fact
     use standardir_real_type_spec_fact, only: standardir_consume_real_type_spec_fact, &
@@ -57,6 +59,10 @@ program test_standardir_grammar_fact
         '(grammar-fact (id R704) (expression "or CHARACTER [ char-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
         '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_assignment_stmt = &
+        '(grammar-fact (id R1033) (expression "variable = expr") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1033) '// &
+        '(page 188) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -65,6 +71,7 @@ program test_standardir_grammar_fact
     call check_generated_source_freshness()
     call check_generator_uses_declarative_expression()
     call check_intrinsic_type_spec_lookup()
+    call check_assignment_stmt_generated_source_freshness()
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open program fact output')
@@ -89,6 +96,52 @@ program test_standardir_grammar_fact
     call require(ok, message)
     call standardir_consume_program_grammar_fact(node, ok, message)
     call require(.not. ok, 'altered R501 expression reached the frontend consumer')
+
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open assignment-stmt fact output')
+    call standardir_write_assignment_stmt_grammar_fact(unit, 'J3-24-007', '10', 'R1033', 188, &
+        source_hash, ok, message)
+    call require(ok, message)
+    rewind (unit)
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    call require(ios == 0, 'could not read assignment-stmt fact output')
+    call require(trim(actual) == expected_assignment_stmt, 'canonical assignment-stmt grammar fact differs')
+
+    call sx_parse(expected_assignment_stmt, node, ok, message)
+    call require(ok, message)
+    call standardir_consume_assignment_stmt_grammar_fact(node, ok, message)
+    call require(ok, message)
+
+    call sx_parse('(grammar-fact (id R1033) (expression "variable = mutated") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1033) '// &
+        '(page 188) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    call standardir_consume_assignment_stmt_grammar_fact(node, ok, message)
+    call require(.not. ok, 'mutated assignment-stmt expression reached the frontend consumer')
+
+    call sx_parse('(grammar-fact (id R1033) (expression "variable = expr") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1032) '// &
+        '(page 188) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open mutated assignment-stmt rule output')
+    call standardir_generate_assignment_stmt_grammar_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated assignment-stmt source rule reached the generator')
+
+    call sx_parse('(grammar-fact (id R1033) (expression "variable = expr") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1033) '// &
+        '(page 189) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open mutated assignment-stmt page output')
+    call standardir_generate_assignment_stmt_grammar_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated assignment-stmt source page reached the generator')
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open fact output')
@@ -564,6 +617,35 @@ contains
             checked_intrinsic(:checked_intrinsic_count)), &
             'checked-in intrinsic type-spec output differs from specification')
     end subroutine check_generated_source_freshness
+
+    subroutine check_assignment_stmt_generated_source_freshness()
+        character(len=256) :: fresh(512), checked(512)
+        character(len=1024) :: source
+        integer :: input_unit, output_unit, ios, fresh_count, checked_count
+        logical :: local_ok
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not open assignment-stmt grammar-fact specification')
+        do
+            read (input_unit, '(a)', iostat=ios) source
+            if (ios /= 0) exit
+        end do
+        close (input_unit)
+        call require(len_trim(source) > 0, 'assignment-stmt grammar-fact specification is missing')
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=output_unit, file='build/standardir_assignment_stmt_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh assignment-stmt grammar-fact output')
+        call standardir_generate_assignment_stmt_grammar_fact(node, output_unit, local_ok, message)
+        close (output_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_assignment_stmt_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('src/standardir_assignment_stmt_grammar_fact_generated.f90', checked, checked_count)
+        call require(fresh_count == checked_count, 'checked-in assignment-stmt grammar-fact output is stale')
+        call require(all(fresh(:fresh_count) == checked(:checked_count)), &
+            'checked-in assignment-stmt grammar-fact output differs from specification')
+    end subroutine check_assignment_stmt_generated_source_freshness
 
     subroutine read_source(path, lines, count)
         character(len=*), intent(in) :: path
