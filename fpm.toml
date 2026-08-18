@@ -237,6 +237,11 @@ source-dir = "test"
 main = "test_standardir_grammar_fact.f90"
 
 [[test]]
+name = "test_standardir_execution_part_grammar_fact"
+source-dir = "test"
+main = "test_standardir_execution_part_grammar_fact.f90"
+
+[[test]]
 name = "test_standardir_grammar_export"
 source-dir = "test"
 main = "test_standardir_grammar_export.f90"

@@ -16,6 +16,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_logical_type_spec_fact
     public :: standardir_generate_character_type_spec_fact
     public :: standardir_generate_program_grammar_fact
+    public :: standardir_generate_execution_part_grammar_fact
     public :: standardir_generate_int_literal_constant_grammar_fact
     public :: standardir_generate_assignment_stmt_grammar_fact
     public :: standardir_generate_level_2_expr_grammar_fact
@@ -102,6 +103,16 @@ contains
         call generate_type_spec_fact(node, unit, 'R501', 'standardir_program_grammar_fact', &
             'program_grammar', 'program', ok, message)
     end subroutine standardir_generate_program_grammar_fact
+
+    subroutine standardir_generate_execution_part_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R509', 'standardir_execution_part_grammar_fact', &
+            'execution_part_grammar', 'execution-part', ok, message)
+    end subroutine standardir_generate_execution_part_grammar_fact
 
     subroutine standardir_generate_int_literal_constant_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
@@ -919,6 +930,8 @@ contains
             select case (trim(rule))
             case ('R501')
                 type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 53
+            case ('R509')
+                type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 45
             case ('R705', 'R706', 'R707')
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 67
             case ('R708')
