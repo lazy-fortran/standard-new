@@ -7,11 +7,16 @@ program test_standardir_grammar_fact
         standardir_generate_complex_type_spec_fact, standardir_generate_logical_type_spec_fact, &
         standardir_generate_character_type_spec_fact, &
         standardir_generate_program_grammar_fact, standardir_generate_assignment_stmt_grammar_fact, &
+        standardir_generate_level_2_expr_grammar_fact, standardir_generate_add_op_grammar_fact, &
         standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
     use standardir_assignment_stmt_grammar_fact, only: &
         standardir_consume_assignment_stmt_grammar_fact, standardir_write_assignment_stmt_grammar_fact
+    use standardir_level_2_expr_grammar_fact, only: &
+        standardir_consume_level_2_expr_grammar_fact, standardir_write_level_2_expr_grammar_fact
+    use standardir_add_op_grammar_fact, only: &
+        standardir_consume_add_op_grammar_fact, standardir_write_add_op_grammar_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
         standardir_write_integer_type_spec_fact
     use standardir_real_type_spec_fact, only: standardir_consume_real_type_spec_fact, &
@@ -63,15 +68,46 @@ program test_standardir_grammar_fact
         '(grammar-fact (id R1033) (expression "variable = expr") '// &
         '(source (source-ref (document J3-24-007) (clause 10) (rule R1033) '// &
         '(page 188) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_level_2_expr = &
+        '(grammar-fact (id R1007) (expression "[ [ level-2-expr ] add-op ] add-operand") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1007) '// &
+        '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_add_op = &
+        '(grammar-fact (id R1010) (expression "+") '// &
+        '(source (source-ref (document J3-24-007) (clause 10) (rule R1010) '// &
+        '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
     type(sx_node_t) :: node
     integer :: unit, ios
     logical :: ok
 
+    abstract interface
+        subroutine write_fact(unit, document, clause, source_rule, page, source_hash, ok, message)
+            integer, intent(in) :: unit, page
+            character(len=*), intent(in) :: document, clause, source_rule, source_hash
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine write_fact
+        subroutine consume_fact(node, ok, message)
+            import sx_node_t
+            type(sx_node_t), intent(in) :: node
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine consume_fact
+        subroutine generate_fact(node, unit, ok, message)
+            import sx_node_t
+            type(sx_node_t), intent(in) :: node
+            integer, intent(in) :: unit
+            logical, intent(out) :: ok
+            character(len=*), intent(out) :: message
+        end subroutine generate_fact
+    end interface
+
     call check_generated_source_freshness()
     call check_generator_uses_declarative_expression()
     call check_intrinsic_type_spec_lookup()
     call check_assignment_stmt_generated_source_freshness()
+    call check_expression_generated_source_freshness()
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open program fact output')
@@ -142,6 +178,12 @@ program test_standardir_grammar_fact
     call standardir_generate_assignment_stmt_grammar_fact(node, unit, ok, message)
     close (unit)
     call require(.not. ok, 'mutated assignment-stmt source page reached the generator')
+
+    call check_expression_fact(expected_level_2_expr, 'R1007', '[ [ level-2-expr ] add-op ] add-operand', &
+        standardir_write_level_2_expr_grammar_fact, standardir_consume_level_2_expr_grammar_fact, &
+        standardir_generate_level_2_expr_grammar_fact)
+    call check_expression_fact(expected_add_op, 'R1010', '+', standardir_write_add_op_grammar_fact, &
+        standardir_consume_add_op_grammar_fact, standardir_generate_add_op_grammar_fact)
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open fact output')
@@ -621,14 +663,14 @@ contains
     subroutine check_assignment_stmt_generated_source_freshness()
         character(len=256) :: fresh(512), checked(512)
         character(len=1024) :: source
-        integer :: input_unit, output_unit, ios, fresh_count, checked_count
+        integer :: input_unit, output_unit, ios, fresh_count, checked_count, i
         logical :: local_ok
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
         call require(ios == 0, 'could not open assignment-stmt grammar-fact specification')
-        do
+        do i = 1, 8
             read (input_unit, '(a)', iostat=ios) source
-            if (ios /= 0) exit
+            call require(ios == 0, 'could not read assignment-stmt grammar-fact specification')
         end do
         close (input_unit)
         call require(len_trim(source) > 0, 'assignment-stmt grammar-fact specification is missing')
@@ -646,6 +688,104 @@ contains
         call require(all(fresh(:fresh_count) == checked(:checked_count)), &
             'checked-in assignment-stmt grammar-fact output differs from specification')
     end subroutine check_assignment_stmt_generated_source_freshness
+
+    subroutine check_expression_generated_source_freshness()
+        character(len=256) :: fresh(512), checked(512)
+        character(len=1024) :: source
+        integer :: input_unit, output_unit, ios, fresh_count, checked_count, i
+        logical :: local_ok
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not open expression grammar-fact specification')
+        do i = 1, 9
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read expression grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=output_unit, file='build/standardir_level_2_expr_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh level-2-expr output')
+        call standardir_generate_level_2_expr_grammar_fact(node, output_unit, local_ok, message)
+        close (output_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_level_2_expr_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('src/standardir_level_2_expr_grammar_fact_generated.f90', checked, checked_count)
+        call require(fresh_count == checked_count .and. all(fresh(:fresh_count) == checked(:checked_count)), &
+            'checked-in level-2-expr output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not reopen expression grammar-fact specification')
+        do i = 1, 10
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read add-op grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=output_unit, file='build/standardir_add_op_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh add-op output')
+        call standardir_generate_add_op_grammar_fact(node, output_unit, local_ok, message)
+        close (output_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_add_op_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('src/standardir_add_op_grammar_fact_generated.f90', checked, checked_count)
+        call require(fresh_count == checked_count .and. all(fresh(:fresh_count) == checked(:checked_count)), &
+            'checked-in add-op output differs from specification')
+    end subroutine check_expression_generated_source_freshness
+
+    subroutine check_expression_fact(expected_fact, rule, expression, write, consume, generate)
+        character(len=*), intent(in) :: expected_fact, rule, expression
+        procedure(write_fact) :: write
+        procedure(consume_fact) :: consume
+        procedure(generate_fact) :: generate
+        character(len=1024) :: mutated
+        integer :: unit, ios
+        logical :: local_ok
+
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call require(ios == 0, 'could not open expression fact output')
+        call write(unit, 'J3-24-007', '10', rule, 155, source_hash, local_ok, message)
+        call require(local_ok, message)
+        rewind (unit)
+        read (unit, '(a)', iostat=ios) mutated
+        close (unit)
+        call require(ios == 0 .and. trim(mutated) == trim(expected_fact), 'expression fact differs')
+        call sx_parse(trim(expected_fact), node, local_ok, message)
+        call require(local_ok, message)
+        call consume(node, local_ok, message)
+        call require(local_ok, message)
+
+        call sx_parse('(grammar-fact (id '//rule//') (expression "'//trim(expression)//' mutated") '// &
+            '(source (source-ref (document J3-24-007) (clause 10) (rule '//rule//') '// &
+            '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+            node, local_ok, message)
+        call require(local_ok, message)
+        call consume(node, local_ok, message)
+        call require(.not. local_ok, 'mutated expression was accepted')
+
+        call sx_parse('(grammar-fact (id '//rule//') (expression "'//trim(expression)//'") '// &
+            '(source (source-ref (document J3-24-007) (clause 10) (rule WRONG) '// &
+            '(page 155) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+            node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call generate(node, unit, local_ok, message)
+        close (unit)
+        call require(.not. local_ok, 'mutated rule was accepted')
+
+        call sx_parse('(grammar-fact (id '//rule//') (expression "'//trim(expression)//'") '// &
+            '(source (source-ref (document J3-24-007) (clause 10) (rule '//rule//') '// &
+            '(page 156) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+            node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+        call generate(node, unit, local_ok, message)
+        close (unit)
+        call require(.not. local_ok, 'mutated page was accepted')
+    end subroutine check_expression_fact
 
     subroutine read_source(path, lines, count)
         character(len=*), intent(in) :: path

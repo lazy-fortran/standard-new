@@ -17,6 +17,8 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_character_type_spec_fact
     public :: standardir_generate_program_grammar_fact
     public :: standardir_generate_assignment_stmt_grammar_fact
+    public :: standardir_generate_level_2_expr_grammar_fact
+    public :: standardir_generate_add_op_grammar_fact
     public :: standardir_generate_intrinsic_type_spec_lookup
 
 contains
@@ -102,6 +104,27 @@ contains
             'standardir_assignment_stmt_grammar_fact', 'assignment_stmt_grammar', &
             'assignment-stmt', ok, message)
     end subroutine standardir_generate_assignment_stmt_grammar_fact
+
+    subroutine standardir_generate_level_2_expr_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1007', &
+            'standardir_level_2_expr_grammar_fact', 'level_2_expr_grammar', &
+            'level-2-expr', ok, message)
+    end subroutine standardir_generate_level_2_expr_grammar_fact
+
+    subroutine standardir_generate_add_op_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1010', &
+            'standardir_add_op_grammar_fact', 'add_op_grammar', 'add-op', ok, message)
+    end subroutine standardir_generate_add_op_grammar_fact
 
     subroutine standardir_generate_intrinsic_type_spec_lookup(nodes, unit, ok, message)
         type(sx_node_t), intent(in) :: nodes(:)
@@ -631,6 +654,8 @@ contains
                 type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 80
             case ('R1033')
                 type_spec_source_matches = trim(source_clause) == '10' .and. source_page == 188
+            case ('R1007', 'R1010')
+                type_spec_source_matches = trim(source_clause) == '10' .and. source_page == 155
             case default
                 type_spec_source_matches = .false.
             end select
