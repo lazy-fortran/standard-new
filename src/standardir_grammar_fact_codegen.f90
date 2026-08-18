@@ -10,6 +10,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_integer_type_spec_fact
     public :: standardir_generate_real_type_spec_fact
     public :: standardir_generate_double_precision_type_spec_fact
+    public :: standardir_generate_program_grammar_fact
 
 contains
 
@@ -20,7 +21,8 @@ contains
         character(len=*), intent(out) :: message
 
         call generate_type_spec_fact(node, unit, 'R705', 'INTEGER [ kind-selector ]', &
-            'standardir_grammar_fact', 'integer_type_spec', 'integer', ok, message)
+            'standardir_grammar_fact', 'integer_type_spec', 'integer', 'J3-24-007', '7', 67, 'fixture', &
+            ok, message)
     end subroutine standardir_generate_integer_type_spec_fact
 
     subroutine standardir_generate_real_type_spec_fact(node, unit, ok, message)
@@ -30,7 +32,8 @@ contains
         character(len=*), intent(out) :: message
 
         call generate_type_spec_fact(node, unit, 'R706', 'REAL [ kind-selector ]', &
-            'standardir_real_type_spec_fact', 'real_type_spec', 'real', ok, message)
+            'standardir_real_type_spec_fact', 'real_type_spec', 'real', 'J3-24-007', '7', 67, 'fixture', &
+            ok, message)
     end subroutine standardir_generate_real_type_spec_fact
 
     subroutine standardir_generate_double_precision_type_spec_fact(node, unit, ok, message)
@@ -41,15 +44,29 @@ contains
 
         call generate_type_spec_fact(node, unit, 'R707', 'DOUBLE PRECISION', &
             'standardir_double_precision_type_spec_fact', 'double_precision_type_spec', &
-            'double precision', ok, message)
+            'double precision', 'J3-24-007', '7', 67, 'fixture', ok, message)
     end subroutine standardir_generate_double_precision_type_spec_fact
 
+    subroutine standardir_generate_program_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R501', 'program is program-unit', &
+            'standardir_program_grammar_fact', 'program_grammar', 'program', 'J3-24-007', '5', 53, &
+            'fixture', ok, message)
+    end subroutine standardir_generate_program_grammar_fact
+
     subroutine generate_type_spec_fact(node, unit, expected_id, expected_expression, module_name, &
-            type_spec_name, type_spec_label, ok, message)
+            type_spec_name, type_spec_label, expected_document, expected_clause, expected_page, &
+            expected_source_hash, ok, message)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: unit
         character(len=*), intent(in) :: expected_id, expected_expression, module_name
         character(len=*), intent(in) :: type_spec_name, type_spec_label
+        character(len=*), intent(in) :: expected_document, expected_clause, expected_source_hash
+        integer, intent(in) :: expected_page
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -83,8 +100,8 @@ contains
             message = 'grammar-fact source is outside the bounded type-spec fixture'
             return
         end if
-        if (page_number /= 67 .or. trim(document) /= 'J3-24-007' .or. trim(clause) /= '7' .or. &
-            trim(source_hash) /= 'fixture') then
+        if (page_number /= expected_page .or. trim(document) /= trim(expected_document) .or. &
+            trim(clause) /= trim(expected_clause) .or. trim(source_hash) /= trim(expected_source_hash)) then
             message = 'grammar-fact source provenance differs'
             return
         end if
