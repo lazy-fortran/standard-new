@@ -4,7 +4,8 @@ program test_standardir_grammar_fact
     use fortsx, only: sx_node_t, sx_parse
     use standardir_grammar_fact_codegen, only: standardir_generate_integer_type_spec_fact, &
         standardir_generate_real_type_spec_fact, standardir_generate_double_precision_type_spec_fact, &
-        standardir_generate_complex_type_spec_fact, standardir_generate_program_grammar_fact, &
+        standardir_generate_complex_type_spec_fact, standardir_generate_logical_type_spec_fact, &
+        standardir_generate_program_grammar_fact, &
         standardir_generate_intrinsic_type_spec_lookup
     use standardir_program_grammar_fact, only: standardir_consume_program_grammar_fact, &
         standardir_write_program_grammar_fact
@@ -17,6 +18,8 @@ program test_standardir_grammar_fact
         standardir_write_double_precision_type_spec_fact
     use standardir_complex_type_spec_fact, only: &
         standardir_consume_complex_type_spec_fact, standardir_write_complex_type_spec_fact
+    use standardir_logical_type_spec_fact, only: &
+        standardir_consume_logical_type_spec_fact, standardir_write_logical_type_spec_fact
     use standardir_intrinsic_type_spec_generated, only: &
         standardir_intrinsic_type_spec_t, standardir_lookup_intrinsic_type_spec
     implicit none
@@ -41,6 +44,10 @@ program test_standardir_grammar_fact
         '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=*), parameter :: expected_complex = &
         '(grammar-fact (id R704) (expression "or COMPLEX [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
+        '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
+    character(len=*), parameter :: expected_logical = &
+        '(grammar-fact (id R704) (expression "or LOGICAL [ kind-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
         '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
@@ -184,6 +191,53 @@ program test_standardir_grammar_fact
     close (unit)
     call require(.not. ok, 'mutated COMPLEX source rule reached the generator')
 
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open LOGICAL fact output')
+    call standardir_write_logical_type_spec_fact(unit, 'J3-24-007', '7', 'R704', 80, &
+        source_hash, ok, message)
+    call require(ok, message)
+    rewind (unit)
+    read (unit, '(a)', iostat=ios) actual
+    close (unit)
+    call require(ios == 0, 'could not read LOGICAL fact output')
+    call require(trim(actual) == expected_logical, 'canonical LOGICAL type-spec fact differs')
+
+    call sx_parse(expected_logical, node, ok, message)
+    call require(ok, message)
+    call standardir_consume_logical_type_spec_fact(node, ok, message)
+    call require(ok, message)
+
+    call sx_parse('(grammar-fact (id R704) (expression "or LOGICAL [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
+        '(page 81) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call require(ios == 0, 'could not open mutated LOGICAL fact output')
+    call standardir_generate_logical_type_spec_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated LOGICAL source page reached the generator')
+
+    call sx_parse('(grammar-fact (id R704) (expression "or LOGICAL [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R705) '// &
+        '(page 80) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call standardir_generate_logical_type_spec_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated LOGICAL source rule reached the generator')
+
+    call sx_parse('(grammar-fact (id R704) (expression "or LOGICAL [ kind-selector ]") '// &
+        '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
+        '(page 80) (source-hash mutated-source))) (origin mechanical) (resolution resolved))', &
+        node, ok, message)
+    call require(ok, message)
+    open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
+    call standardir_generate_logical_type_spec_fact(node, unit, ok, message)
+    close (unit)
+    call require(.not. ok, 'mutated LOGICAL source hash reached the generator')
+
     print '(a)', 'StandardIR grammar fact test passed'
 
 contains
@@ -210,6 +264,10 @@ contains
         call require(found .and. trim(value%canonical_name) == 'complex' .and. &
             trim(value%source_rule) == 'R704' .and. value%page == 80, &
             'COMPLEX intrinsic lookup failed')
+        call standardir_lookup_intrinsic_type_spec('LOGICAL [ kind-selector ]', value, found)
+        call require(found .and. trim(value%canonical_name) == 'logical' .and. &
+            trim(value%source_rule) == 'R704' .and. value%page == 80, &
+            'LOGICAL intrinsic lookup failed')
 
         call standardir_lookup_intrinsic_type_spec('REAL [ mutated ]', value, found)
         call require(.not. found, 'mutated intrinsic spelling was accepted')
@@ -246,16 +304,18 @@ contains
             fresh_integer(512), checked_integer(512), &
             fresh_real(512), checked_real(512), fresh_double_precision(512), &
             checked_double_precision(512), fresh_complex(512), checked_complex(512), &
+            fresh_logical(512), checked_logical(512), &
             fresh_intrinsic(512), checked_intrinsic(512)
         character(len=1024) :: source
         integer :: input_unit, fresh_program_unit, fresh_integer_unit, fresh_real_unit, &
-            fresh_double_precision_unit, fresh_intrinsic_unit, ios
+            fresh_double_precision_unit, fresh_logical_unit, fresh_intrinsic_unit, ios
         integer :: fresh_program_count, checked_program_count
         integer :: fresh_integer_count, checked_integer_count, fresh_real_count, checked_real_count
         integer :: fresh_double_precision_count, checked_double_precision_count
         integer :: fresh_complex_count, checked_complex_count
+        integer :: fresh_logical_count, checked_logical_count
         integer :: fresh_intrinsic_count, checked_intrinsic_count, i
-        type(sx_node_t) :: intrinsic_nodes(4)
+        type(sx_node_t) :: intrinsic_nodes(5)
         logical :: local_ok
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
@@ -370,10 +430,34 @@ contains
             'checked-in COMPLEX grammar-fact output differs from specification')
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not reopen LOGICAL grammar-fact specification')
+        do i = 1, 6
+            read (input_unit, '(a)', iostat=ios) source
+            call require(ios == 0, 'could not read LOGICAL grammar-fact specification')
+        end do
+        close (input_unit)
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=fresh_logical_unit, file='build/standardir_logical_type_spec_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh LOGICAL grammar-fact output')
+        call standardir_generate_logical_type_spec_fact(node, fresh_logical_unit, local_ok, message)
+        close (fresh_logical_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_logical_type_spec_fact_generated.f90', fresh_logical, &
+            fresh_logical_count)
+        call read_source('src/standardir_logical_type_spec_fact_generated.f90', checked_logical, &
+            checked_logical_count)
+        call require(fresh_logical_count == checked_logical_count, &
+            'checked-in LOGICAL grammar-fact output is stale')
+        call require(all(fresh_logical(:fresh_logical_count) == checked_logical(:checked_logical_count)), &
+            'checked-in LOGICAL grammar-fact output differs from specification')
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
         call require(ios == 0, 'could not open intrinsic type-spec specification')
         read (input_unit, '(a)', iostat=ios) line
         call require(ios == 0, 'could not skip program grammar-fact specification')
-        do i = 1, 4
+        do i = 1, 5
             read (input_unit, '(a)', iostat=ios) source
             call require(ios == 0, 'could not read intrinsic type-spec specification')
             call sx_parse(trim(source), intrinsic_nodes(i), local_ok, message)

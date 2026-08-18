@@ -13,6 +13,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_real_type_spec_fact
     public :: standardir_generate_double_precision_type_spec_fact
     public :: standardir_generate_complex_type_spec_fact
+    public :: standardir_generate_logical_type_spec_fact
     public :: standardir_generate_program_grammar_fact
     public :: standardir_generate_intrinsic_type_spec_lookup
 
@@ -59,6 +60,16 @@ contains
             'complex_type_spec', 'complex', ok, message)
     end subroutine standardir_generate_complex_type_spec_fact
 
+    subroutine standardir_generate_logical_type_spec_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R704', 'standardir_logical_type_spec_fact', &
+            'logical_type_spec', 'logical', ok, message)
+    end subroutine standardir_generate_logical_type_spec_fact
+
     subroutine standardir_generate_program_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: unit
@@ -75,15 +86,15 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        type(grammar_fact_t) :: facts(4)
-        logical :: found(4)
+        type(grammar_fact_t) :: facts(5)
+        logical :: found(5)
         integer :: i
 
         ok = .false.
         message = ''
         found = .false.
-        if (size(nodes) /= 4) then
-            message = 'intrinsic type-spec lookup requires R704, R705, R706 and R707'
+        if (size(nodes) /= 5) then
+            message = 'intrinsic type-spec lookup requires R704 COMPLEX, R704 LOGICAL, R705, R706 and R707'
             return
         end if
         do i = 1, size(nodes)
@@ -109,9 +120,12 @@ contains
 
             integer :: index
 
-            index = intrinsic_type_spec_index(value%id)
+            index = intrinsic_type_spec_index(value)
             callback_ok = index > 0
             if (callback_ok) callback_ok = .not. found(index)
+            if (callback_ok .and. index == 4) callback_ok = trim(value%expression) == 'or COMPLEX [ kind-selector ]'
+            if (callback_ok .and. index == 5) callback_ok = trim(value%expression) == 'or LOGICAL [ kind-selector ]'
+            if (callback_ok) callback_ok = intrinsic_source_matches(value)
             callback_message = ''
             if (.not. callback_ok) then
                 callback_message = 'intrinsic type-spec lookup has an unknown or duplicate rule'
@@ -121,11 +135,30 @@ contains
             found(index) = .true.
         end subroutine collect_fact
 
-        integer function intrinsic_type_spec_index(id)
-            character(len=*), intent(in) :: id
+        logical function intrinsic_source_matches(value)
+            type(grammar_fact_t), intent(in) :: value
+
+            intrinsic_source_matches = trim(value%source%document) == 'J3-24-007' .and. &
+                trim(value%source%clause) == '7' .and. trim(value%source%source_hash) == &
+                '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
+            if (.not. intrinsic_source_matches) return
+            select case (trim(value%id))
+            case ('R705', 'R706', 'R707')
+                intrinsic_source_matches = value%source%page == 67 .and. &
+                    trim(value%source%rule) == trim(value%id)
+            case ('R704')
+                intrinsic_source_matches = value%source%page == 80 .and. &
+                    trim(value%source%rule) == 'R704'
+            case default
+                intrinsic_source_matches = .false.
+            end select
+        end function intrinsic_source_matches
+
+        integer function intrinsic_type_spec_index(value)
+            type(grammar_fact_t), intent(in) :: value
 
             intrinsic_type_spec_index = 0
-            select case (trim(id))
+            select case (trim(value%id))
             case ('R705')
                 intrinsic_type_spec_index = 1
             case ('R706')
@@ -133,7 +166,11 @@ contains
             case ('R707')
                 intrinsic_type_spec_index = 3
             case ('R704')
-                intrinsic_type_spec_index = 4
+                if (trim(value%expression) == 'or COMPLEX [ kind-selector ]') then
+                    intrinsic_type_spec_index = 4
+                else if (trim(value%expression) == 'or LOGICAL [ kind-selector ]') then
+                    intrinsic_type_spec_index = 5
+                end if
             end select
         end function intrinsic_type_spec_index
 
@@ -162,17 +199,17 @@ contains
         call emit_line(unit, '        character(len=64) :: source_hash = ''''')
         call emit_line(unit, '    end type standardir_intrinsic_type_spec_t')
         call emit_line(unit, '')
-        call emit_line(unit, '    integer, parameter, public :: standardir_intrinsic_type_spec_count = 4')
+        call emit_line(unit, '    integer, parameter, public :: standardir_intrinsic_type_spec_count = 5')
         call emit_line(unit, '    public :: standardir_make_intrinsic_type_spec_lookup')
         call emit_line(unit, '    public :: standardir_lookup_intrinsic_type_spec')
         call emit_line(unit, '')
         call emit_line(unit, 'contains')
         call emit_line(unit, '')
         call emit_line(unit, '    subroutine standardir_make_intrinsic_type_spec_lookup(values)')
-        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: values(4)')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: values(5)')
         call emit_line(unit, '')
         do i = 1, size(facts)
-            canonical_name = intrinsic_canonical_name(facts(i)%id)
+            canonical_name = intrinsic_canonical_name(facts(i))
             call emit_assignment(unit, i, 'canonical_name', canonical_name)
             call emit_assignment(unit, i, 'source_spelling', intrinsic_source_spelling(facts(i)))
             call emit_assignment(unit, i, 'source_rule', facts(i)%source%rule)
@@ -188,7 +225,7 @@ contains
         call emit_line(unit, '        type(standardir_intrinsic_type_spec_t), intent(out) :: value')
         call emit_line(unit, '        logical, intent(out) :: found')
         call emit_line(unit, '')
-        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t) :: values(4)')
+        call emit_line(unit, '        type(standardir_intrinsic_type_spec_t) :: values(5)')
         call emit_line(unit, '        integer :: i')
         call emit_line(unit, '')
         call emit_line(unit, '        call standardir_make_intrinsic_type_spec_lookup(values)')
@@ -206,10 +243,10 @@ contains
         call emit_line(unit, 'end module standardir_intrinsic_type_spec_generated')
     end subroutine emit_lookup
 
-    character(len=32) function intrinsic_canonical_name(id)
-        character(len=*), intent(in) :: id
+    character(len=32) function intrinsic_canonical_name(value)
+        type(grammar_fact_t), intent(in) :: value
 
-        select case (trim(id))
+        select case (trim(value%id))
         case ('R705')
             intrinsic_canonical_name = 'integer'
         case ('R706')
@@ -217,7 +254,11 @@ contains
         case ('R707')
             intrinsic_canonical_name = 'double_precision'
         case ('R704')
-            intrinsic_canonical_name = 'complex'
+            if (index(trim(value%expression), 'LOGICAL') > 0) then
+                intrinsic_canonical_name = 'logical'
+            else
+                intrinsic_canonical_name = 'complex'
+            end if
         case default
             intrinsic_canonical_name = ''
         end select
@@ -228,7 +269,11 @@ contains
 
         select case (trim(value%id))
         case ('R704')
-            intrinsic_source_spelling = 'COMPLEX'
+            if (index(trim(value%expression), 'LOGICAL') > 0) then
+                intrinsic_source_spelling = 'LOGICAL [ kind-selector ]'
+            else
+                intrinsic_source_spelling = 'COMPLEX'
+            end if
         case default
             intrinsic_source_spelling = value%expression
         end select
@@ -389,6 +434,10 @@ contains
             message = 'grammar-fact source is outside the bounded type-spec fixture'
             return
         end if
+        if (.not. type_spec_source_matches(expected_id, document, clause, page_number, source_hash)) then
+            message = 'grammar-fact type-spec provenance differs'
+            return
+        end if
         write (page_text, '(i0)') page_number
 
         call emit('module '//trim(module_name))
@@ -533,6 +582,27 @@ contains
                 result_message = 'grammar-fact source page is invalid'
             end if
         end subroutine read_source_rule
+
+        logical function type_spec_source_matches(rule, source_document, source_clause, source_page, &
+                source_hash_value)
+            character(len=*), intent(in) :: rule, source_document, source_clause, source_hash_value
+            integer, intent(in) :: source_page
+
+            type_spec_source_matches = trim(source_document) == 'J3-24-007' .and. &
+                trim(source_hash_value) == &
+                '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
+            if (.not. type_spec_source_matches) return
+            select case (trim(rule))
+            case ('R501')
+                type_spec_source_matches = trim(source_clause) == '5' .and. source_page == 53
+            case ('R705', 'R706', 'R707')
+                type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 67
+            case ('R704')
+                type_spec_source_matches = trim(source_clause) == '7' .and. source_page == 80
+            case default
+                type_spec_source_matches = .false.
+            end select
+        end function type_spec_source_matches
 
         subroutine read_rule_from_source(field, value, result_ok, result_message)
             type(sx_node_t), intent(in) :: field
