@@ -2,6 +2,7 @@ program test_standardir_grammar_fact
     !! Fixed SX is the independent oracle for the concrete frontend fact.
 
     use fortsx, only: sx_node_t, sx_parse
+    use standardir_grammar_fact_codegen, only: standardir_generate_integer_type_spec_fact
     use standardir_grammar_fact, only: standardir_consume_integer_type_spec_fact, &
         standardir_write_integer_type_spec_fact
     implicit none
@@ -14,6 +15,8 @@ program test_standardir_grammar_fact
     type(sx_node_t) :: node
     integer :: unit, ios
     logical :: ok
+
+    call check_generated_source_freshness()
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open fact output')
@@ -42,6 +45,51 @@ program test_standardir_grammar_fact
     print '(a)', 'StandardIR grammar fact test passed'
 
 contains
+
+    subroutine check_generated_source_freshness()
+        character(len=256) :: line, fresh(256), checked_in(256), source
+        integer :: input_unit, fresh_unit, ios, fresh_count, checked_count
+        logical :: local_ok
+
+        open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
+        call require(ios == 0, 'could not open grammar-facts specification')
+        read (input_unit, '(a)', iostat=ios) source
+        close (input_unit)
+        call require(ios == 0, 'could not read grammar-facts specification')
+        call sx_parse(trim(source), node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=fresh_unit, file='build/standardir_grammar_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh grammar-fact output')
+        call standardir_generate_integer_type_spec_fact(node, fresh_unit, local_ok, message)
+        close (fresh_unit)
+        call require(local_ok, message)
+        call read_source('build/standardir_grammar_fact_generated.f90', fresh, fresh_count)
+        call read_source('generated/standardir_grammar_fact_generated.f90', checked_in, checked_count)
+        call require(fresh_count == checked_count, 'checked-in grammar-fact output is stale')
+        call require(all(fresh(:fresh_count) == checked_in(:checked_count)), &
+            'checked-in grammar-fact output differs from specification')
+    end subroutine check_generated_source_freshness
+
+    subroutine read_source(path, lines, count)
+        character(len=*), intent(in) :: path
+        character(len=*), intent(out) :: lines(:)
+        integer, intent(out) :: count
+        character(len=256) :: line
+        integer :: local_unit, local_ios
+
+        count = 0
+        open (newunit=local_unit, file=path, action='read', iostat=local_ios)
+        call require(local_ios == 0, 'could not open generated grammar-fact source')
+        do
+            read (local_unit, '(a)', iostat=local_ios) line
+            if (local_ios /= 0) exit
+            count = count + 1
+            call require(count <= size(lines), 'generated grammar-fact source is too long')
+            lines(count) = line
+        end do
+        close (local_unit)
+    end subroutine read_source
 
     subroutine require(condition, failure_message)
         logical, intent(in) :: condition

@@ -1,5 +1,5 @@
 module standardir_grammar_fact
-    !! Concrete source-backed grammar facts for frontend consumers.
+    !! Generated from specs/grammar-facts-v0.sx; do not edit.
 
     use fortsx, only: sx_node_t
     use schema_v0_generated, only: grammar_fact_t, ORIGIN_MECHANICAL, &
