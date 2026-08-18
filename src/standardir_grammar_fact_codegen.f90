@@ -1,19 +1,43 @@
 module standardir_grammar_fact_codegen
-    !! Generate the bounded R705 grammar-fact consumer from its SX source.
+    !! Generate bounded type-spec grammar-fact consumers from SX sources.
 
-    use fortsx, only: sx_atom, sx_list, sx_node_t
+    use fortsx, only: sx_list, sx_node_t
     use standardir_syntax_fields, only: standardir_atom_equals, &
         standardir_read_pair, standardir_read_source
     implicit none
     private
 
     public :: standardir_generate_integer_type_spec_fact
+    public :: standardir_generate_real_type_spec_fact
 
 contains
 
     subroutine standardir_generate_integer_type_spec_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R705', 'INTEGER [ kind-selector ]', &
+            'standardir_grammar_fact', 'integer_type_spec', 'integer', ok, message)
+    end subroutine standardir_generate_integer_type_spec_fact
+
+    subroutine standardir_generate_real_type_spec_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R706', 'REAL [ kind-selector ]', &
+            'standardir_real_type_spec_fact', 'real_type_spec', 'real', ok, message)
+    end subroutine standardir_generate_real_type_spec_fact
+
+    subroutine generate_type_spec_fact(node, unit, expected_id, expected_expression, module_name, &
+            type_spec_name, type_spec_label, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        character(len=*), intent(in) :: expected_id, expected_expression, module_name
+        character(len=*), intent(in) :: type_spec_name, type_spec_label
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
@@ -42,9 +66,9 @@ contains
         if (.not. ok) return
         call read_field(node%children(6), 'resolution', resolution, ok, message)
         if (.not. ok) return
-        if (trim(id) /= 'R705' .or. trim(source_rule) /= 'R705' .or. &
+        if (trim(id) /= trim(expected_id) .or. trim(source_rule) /= trim(expected_id) .or. &
             trim(origin) /= 'mechanical' .or. trim(resolution) /= 'resolved') then
-            message = 'grammar-fact source is outside the bounded R705 fixture'
+            message = 'grammar-fact source is outside the bounded type-spec fixture'
             return
         end if
         if (page_number /= 67 .or. trim(document) /= 'J3-24-007' .or. trim(clause) /= '7' .or. &
@@ -52,8 +76,12 @@ contains
             message = 'grammar-fact source provenance differs'
             return
         end if
+        if (trim(expression) /= trim(expected_expression)) then
+            message = 'grammar-fact expression differs'
+            return
+        end if
 
-        call emit('module standardir_grammar_fact')
+        call emit('module '//trim(module_name))
         call emit('    !! Generated from specs/grammar-facts-v0.sx; do not edit.')
         call emit('')
         call emit('    use fortsx, only: sx_node_t')
@@ -63,18 +91,18 @@ contains
         call emit('    implicit none')
         call emit('    private')
         call emit('')
-        call emit("    character(len=*), parameter, public :: standardir_integer_type_spec_id = '"// &
+        call emit("    character(len=*), parameter, public :: standardir_"//trim(type_spec_name)//"_id = '"// &
             trim(id)//"'")
-        call emit("    character(len=*), parameter, public :: standardir_integer_type_spec_expression = &")
+        call emit("    character(len=*), parameter, public :: standardir_"//trim(type_spec_name)//"_expression = &")
         call emit("        '"//trim(expression)//"'")
         call emit('')
-        call emit('    public :: standardir_make_integer_type_spec_fact')
-        call emit('    public :: standardir_write_integer_type_spec_fact')
-        call emit('    public :: standardir_consume_integer_type_spec_fact')
+        call emit('    public :: standardir_make_'//trim(type_spec_name)//'_fact')
+        call emit('    public :: standardir_write_'//trim(type_spec_name)//'_fact')
+        call emit('    public :: standardir_consume_'//trim(type_spec_name)//'_fact')
         call emit('')
         call emit('contains')
         call emit('')
-        call emit('    subroutine standardir_make_integer_type_spec_fact(document, clause, source_rule, page, &')
+        call emit('    subroutine standardir_make_'//trim(type_spec_name)//'_fact(document, clause, source_rule, page, &')
         call emit('            source_hash, value, ok, message)')
         call emit('        character(len=*), intent(in) :: document, clause, source_rule, source_hash')
         call emit('        integer, intent(in) :: page')
@@ -82,8 +110,8 @@ contains
         call emit('        logical, intent(out) :: ok')
         call emit('        character(len=*), intent(out) :: message')
         call emit('')
-        call emit('        value%id = standardir_integer_type_spec_id')
-        call emit('        value%expression = standardir_integer_type_spec_expression')
+        call emit('        value%id = standardir_'//trim(type_spec_name)//'_id')
+        call emit('        value%expression = standardir_'//trim(type_spec_name)//'_expression')
         call emit('        value%source%document = trim(document)')
         call emit('        value%source%clause = trim(clause)')
         call emit('        value%source%rule = trim(source_rule)')
@@ -92,9 +120,9 @@ contains
         call emit('        value%origin = ORIGIN_MECHANICAL')
         call emit('        value%resolution = RESOLUTION_RESOLVED')
         call emit('        call schema_validate_grammar_fact(value, ok, message)')
-        call emit('    end subroutine standardir_make_integer_type_spec_fact')
+        call emit('    end subroutine standardir_make_'//trim(type_spec_name)//'_fact')
         call emit('')
-        call emit('    subroutine standardir_write_integer_type_spec_fact(unit, document, clause, source_rule, &')
+        call emit('    subroutine standardir_write_'//trim(type_spec_name)//'_fact(unit, document, clause, source_rule, &')
         call emit('            page, source_hash, ok, message)')
         call emit('        integer, intent(in) :: unit, page')
         call emit('        character(len=*), intent(in) :: document, clause, source_rule, source_hash')
@@ -103,13 +131,13 @@ contains
         call emit('')
         call emit('        type(grammar_fact_t) :: value')
         call emit('')
-        call emit('        call standardir_make_integer_type_spec_fact(document, clause, source_rule, page, &')
+        call emit('        call standardir_make_'//trim(type_spec_name)//'_fact(document, clause, source_rule, page, &')
         call emit('            source_hash, value, ok, message)')
         call emit('        if (.not. ok) return')
         call emit('        call schema_write_grammar_fact(value, unit, ok, message)')
-        call emit('    end subroutine standardir_write_integer_type_spec_fact')
+        call emit('    end subroutine standardir_write_'//trim(type_spec_name)//'_fact')
         call emit('')
-        call emit('    subroutine standardir_consume_integer_type_spec_fact(node, ok, message)')
+        call emit('    subroutine standardir_consume_'//trim(type_spec_name)//'_fact(node, ok, message)')
         call emit('        type(sx_node_t), intent(in) :: node')
         call emit('        logical, intent(out) :: ok')
         call emit('        character(len=*), intent(out) :: message')
@@ -123,15 +151,16 @@ contains
         call emit('            logical, intent(out) :: callback_ok')
         call emit('            character(len=*), intent(out) :: callback_message')
         call emit('')
-        call emit('            callback_ok = trim(value%id) == standardir_integer_type_spec_id .and. &')
-        call emit('                trim(value%expression) == standardir_integer_type_spec_expression')
+        call emit('            callback_ok = trim(value%id) == standardir_'//trim(type_spec_name)//'_id .and. &')
+        call emit('                trim(value%expression) == standardir_'//trim(type_spec_name)//'_expression')
         call emit("            callback_message = ''")
-        call emit("            if (.not. callback_ok) callback_message = 'integer type-spec grammar fact differs'")
+        call emit("            if (.not. callback_ok) callback_message = '"//trim(type_spec_label)// &
+            " type-spec grammar fact differs'")
         call emit('        end subroutine check_fact')
         call emit('')
-        call emit('    end subroutine standardir_consume_integer_type_spec_fact')
+        call emit('    end subroutine standardir_consume_'//trim(type_spec_name)//'_fact')
         call emit('')
-        call emit('end module standardir_grammar_fact')
+        call emit('end module '//trim(module_name))
         ok = .true.
 
     contains
@@ -200,6 +229,6 @@ contains
             result_message = 'grammar-fact source lacks rule'
         end subroutine read_rule_from_source
 
-    end subroutine standardir_generate_integer_type_spec_fact
+    end subroutine generate_type_spec_fact
 
 end module standardir_grammar_fact_codegen

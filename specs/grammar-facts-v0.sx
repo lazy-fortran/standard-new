@@ -1,1 +1,2 @@
 (grammar-fact (id R705) (expression "INTEGER [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R705) (page 67) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
+(grammar-fact (id R706) (expression "REAL [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R706) (page 67) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
