@@ -21,7 +21,8 @@ contains
         character(len=*), intent(out) :: message
 
         call generate_type_spec_fact(node, unit, 'R705', 'INTEGER [ kind-selector ]', &
-            'standardir_grammar_fact', 'integer_type_spec', 'integer', 'J3-24-007', '7', 67, 'fixture', &
+            'standardir_grammar_fact', 'integer_type_spec', 'integer', 'J3-24-007', '7', 67, &
+            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', &
             ok, message)
     end subroutine standardir_generate_integer_type_spec_fact
 
@@ -32,7 +33,8 @@ contains
         character(len=*), intent(out) :: message
 
         call generate_type_spec_fact(node, unit, 'R706', 'REAL [ kind-selector ]', &
-            'standardir_real_type_spec_fact', 'real_type_spec', 'real', 'J3-24-007', '7', 67, 'fixture', &
+            'standardir_real_type_spec_fact', 'real_type_spec', 'real', 'J3-24-007', '7', 67, &
+            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', &
             ok, message)
     end subroutine standardir_generate_real_type_spec_fact
 
@@ -44,7 +46,8 @@ contains
 
         call generate_type_spec_fact(node, unit, 'R707', 'DOUBLE PRECISION', &
             'standardir_double_precision_type_spec_fact', 'double_precision_type_spec', &
-            'double precision', 'J3-24-007', '7', 67, 'fixture', ok, message)
+            'double precision', 'J3-24-007', '7', 67, &
+            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', ok, message)
     end subroutine standardir_generate_double_precision_type_spec_fact
 
     subroutine standardir_generate_program_grammar_fact(node, unit, ok, message)
@@ -53,9 +56,9 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call generate_type_spec_fact(node, unit, 'R501', 'program is program-unit', &
+        call generate_type_spec_fact(node, unit, 'R501', 'program-unit [ program-unit ] ...', &
             'standardir_program_grammar_fact', 'program_grammar', 'program', 'J3-24-007', '5', 53, &
-            'fixture', ok, message)
+            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', ok, message)
     end subroutine standardir_generate_program_grammar_fact
 
     subroutine generate_type_spec_fact(node, unit, expected_id, expected_expression, module_name, &

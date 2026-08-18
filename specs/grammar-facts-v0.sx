@@ -1,4 +1,4 @@
-(grammar-fact (id R501) (expression "program is program-unit") (source (document J3-24-007) (clause 5) (rule R501) (page 53) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
-(grammar-fact (id R705) (expression "INTEGER [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R705) (page 67) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
-(grammar-fact (id R706) (expression "REAL [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R706) (page 67) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
-(grammar-fact (id R707) (expression "DOUBLE PRECISION") (source (document J3-24-007) (clause 7) (rule R707) (page 67) (source-sha256 fixture)) (origin mechanical) (resolution resolved))
+(grammar-fact (id R501) (expression "program-unit [ program-unit ] ...") (source (document J3-24-007) (clause 5) (rule R501) (page 53) (source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2)) (origin mechanical) (resolution resolved))
+(grammar-fact (id R705) (expression "INTEGER [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R705) (page 67) (source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2)) (origin mechanical) (resolution resolved))
+(grammar-fact (id R706) (expression "REAL [ kind-selector ]") (source (document J3-24-007) (clause 7) (rule R706) (page 67) (source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2)) (origin mechanical) (resolution resolved))
+(grammar-fact (id R707) (expression "DOUBLE PRECISION") (source (document J3-24-007) (clause 7) (rule R707) (page 67) (source-sha256 7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2)) (origin mechanical) (resolution resolved))

@@ -16,22 +16,24 @@ program test_standardir_grammar_fact
         standardir_write_double_precision_type_spec_fact
     implicit none
 
+    character(len=*), parameter :: source_hash = &
+        '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
     character(len=*), parameter :: expected = &
         '(grammar-fact (id R705) (expression "INTEGER [ kind-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R705) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))'
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=*), parameter :: expected_program = &
-        '(grammar-fact (id R501) (expression "program is program-unit") '// &
+        '(grammar-fact (id R501) (expression "program-unit [ program-unit ] ...") '// &
         '(source (source-ref (document J3-24-007) (clause 5) (rule R501) '// &
-        '(page 53) (source-hash fixture))) (origin mechanical) (resolution resolved))'
+        '(page 53) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=*), parameter :: expected_real = &
         '(grammar-fact (id R706) (expression "REAL [ kind-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R706) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))'
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=*), parameter :: expected_double_precision = &
         '(grammar-fact (id R707) (expression "DOUBLE PRECISION") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R707) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))'
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))'
     character(len=512) :: actual, message
     type(sx_node_t) :: node
     integer :: unit, ios
@@ -42,7 +44,7 @@ program test_standardir_grammar_fact
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open program fact output')
     call standardir_write_program_grammar_fact(unit, 'J3-24-007', '5', 'R501', 53, &
-        'fixture', ok, message)
+        source_hash, ok, message)
     call require(ok, message)
     rewind (unit)
     read (unit, '(a)', iostat=ios) actual
@@ -55,9 +57,9 @@ program test_standardir_grammar_fact
     call standardir_consume_program_grammar_fact(node, ok, message)
     call require(ok, message)
 
-    call sx_parse('(grammar-fact (id R501) (expression "program-unit is program") '// &
+    call sx_parse('(grammar-fact (id R501) (expression "program is program-unit") '// &
         '(source (source-ref (document J3-24-007) (clause 5) (rule R501) '// &
-        '(page 53) (source-hash fixture))) (origin mechanical) (resolution resolved))', &
+        '(page 53) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
         node, ok, message)
     call require(ok, message)
     call standardir_consume_program_grammar_fact(node, ok, message)
@@ -66,7 +68,7 @@ program test_standardir_grammar_fact
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open fact output')
     call standardir_write_integer_type_spec_fact(unit, 'J3-24-007', '7', 'R705', 67, &
-        'fixture', ok, message)
+        source_hash, ok, message)
     call require(ok, message)
     rewind (unit)
     read (unit, '(a)', iostat=ios) actual
@@ -81,7 +83,7 @@ program test_standardir_grammar_fact
 
     call sx_parse('(grammar-fact (id R704) (expression "INTEGER [ kind-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R704) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))', &
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
         node, ok, message)
     call require(ok, message)
     call standardir_consume_integer_type_spec_fact(node, ok, message)
@@ -90,7 +92,7 @@ program test_standardir_grammar_fact
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open REAL fact output')
     call standardir_write_real_type_spec_fact(unit, 'J3-24-007', '7', 'R706', 67, &
-        'fixture', ok, message)
+        source_hash, ok, message)
     call require(ok, message)
     rewind (unit)
     read (unit, '(a)', iostat=ios) actual
@@ -105,7 +107,7 @@ program test_standardir_grammar_fact
 
     call sx_parse('(grammar-fact (id R705) (expression "REAL [ kind-selector ]") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R705) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))', &
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
         node, ok, message)
     call require(ok, message)
     call standardir_consume_real_type_spec_fact(node, ok, message)
@@ -114,7 +116,7 @@ program test_standardir_grammar_fact
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open DOUBLE PRECISION fact output')
     call standardir_write_double_precision_type_spec_fact(unit, 'J3-24-007', '7', 'R707', 67, &
-        'fixture', ok, message)
+        source_hash, ok, message)
     call require(ok, message)
     rewind (unit)
     read (unit, '(a)', iostat=ios) actual
@@ -130,7 +132,7 @@ program test_standardir_grammar_fact
 
     call sx_parse('(grammar-fact (id R706) (expression "DOUBLE PRECISION") '// &
         '(source (source-ref (document J3-24-007) (clause 7) (rule R706) '// &
-        '(page 67) (source-hash fixture))) (origin mechanical) (resolution resolved))', &
+        '(page 67) (source-hash '//source_hash//'))) (origin mechanical) (resolution resolved))', &
         node, ok, message)
     call require(ok, message)
     call standardir_consume_double_precision_type_spec_fact(node, ok, message)
@@ -144,7 +146,8 @@ contains
         character(len=256) :: line, fresh_program(512), checked_program(512), &
             fresh_integer(512), checked_integer(512), &
             fresh_real(512), checked_real(512), fresh_double_precision(512), &
-            checked_double_precision(512), source
+            checked_double_precision(512)
+        character(len=1024) :: source
         integer :: input_unit, fresh_program_unit, fresh_integer_unit, fresh_real_unit, &
             fresh_double_precision_unit, ios
         integer :: fresh_program_count, checked_program_count

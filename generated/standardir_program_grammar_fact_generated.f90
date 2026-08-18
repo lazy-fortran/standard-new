@@ -10,7 +10,7 @@ module standardir_program_grammar_fact
 
     character(len=*), parameter, public :: standardir_program_grammar_id = 'R501'
     character(len=*), parameter, public :: standardir_program_grammar_expression = &
-        'program is program-unit'
+        'program-unit [ program-unit ] ...'
 
     public :: standardir_make_program_grammar_fact
     public :: standardir_write_program_grammar_fact
