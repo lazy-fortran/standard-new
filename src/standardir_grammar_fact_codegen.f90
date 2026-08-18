@@ -20,10 +20,8 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call generate_type_spec_fact(node, unit, 'R705', 'INTEGER [ kind-selector ]', &
-            'standardir_grammar_fact', 'integer_type_spec', 'integer', 'J3-24-007', '7', 67, &
-            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', &
-            ok, message)
+        call generate_type_spec_fact(node, unit, 'R705', 'standardir_grammar_fact', &
+            'integer_type_spec', 'integer', ok, message)
     end subroutine standardir_generate_integer_type_spec_fact
 
     subroutine standardir_generate_real_type_spec_fact(node, unit, ok, message)
@@ -32,10 +30,8 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call generate_type_spec_fact(node, unit, 'R706', 'REAL [ kind-selector ]', &
-            'standardir_real_type_spec_fact', 'real_type_spec', 'real', 'J3-24-007', '7', 67, &
-            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', &
-            ok, message)
+        call generate_type_spec_fact(node, unit, 'R706', 'standardir_real_type_spec_fact', &
+            'real_type_spec', 'real', ok, message)
     end subroutine standardir_generate_real_type_spec_fact
 
     subroutine standardir_generate_double_precision_type_spec_fact(node, unit, ok, message)
@@ -44,10 +40,9 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call generate_type_spec_fact(node, unit, 'R707', 'DOUBLE PRECISION', &
+        call generate_type_spec_fact(node, unit, 'R707', &
             'standardir_double_precision_type_spec_fact', 'double_precision_type_spec', &
-            'double precision', 'J3-24-007', '7', 67, &
-            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', ok, message)
+            'double precision', ok, message)
     end subroutine standardir_generate_double_precision_type_spec_fact
 
     subroutine standardir_generate_program_grammar_fact(node, unit, ok, message)
@@ -56,25 +51,21 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
-        call generate_type_spec_fact(node, unit, 'R501', 'program-unit [ program-unit ] ...', &
-            'standardir_program_grammar_fact', 'program_grammar', 'program', 'J3-24-007', '5', 53, &
-            '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2', ok, message)
+        call generate_type_spec_fact(node, unit, 'R501', 'standardir_program_grammar_fact', &
+            'program_grammar', 'program', ok, message)
     end subroutine standardir_generate_program_grammar_fact
 
-    subroutine generate_type_spec_fact(node, unit, expected_id, expected_expression, module_name, &
-            type_spec_name, type_spec_label, expected_document, expected_clause, expected_page, &
-            expected_source_hash, ok, message)
+    subroutine generate_type_spec_fact(node, unit, expected_id, module_name, type_spec_name, &
+            type_spec_label, ok, message)
         type(sx_node_t), intent(in) :: node
         integer, intent(in) :: unit
-        character(len=*), intent(in) :: expected_id, expected_expression, module_name
+        character(len=*), intent(in) :: expected_id, module_name
         character(len=*), intent(in) :: type_spec_name, type_spec_label
-        character(len=*), intent(in) :: expected_document, expected_clause, expected_source_hash
-        integer, intent(in) :: expected_page
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
 
         character(len=128) :: id, expression, document, clause, source_rule, source_hash
-        character(len=64) :: page, origin, resolution
+        character(len=64) :: page_text, origin, resolution
         integer :: page_number
 
         ok = .false.
@@ -103,15 +94,7 @@ contains
             message = 'grammar-fact source is outside the bounded type-spec fixture'
             return
         end if
-        if (page_number /= expected_page .or. trim(document) /= trim(expected_document) .or. &
-            trim(clause) /= trim(expected_clause) .or. trim(source_hash) /= trim(expected_source_hash)) then
-            message = 'grammar-fact source provenance differs'
-            return
-        end if
-        if (trim(expression) /= trim(expected_expression)) then
-            message = 'grammar-fact expression differs'
-            return
-        end if
+        write (page_text, '(i0)') page_number
 
         call emit('module '//trim(module_name))
         call emit('    !! Generated from specs/grammar-facts-v0.sx; do not edit.')
@@ -127,6 +110,15 @@ contains
             trim(id)//"'")
         call emit("    character(len=*), parameter, public :: standardir_"//trim(type_spec_name)//"_expression = &")
         call emit("        '"//trim(expression)//"'")
+        call emit("    character(len=*), parameter :: standardir_"//trim(type_spec_name)//"_document = '"// &
+            trim(document)//"'")
+        call emit("    character(len=*), parameter :: standardir_"//trim(type_spec_name)//"_clause = '"// &
+            trim(clause)//"'")
+        call emit("    character(len=*), parameter :: standardir_"//trim(type_spec_name)//"_source_rule = '"// &
+            trim(source_rule)//"'")
+        call emit('    integer, parameter :: standardir_'//trim(type_spec_name)//'_page = '//trim(page_text))
+        call emit("    character(len=*), parameter :: standardir_"//trim(type_spec_name)//"_source_hash = '"// &
+            trim(source_hash)//"'")
         call emit('')
         call emit('    public :: standardir_make_'//trim(type_spec_name)//'_fact')
         call emit('    public :: standardir_write_'//trim(type_spec_name)//'_fact')
@@ -141,6 +133,16 @@ contains
         call emit('        type(grammar_fact_t), intent(out) :: value')
         call emit('        logical, intent(out) :: ok')
         call emit('        character(len=*), intent(out) :: message')
+        call emit('')
+        call emit('        if (trim(document) /= standardir_'//trim(type_spec_name)//'_document .or. &')
+        call emit('            trim(clause) /= standardir_'//trim(type_spec_name)//'_clause .or. &')
+        call emit('            trim(source_rule) /= standardir_'//trim(type_spec_name)//'_source_rule .or. &')
+        call emit('            page /= standardir_'//trim(type_spec_name)//'_page .or. &')
+        call emit('            trim(source_hash) /= standardir_'//trim(type_spec_name)//'_source_hash) then')
+        call emit('            ok = .false.')
+        call emit("            message = 'grammar-fact source provenance differs'")
+        call emit('            return')
+        call emit('        end if')
         call emit('')
         call emit('        value%id = standardir_'//trim(type_spec_name)//'_id')
         call emit('        value%expression = standardir_'//trim(type_spec_name)//'_expression')

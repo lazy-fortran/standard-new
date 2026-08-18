@@ -11,6 +11,11 @@ module standardir_grammar_fact
     character(len=*), parameter, public :: standardir_integer_type_spec_id = 'R705'
     character(len=*), parameter, public :: standardir_integer_type_spec_expression = &
         'INTEGER [ kind-selector ]'
+    character(len=*), parameter :: standardir_integer_type_spec_document = 'J3-24-007'
+    character(len=*), parameter :: standardir_integer_type_spec_clause = '7'
+    character(len=*), parameter :: standardir_integer_type_spec_source_rule = 'R705'
+    integer, parameter :: standardir_integer_type_spec_page = 67
+    character(len=*), parameter :: standardir_integer_type_spec_source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
 
     public :: standardir_make_integer_type_spec_fact
     public :: standardir_write_integer_type_spec_fact
@@ -25,6 +30,16 @@ contains
         type(grammar_fact_t), intent(out) :: value
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+
+        if (trim(document) /= standardir_integer_type_spec_document .or. &
+            trim(clause) /= standardir_integer_type_spec_clause .or. &
+            trim(source_rule) /= standardir_integer_type_spec_source_rule .or. &
+            page /= standardir_integer_type_spec_page .or. &
+            trim(source_hash) /= standardir_integer_type_spec_source_hash) then
+            ok = .false.
+            message = 'grammar-fact source provenance differs'
+            return
+        end if
 
         value%id = standardir_integer_type_spec_id
         value%expression = standardir_integer_type_spec_expression

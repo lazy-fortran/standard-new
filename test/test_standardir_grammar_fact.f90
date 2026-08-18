@@ -40,6 +40,7 @@ program test_standardir_grammar_fact
     logical :: ok
 
     call check_generated_source_freshness()
+    call check_generator_uses_declarative_expression()
 
     open (newunit=unit, status='scratch', action='readwrite', iostat=ios)
     call require(ios == 0, 'could not open program fact output')
@@ -141,6 +142,32 @@ program test_standardir_grammar_fact
     print '(a)', 'StandardIR grammar fact test passed'
 
 contains
+
+    subroutine check_generator_uses_declarative_expression()
+        character(len=*), parameter :: mutated_source = &
+            '(grammar-fact (id R501) (expression "program-unit [ mutated ] ...") '// &
+            '(source (document J3-24-007) (clause 5) (rule R501) (page 53) '// &
+            '(source-sha256 '//source_hash//')) (origin mechanical) (resolution resolved))'
+        character(len=256) :: line
+        integer :: local_unit, local_ios
+        logical :: local_ok, found
+
+        call sx_parse(mutated_source, node, local_ok, message)
+        call require(local_ok, message)
+        open (newunit=local_unit, status='scratch', action='readwrite', iostat=local_ios)
+        call require(local_ios == 0, 'could not open mutated grammar-fact output')
+        call standardir_generate_program_grammar_fact(node, local_unit, local_ok, message)
+        call require(local_ok, message)
+        rewind (local_unit)
+        found = .false.
+        do
+            read (local_unit, '(a)', iostat=local_ios) line
+            if (local_ios /= 0) exit
+            if (index(line, 'program-unit [ mutated ] ...') > 0) found = .true.
+        end do
+        close (local_unit)
+        call require(found, 'generator ignored declarative grammar-fact expression')
+    end subroutine check_generator_uses_declarative_expression
 
     subroutine check_generated_source_freshness()
         character(len=256) :: line, fresh_program(512), checked_program(512), &

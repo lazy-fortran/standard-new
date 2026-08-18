@@ -11,6 +11,11 @@ module standardir_program_grammar_fact
     character(len=*), parameter, public :: standardir_program_grammar_id = 'R501'
     character(len=*), parameter, public :: standardir_program_grammar_expression = &
         'program-unit [ program-unit ] ...'
+    character(len=*), parameter :: standardir_program_grammar_document = 'J3-24-007'
+    character(len=*), parameter :: standardir_program_grammar_clause = '5'
+    character(len=*), parameter :: standardir_program_grammar_source_rule = 'R501'
+    integer, parameter :: standardir_program_grammar_page = 53
+    character(len=*), parameter :: standardir_program_grammar_source_hash = '7371e889f231cfb0316d30365d5083fb5af34cbb6d5f7cb1e01855c73021bfa2'
 
     public :: standardir_make_program_grammar_fact
     public :: standardir_write_program_grammar_fact
@@ -25,6 +30,16 @@ contains
         type(grammar_fact_t), intent(out) :: value
         logical, intent(out) :: ok
         character(len=*), intent(out) :: message
+
+        if (trim(document) /= standardir_program_grammar_document .or. &
+            trim(clause) /= standardir_program_grammar_clause .or. &
+            trim(source_rule) /= standardir_program_grammar_source_rule .or. &
+            page /= standardir_program_grammar_page .or. &
+            trim(source_hash) /= standardir_program_grammar_source_hash) then
+            ok = .false.
+            message = 'grammar-fact source provenance differs'
+            return
+        end if
 
         value%id = standardir_program_grammar_id
         value%expression = standardir_program_grammar_expression
