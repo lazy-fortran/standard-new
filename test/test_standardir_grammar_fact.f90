@@ -78,8 +78,10 @@ program test_standardir_grammar_fact
 contains
 
     subroutine check_generated_source_freshness()
-        character(len=256) :: line, fresh(512), checked_in(512), source
-        integer :: input_unit, fresh_unit, ios, fresh_count, checked_count
+        character(len=256) :: line, fresh_integer(512), checked_integer(512), &
+            fresh_real(512), checked_real(512), source
+        integer :: input_unit, fresh_integer_unit, fresh_real_unit, ios
+        integer :: fresh_integer_count, checked_integer_count, fresh_real_count, checked_real_count
         logical :: local_ok
 
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
@@ -89,10 +91,11 @@ contains
         call require(ios == 0, 'could not read grammar-facts specification')
         call sx_parse(trim(source), node, local_ok, message)
         call require(local_ok, message)
-        open (newunit=fresh_unit, file='build/standardir_grammar_fact_generated.f90', &
+        open (newunit=fresh_integer_unit, file='build/standardir_grammar_fact_generated.f90', &
             status='replace', action='write', iostat=ios)
         call require(ios == 0, 'could not open fresh grammar-fact output')
-        call standardir_generate_integer_type_spec_fact(node, fresh_unit, local_ok, message)
+        call standardir_generate_integer_type_spec_fact(node, fresh_integer_unit, local_ok, message)
+        close (fresh_integer_unit)
         call require(local_ok, message)
         open (newunit=input_unit, file='specs/grammar-facts-v0.sx', action='read', iostat=ios)
         call require(ios == 0, 'could not reopen grammar-facts specification')
@@ -102,14 +105,22 @@ contains
         call require(ios == 0, 'could not read REAL grammar-fact specification')
         call sx_parse(trim(source), node, local_ok, message)
         call require(local_ok, message)
-        call standardir_generate_real_type_spec_fact(node, fresh_unit, local_ok, message)
-        close (fresh_unit)
+        open (newunit=fresh_real_unit, file='build/standardir_real_type_spec_fact_generated.f90', &
+            status='replace', action='write', iostat=ios)
+        call require(ios == 0, 'could not open fresh REAL grammar-fact output')
+        call standardir_generate_real_type_spec_fact(node, fresh_real_unit, local_ok, message)
+        close (fresh_real_unit)
         call require(local_ok, message)
-        call read_source('build/standardir_grammar_fact_generated.f90', fresh, fresh_count)
-        call read_source('generated/standardir_grammar_fact_generated.f90', checked_in, checked_count)
-        call require(fresh_count == checked_count, 'checked-in grammar-fact output is stale')
-        call require(all(fresh(:fresh_count) == checked_in(:checked_count)), &
-            'checked-in grammar-fact output differs from specification')
+        call read_source('build/standardir_grammar_fact_generated.f90', fresh_integer, fresh_integer_count)
+        call read_source('src/standardir_grammar_fact_generated.f90', checked_integer, checked_integer_count)
+        call require(fresh_integer_count == checked_integer_count, 'checked-in integer grammar-fact output is stale')
+        call require(all(fresh_integer(:fresh_integer_count) == checked_integer(:checked_integer_count)), &
+            'checked-in integer grammar-fact output differs from specification')
+        call read_source('build/standardir_real_type_spec_fact_generated.f90', fresh_real, fresh_real_count)
+        call read_source('src/standardir_real_type_spec_fact_generated.f90', checked_real, checked_real_count)
+        call require(fresh_real_count == checked_real_count, 'checked-in REAL grammar-fact output is stale')
+        call require(all(fresh_real(:fresh_real_count) == checked_real(:checked_real_count)), &
+            'checked-in REAL grammar-fact output differs from specification')
     end subroutine check_generated_source_freshness
 
     subroutine read_source(path, lines, count)
