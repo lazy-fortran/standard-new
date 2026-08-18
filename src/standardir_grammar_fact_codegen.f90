@@ -20,6 +20,7 @@ module standardir_grammar_fact_codegen
     public :: standardir_generate_level_2_expr_grammar_fact
     public :: standardir_generate_add_operand_grammar_fact
     public :: standardir_generate_mult_op_grammar_fact
+    public :: standardir_generate_div_op_grammar_fact
     public :: standardir_generate_add_op_grammar_fact
     public :: standardir_generate_intrinsic_type_spec_lookup
 
@@ -138,6 +139,16 @@ contains
         call generate_type_spec_fact(node, unit, 'R1009', 'standardir_mult_op_grammar_fact', &
             'mult_op_grammar', 'mult-op', ok, message)
     end subroutine standardir_generate_mult_op_grammar_fact
+
+    subroutine standardir_generate_div_op_grammar_fact(node, unit, ok, message)
+        type(sx_node_t), intent(in) :: node
+        integer, intent(in) :: unit
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        call generate_type_spec_fact(node, unit, 'R1009', 'standardir_div_op_grammar_fact', &
+            'div_op_grammar', 'div-op', ok, message)
+    end subroutine standardir_generate_div_op_grammar_fact
 
     subroutine standardir_generate_add_op_grammar_fact(node, unit, ok, message)
         type(sx_node_t), intent(in) :: node
