@@ -40,6 +40,7 @@ program test_generate_grammar_fact_table
 
     call read_source(nodes, count)
     call require(count == standardir_grammar_fact_table_count, 'table count differs from source oracle')
+    call check_fresh_generation(nodes, count)
     call standardir_make_grammar_fact_table(values)
     do i = 1, count
         call require(trim(values(i)%fact%id) == trim(expected_ids(i)), 'ordered identifier differs')
@@ -87,12 +88,46 @@ contains
         do
             read (local_unit, '(a)', iostat=local_ios) source
             if (local_ios /= 0) exit
+            if (output_count >= size(output)) then
+                call require(.false., 'grammar-facts source exceeds fixed oracle capacity')
+                return
+            end if
             output_count = output_count + 1
             call sx_parse(trim(source), output(output_count), ok, message)
             call require(ok, message)
         end do
         close (local_unit)
     end subroutine read_source
+
+    subroutine check_fresh_generation(input, input_count)
+        type(sx_node_t), intent(in) :: input(:)
+        integer, intent(in) :: input_count
+        character(len=1024) :: fresh_line, checked_line
+        integer :: fresh_unit, checked_unit, fresh_ios, checked_ios
+
+        open (newunit=fresh_unit, file='build/standardir_grammar_fact_table_generated.f90', &
+            status='replace', action='write', iostat=fresh_ios)
+        call require(fresh_ios == 0, 'could not open fresh grammar-fact output')
+        call standardir_generate_grammar_fact_table(input(:input_count), fresh_unit, ok, message)
+        close (fresh_unit)
+        call require(ok, message)
+
+        open (newunit=fresh_unit, file='build/standardir_grammar_fact_table_generated.f90', &
+            action='read', iostat=fresh_ios)
+        open (newunit=checked_unit, file='src/standardir_grammar_fact_table_generated.f90', &
+            action='read', iostat=checked_ios)
+        call require(fresh_ios == 0 .and. checked_ios == 0, 'could not open freshness comparison files')
+        do
+            read (fresh_unit, '(a)', iostat=fresh_ios) fresh_line
+            read (checked_unit, '(a)', iostat=checked_ios) checked_line
+            call require((fresh_ios /= 0) .eqv. (checked_ios /= 0), &
+                'generated grammar-fact file line counts differ')
+            if (fresh_ios /= 0) exit
+            call require(fresh_line == checked_line, 'generated grammar-fact file is stale')
+        end do
+        close (fresh_unit)
+        close (checked_unit)
+    end subroutine check_fresh_generation
 
     function expected_clause(index) result(value)
         integer, intent(in) :: index
