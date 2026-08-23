@@ -74,7 +74,7 @@ program test_pdfstandardir
         '"byte_start":500,"byte_length":10}'
     close (unit)
 
-    command = 'fo exec --no-build pdfstandardir '//input_path//' '//legacy_path//' '//hash//' 5.1'
+    command = 'fo exec pdfstandardir '//input_path//' '//legacy_path//' '//hash//' 5.1'
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'legacy projection command failed')
     call read_line(legacy_path, 1, actual)
@@ -109,7 +109,7 @@ program test_pdfstandardir
 
     call write_bytes('build/test_pdfstandardir_heading.canonical', heading_canonical)
     call write_index('build/test_pdfstandardir_heading.index')
-    command = 'fo exec --no-build pdfproductions '// &
+    command = 'fo exec pdfproductions '// &
         'build/test_pdfstandardir_heading.canonical '// &
         'build/test_pdfstandardir_heading.index '//trim(heading_json_path)//' 1 2'
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
