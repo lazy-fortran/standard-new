@@ -55,7 +55,7 @@ program test_schema_ir
     call require(ok, message)
     call require(trim(file_schema%name) == 'standardir-v0', &
         'schema specification name differs')
-    call require(file_schema%declaration_count == 13, &
+    call require(file_schema%declaration_count == 15, &
         'schema specification declaration count differs')
     call require(file_schema%declarations(5)%member_count == 5, &
         'schema specification source reference differs')
