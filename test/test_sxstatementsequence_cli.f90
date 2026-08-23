@@ -18,7 +18,7 @@ program test_sxstatementsequence_cli
 
     call remove_if_exists(output_path)
     call write_fixtures()
-    command = 'fo exec --no-build sxstatementsequence '//standardir_path//' '// &
+    command = 'fo exec sxstatementsequence '//standardir_path//' '// &
         layout_path//' '//output_path
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'CLI rejected valid line-oriented SX inputs')
