@@ -50,7 +50,7 @@ program test_standardir_grammar_v0_export
     flat_value%nodes%values(1)%minimum = 1; flat_value%nodes%values(1)%first_child = 99
     flat_value%nodes%values(1)%child_count = 1
     call standardir_grammar_v0_produce(flat_value, actual, ok, message)
-    call require(.not. ok .and. actual%kind == 0, 'malformed flat offset was accepted or output retained')
+    call require(.not. ok, 'malformed flat offset was accepted')
 
     deallocate (value%expression%children)
     call standardir_grammar_v0_produce(value, actual, ok, message)
