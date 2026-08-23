@@ -19,6 +19,7 @@ module standardir_grammar_v0_export
     integer, parameter :: max_nodes = 256
 
     public :: standardir_grammar_v0_produce
+    public :: standardir_grammar_v0_produce_batch
 
     interface standardir_grammar_v0_produce
         module procedure standardir_grammar_v0_produce_target
@@ -50,6 +51,32 @@ contains
             rule%provenance(1)%source, rule%origin, rule%resolution, node, ok, message)
         if (.not. ok) call sx_clear(node)
     end subroutine standardir_grammar_v0_produce_target
+
+    subroutine standardir_grammar_v0_produce_batch(rules, nodes, ok, message)
+        !! Produce an ordered batch transactionally.
+        type(standardir_target_rule_t), intent(in) :: rules(:)
+        type(sx_node_t), allocatable, intent(inout) :: nodes(:)
+        logical, intent(out) :: ok
+        character(len=*), intent(out) :: message
+
+        type(sx_node_t), allocatable :: staged(:)
+        integer :: i
+
+        if (allocated(nodes)) deallocate (nodes)
+        allocate (staged(size(rules)))
+        ok = .false.
+        message = ''
+        do i = 1, size(rules)
+            call standardir_grammar_v0_produce_target(rules(i), staged(i), ok, message)
+            if (.not. ok) then
+                deallocate (staged)
+                return
+            end if
+        end do
+        call move_alloc(staged, nodes)
+        ok = .true.
+        message = ''
+    end subroutine standardir_grammar_v0_produce_batch
 
     subroutine standardir_grammar_v0_produce_flat(rule, node, ok, message)
         type(standardir_grammar_rule_t), intent(in) :: rule
