@@ -405,3 +405,8 @@ main = "test_standardir_variable_reference_grammar_fact.f90"
 name = "test_generate_grammar_fact_table"
 source-dir = "test"
 main = "test_generate_grammar_fact_table.f90"
+
+[[test]]
+name = "test_grammar_fact_table_collection"
+source-dir = "test"
+main = "test_grammar_fact_table_collection.f90"

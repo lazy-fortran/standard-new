@@ -11,8 +11,13 @@ module standardir_grammar_fact_table_generated
     end type standardir_grammar_fact_table_entry_t
 
     integer, parameter, public :: standardir_grammar_fact_table_count = 25
+    integer, parameter, public :: STANDARDIR_GRAMMAR_FACT_COLLECTION_SUCCESS = 0
+    integer, parameter, public :: STANDARDIR_GRAMMAR_FACT_COLLECTION_MISSING = 1
+    integer, parameter, public :: STANDARDIR_GRAMMAR_FACT_COLLECTION_MALFORMED = 2
+    integer, parameter, public :: STANDARDIR_GRAMMAR_FACT_COLLECTION_CAPACITY = 3
     public :: standardir_make_grammar_fact_table
     public :: standardir_lookup_grammar_fact
+    public :: standardir_collect_grammar_facts
 
 contains
 
@@ -274,5 +279,75 @@ contains
             end if
         end do
     end subroutine standardir_lookup_grammar_fact
+
+    subroutine standardir_collect_grammar_facts(id, output, count, status)
+        character(len=*), intent(in) :: id
+        type(standardir_grammar_fact_table_entry_t), intent(out) :: output(:)
+        integer, intent(out) :: count, status
+
+        type(standardir_grammar_fact_table_entry_t) :: values(25)
+        integer :: i, matches
+
+        count = 0
+        status = STANDARDIR_GRAMMAR_FACT_COLLECTION_MALFORMED
+        if (.not. standardir_valid_grammar_fact_rule_id(id)) then
+            call standardir_clear_grammar_fact_output(output)
+            return
+        end if
+
+        call standardir_make_grammar_fact_table(values)
+        matches = 0
+        do i = 1, size(values)
+            if (trim(values(i)%fact%id) == trim(id)) matches = matches + 1
+        end do
+        if (matches == 0) then
+            status = STANDARDIR_GRAMMAR_FACT_COLLECTION_MISSING
+            call standardir_clear_grammar_fact_output(output)
+            return
+        end if
+        if (matches > size(output)) then
+            status = STANDARDIR_GRAMMAR_FACT_COLLECTION_CAPACITY
+            call standardir_clear_grammar_fact_output(output)
+            return
+        end if
+        do i = 1, size(values)
+            if (trim(values(i)%fact%id) == trim(id)) then
+                count = count + 1
+                output(count) = values(i)
+            end if
+        end do
+        status = STANDARDIR_GRAMMAR_FACT_COLLECTION_SUCCESS
+    end subroutine standardir_collect_grammar_facts
+
+    logical function standardir_valid_grammar_fact_rule_id(id)
+        character(len=*), intent(in) :: id
+        integer :: i, code
+
+        standardir_valid_grammar_fact_rule_id = .false.
+        if (len_trim(id) < 2) return
+        if (id(1:1) /= 'R') return
+        do i = 2, len_trim(id)
+            code = iachar(id(i:i))
+            if (code < iachar('0') .or. code > iachar('9')) return
+        end do
+        standardir_valid_grammar_fact_rule_id = .true.
+    end function standardir_valid_grammar_fact_rule_id
+
+    subroutine standardir_clear_grammar_fact_output(output)
+        type(standardir_grammar_fact_table_entry_t), intent(out) :: output(:)
+        integer :: i
+
+        do i = 1, size(output)
+            output(i)%fact%id = ''
+            output(i)%fact%expression = ''
+            output(i)%fact%source%document = ''
+            output(i)%fact%source%clause = ''
+            output(i)%fact%source%rule = ''
+            output(i)%fact%source%page = 0
+            output(i)%fact%source%source_hash = ''
+            output(i)%fact%origin = 0
+            output(i)%fact%resolution = 0
+        end do
+    end subroutine standardir_clear_grammar_fact_output
 
 end module standardir_grammar_fact_table_generated
