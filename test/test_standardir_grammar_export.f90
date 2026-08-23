@@ -1370,7 +1370,7 @@ contains
         integer :: unit, ios, exit_status
 
         call write_sxgrammar_cli_fixture(syntax_path, classifications_path, roots_path)
-        base = 'fo exec --no-build sxgrammar '//syntax_path//' '//classifications_path//' '// &
+        base = 'fo exec sxgrammar '//syntax_path//' '//classifications_path//' '// &
             roots_path//' - ebnf'
 
         command = trim(base)//' '//default_path
@@ -1381,6 +1381,8 @@ contains
             index(default_text, 'target-role-family') == 0, &
             'sxgrammar default output changed or unexpectedly enabled role-family lowering')
 
+        base = 'fo exec --no-build sxgrammar '//syntax_path//' '//classifications_path//' '// &
+            roots_path//' - ebnf'
         command = trim(base)//' '//role_path//' --role-family rep'
         call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
         call require(exit_status == 0, 'sxgrammar role-family invocation failed')
