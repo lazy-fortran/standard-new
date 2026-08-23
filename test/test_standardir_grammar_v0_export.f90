@@ -66,6 +66,7 @@ program test_standardir_grammar_v0_export
     call sx_validate(batch_nodes(2), ok, message)
     call require(ok, trim(message))
 
+    allocate (empty_rules(0))
     call standardir_grammar_v0_produce_batch(empty_rules, batch_nodes, ok, message)
     call require(ok .and. allocated(batch_nodes) .and. size(batch_nodes) == 0, &
         'empty batch did not produce an allocated zero-length result')
