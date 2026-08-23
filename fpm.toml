@@ -232,7 +232,7 @@ source-dir = "test"
 main = "test_standardir_grammar_producer.f90"
 
 [[test]]
-name = "test_standardir_grammar_v0_export"
+name = "test_standardir_grammar_v0_export_slow"
 source-dir = "test"
 main = "test_standardir_grammar_v0_export.f90"
 
