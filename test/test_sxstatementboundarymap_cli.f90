@@ -14,7 +14,7 @@ program test_sxstatementboundarymap_cli
 
     call remove_if_exists(output_path)
     call write_fixtures()
-    command = 'fo exec --no-build sxstatementboundarymap '//sx_path//' '//candidate_path//' '//output_path
+    command = 'fo exec sxstatementboundarymap '//sx_path//' '//candidate_path//' '//output_path
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'CLI rejected valid raw SX and candidate fixtures')
     call require(count_lines_containing(output_path, achar(9)//'mapped'//achar(9)) == 2, &
