@@ -34,7 +34,7 @@ program test_pdfvalidity
     write (unit, '(a)') '(syntax R1 (lhs thing) (rhs (seq (token TOKEN))))'
     close (unit)
 
-    command = 'fo exec --no-build pdfvalidity '//canonical_path//' '//production_path// &
+    command = 'fo exec pdfvalidity '//canonical_path//' '//production_path// &
         ' '//standardir_path//' '//report_path
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status)
     call require(exit_status == 0, 'positive audit control failed')
